@@ -1,0 +1,328 @@
+"""板块(题材)弱转强/强转弱预判 — 调度/IO 层。
+
+三件套:
+  1) scan_sector_rotation()    每3分钟: 拉涨停池→题材聚合→进程内当日时序→分类状态→
+                                状态跃迁(启动/退潮)时推送, 并写盘中轮动快照供看板。
+  2) predict_sector_next_day() 14:30:  theme_heat 多日序列 + 今日质地 → 次日预测 → 推送+落库。
+  3) 看板/预测数据经 repository 落 cfzy_sys_sector_rotation, 前端 SectorRotationPanel 读。
+
+纯判定逻辑在 sector_rotation.py(已单测), 本文件只做取数/状态机/推送编排。
+复用涨停池(limit_pool, 已被 theme_heat 每5分钟在拉), 零新增高频外部请求。
+推送阈值是启发式草案, 未回测; 先上线积累, 盘后对照再调参。
+"""
+import logging
+from collections import defaultdict
+from datetime import datetime
+
+from backend.core.trading_calendar import is_workday
+from backend.fetcher.limit_pool import get_limit_pool_cached
+from backend.models import repository
+from backend.services import alert_throttle, sector_rotation as sr
+from backend.services.lark_notifier import md_element, table_element
+
+logger = logging.getLogger(__name__)
+
+# 进程内当日时序: {date: {theme: [涨停家数样本(升序)...]}}
+_intraday: dict[str, dict[str, list[int]]] = {}
+# 进程内当日各题材最近一次状态(用于跃迁判定): {date: {theme: state}}
+_state: dict[str, dict[str, str]] = {}
+# 当日已推送(防重): {date: set((theme, direction))}
+_pushed: dict[str, set] = {}
+# 当日转换流水(供看板头条·时间序累积): {date: [{at, direction, theme, ...}]}
+# 与 _pushed 同步去重: 每题材每方向当日只记一条。进程内累积, 重启丢当日早段(同 _intraday 限制)。
+_transitions: dict[str, list[dict]] = {}
+
+# 看板里展示的题材上限(按状态优先级 + 涨停家数排)
+_BOARD_MAX = 40
+_STATE_ORDER = {"启动": 0, "高潮": 1, "升温": 2, "退潮": 3, "冷": 4}
+
+
+def _scan_window(now: datetime) -> bool:
+    """工作日 09:30~15:10(含收盘后定版一档)。"""
+    if not is_workday(now):
+        return False
+    return "09:30" <= now.strftime("%H:%M") <= "15:10"
+
+
+def _reset_if_new_day(date: str) -> None:
+    """切日清理进程内旧状态(只保留当天, 防内存累积)。"""
+    for d in (_intraday, _state, _pushed, _transitions):
+        for k in list(d.keys()):
+            if k != date:
+                del d[k]
+
+
+async def scan_sector_rotation() -> None:
+    now = datetime.now()
+    if not _scan_window(now):
+        return
+    date = now.strftime("%Y-%m-%d")
+    date_compact = now.strftime("%Y%m%d")
+    _reset_if_new_day(date)
+
+    pool = await get_limit_pool_cached(date_compact)
+    boards = (pool or {}).get("boards") or []
+    if not boards:
+        return
+    agg = sr.aggregate_themes(boards)
+    if not agg:
+        return
+
+    series_map = _intraday.setdefault(date, defaultdict(list))
+    state_map = _state.setdefault(date, {})
+    pushed = _pushed.setdefault(date, set())
+    trans_log = _transitions.setdefault(date, [])
+
+    board_items: list[dict] = []
+    transitions: list[tuple[str, str, dict]] = []   # (direction, theme, metrics)
+
+    for theme, m in agg.items():
+        series = series_map[theme]
+        series.append(m["limit_up"])
+        texture = {"max_height": m["max_height"], "broken": m["broken"],
+                   "first_board": m["first_board"]}
+        state = sr.classify_intraday(list(series), texture)
+        prev = state_map.get(theme)
+        state_map[theme] = state
+
+        direction = sr.detect_transition(prev, state)
+        if direction and (theme, direction) not in pushed:
+            pushed.add((theme, direction))
+            slope = sr.compute_slope(list(series))
+            transitions.append((direction, theme, {**m, "slope": slope}))
+            # 记入当日转换流水(供看板头条), 带触发时刻
+            trans_log.append({
+                "at": now.strftime("%H:%M"), "direction": direction, "theme": theme,
+                "limit_up": m["limit_up"], "slope": slope,
+                "max_height": m["max_height"], "broken": m["broken"],
+                "samples": m["samples"][:3],
+            })
+
+        board_items.append({
+            "theme": theme, "state": state,
+            "limit_up": m["limit_up"], "slope": sr.compute_slope(list(series)),
+            "max_height": m["max_height"], "broken": m["broken"],
+            "first_board": m["first_board"], "samples": m["samples"],
+        })
+
+    # 看板快照: 按状态优先级 + 涨停家数排序, 限量
+    board_items.sort(key=lambda x: (_STATE_ORDER.get(x["state"], 9), -x["limit_up"]))
+    snapshot = {
+        "computed_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "items": board_items[:_BOARD_MAX],
+        "transitions": list(reversed(trans_log)),   # 时间倒序: 最新转换在前
+    }
+    try:
+        await repository.upsert_sector_rotation(date, snapshot)
+    except Exception as e:
+        logger.warning(f"[sector_rotation] 写轮动快照失败: {e}")
+
+    # 推送状态跃迁
+    #   弱转强(启动): 全市场广播, 照旧。
+    #   强转弱(退潮): 合并自原 detect_sector_ebb — 只推用户持仓踩该题材的, 不再全市场广播。
+    holds: list[dict] | None = None   # 懒取: 只在出现强转弱时取一次持仓
+    for direction, theme, m in transitions:
+        if direction == "strong_to_weak":
+            if holds is None:
+                try:
+                    holds = [s for s in (await repository.list_all_stocks())
+                             if s.get("status") == "hold"]
+                except Exception:
+                    holds = []
+            matched = [s for s in holds if theme in (s.get("concepts") or "")]
+            if not matched:                       # 没踩线持仓, 与你无关, 不推
+                continue
+            hold_names = "、".join(f"{s['name']}({s['code']})" for s in matched[:10])
+            try:
+                await alert_throttle.enqueue("SECTOR_STRONG_TO_WEAK", {
+                    "theme": theme, "limit_up": m["limit_up"], "slope": m.get("slope", 0),
+                    "max_height": m["max_height"], "broken": m["broken"],
+                    "samples": m["samples"], "holds": hold_names,
+                })
+            except Exception as e:
+                logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
+        else:
+            try:
+                await alert_throttle.enqueue("SECTOR_WEAK_TO_STRONG", {
+                    "theme": theme, "limit_up": m["limit_up"], "slope": m.get("slope", 0),
+                    "max_height": m["max_height"], "broken": m["broken"],
+                    "samples": m["samples"],
+                })
+            except Exception as e:
+                logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
+    if transitions:
+        logger.info(f"[sector_rotation] {date} 状态跃迁 {len(transitions)} 个已入队")
+
+
+# ── 推送合并 + 飞书表格卡 ──
+def _merge_weak_to_strong(items: list[dict]) -> str:
+    lines = ["🟢 板块弱转强·启动预警\n"]
+    for a in items:
+        lines.append(f"▸ [{a['theme']}] 涨停{a['limit_up']}家(近段+{a['slope']}) "
+                     f"最高{a['max_height']}板 — {('、'.join(a.get('samples', [])[:3]))}")
+    lines.append("\n冷启动题材涨停家数快速抬升, 关注是否成当日主线。")
+    return "\n".join(lines)
+
+
+def _merge_strong_to_weak(items: list[dict]) -> str:
+    lines = ["🔴 板块强转弱·退潮预警\n"]
+    for a in items:
+        lines.append(f"▸ [{a['theme']}] 涨停降至{a['limit_up']}家 炸板{a['broken']}只 — "
+                     f"{('、'.join(a.get('samples', [])[:3]))}")
+        if a.get("holds"):
+            lines.append(f"  └ 你持仓踩此线: {a['holds']} — 龙头转弱整板抽血, 沿5日线飘到头就减。")
+    lines.append("\n热门题材封板松动/涨停回落, 踩线持仓注意逢高减。")
+    return "\n".join(lines)
+
+
+def _build_rotation_card(items: list[dict], title: str, dir_label: str):
+    cols = [
+        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "30%"},
+        {"name": "lu", "display_name": "涨停", "data_type": "text", "width": "16%"},
+        {"name": "trend", "display_name": dir_label, "data_type": "text", "width": "20%"},
+        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "34%"},
+    ]
+    rows = []
+    for a in items:
+        trend = f"+{a['slope']}" if dir_label == "近段" else f"炸{a['broken']}"
+        rows.append({
+            "theme": a["theme"], "lu": f"{a['limit_up']}家",
+            "trend": trend, "rep": "、".join(a.get("samples", [])[:3]),
+        })
+    return title, [table_element(cols, rows, page_size=10)]
+
+
+def _build_weak_to_strong_card(items: list[dict]):
+    return _build_rotation_card(items, "🟢 板块弱转强·启动", "近段")
+
+
+def _build_strong_to_weak_card(items: list[dict]):
+    """强转弱合并自板块退潮: 只推持仓踩线题材, 表里多一列「你持仓踩此线」。"""
+    cols = [
+        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "22%"},
+        {"name": "lu", "display_name": "涨停", "data_type": "text", "width": "14%"},
+        {"name": "trend", "display_name": "炸板", "data_type": "text", "width": "14%"},
+        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "26%"},
+        {"name": "holds", "display_name": "你持仓踩此线", "data_type": "text", "width": "24%"},
+    ]
+    rows = []
+    for a in items:
+        rows.append({
+            "theme": a["theme"], "lu": f"{a['limit_up']}家",
+            "trend": f"炸{a['broken']}", "rep": "、".join(a.get("samples", [])[:3]),
+            "holds": a.get("holds", ""),
+        })
+    return "🔴 板块强转弱·退潮", [table_element(cols, rows, page_size=10)]
+
+
+alert_throttle.register("SECTOR_WEAK_TO_STRONG", _merge_weak_to_strong,
+                        lark_card_builder=_build_weak_to_strong_card)
+alert_throttle.register("SECTOR_STRONG_TO_WEAK", _merge_strong_to_weak,
+                        lark_card_builder=_build_strong_to_weak_card)
+
+
+# ── 14:30 收盘前次日预测 ──
+async def predict_sector_next_day() -> None:
+    now = datetime.now()
+    if not is_workday(now):
+        return
+    date = now.strftime("%Y-%m-%d")
+    date_compact = now.strftime("%Y%m%d")
+
+    rows = await repository.get_theme_heat(8)
+    if not rows:
+        logger.info("[sector_predict] theme_heat 无数据, 跳过")
+        return
+    dates = sorted({str(r["trade_date"]) for r in rows})
+    by_theme: dict[str, dict[str, int]] = defaultdict(dict)
+    samples_map: dict[str, str] = {}
+    for r in rows:
+        by_theme[r["theme"]][str(r["trade_date"])] = int(r["limit_up_count"] or 0)
+        if str(r["trade_date"]) == dates[-1]:
+            samples_map[r["theme"]] = r.get("sample_codes") or ""
+
+    # 今日质地(判强势/终结): 拉一次涨停池
+    pool = await get_limit_pool_cached(date_compact)
+    agg = sr.aggregate_themes((pool or {}).get("boards") or [])
+
+    groups: dict[str, list[dict]] = {"弱转强候选": [], "强转弱候选": [],
+                                     "强势延续": [], "疑似终结": []}
+    for theme, series_by_date in by_theme.items():
+        daily_series = [series_by_date.get(d, 0) for d in dates]
+        tm = agg.get(theme, {})
+        pred = sr.predict_next_day(daily_series, tm)
+        direction = pred["direction"]
+        if direction not in groups:
+            continue
+        traj = "→".join(str(v) for v in daily_series[-6:])
+        groups[direction].append({
+            "theme": theme, "reason": pred["reason"], "traj": traj,
+            "today": daily_series[-1], "samples": samples_map.get(theme, ""),
+        })
+
+    if not any(groups.values()):
+        logger.info("[sector_predict] 无可预测题材, 跳过推送")
+        return
+
+    payload = {"computed_at": now.strftime("%Y-%m-%d %H:%M:%S"), "groups": groups}
+    try:
+        await repository.upsert_sector_prediction(date, payload)
+    except Exception as e:
+        logger.warning(f"[sector_predict] 写预测失败: {e}")
+
+    await _push_prediction(groups)
+    logger.info(f"[sector_predict] {date} 次日预测已出: "
+                + " ".join(f"{k}{len(v)}" for k, v in groups.items() if v))
+
+
+_PRED_ICON = {"弱转强候选": "🟢", "强转弱候选": "🔴", "强势延续": "⬆️", "疑似终结": "⚰️"}
+
+
+_TABLE_CAP = {"弱转强候选": 10, "强转弱候选": 10, "强势延续": 8}  # 可操作组才上表, 各自封顶
+_ENDED_EXAMPLES = 6  # 疑似终结只举几个例子, 不堆全量
+
+
+async def _push_prediction(groups: dict[str, list[dict]]) -> None:
+    n = {k: len(groups.get(k) or []) for k in _PRED_ICON}
+    # ── 顶部计数概览(一眼看清四类各多少) ──
+    overview = "　·　".join(f"{_PRED_ICON[k]}{k.replace('候选', '')} {n[k]}" for k in _PRED_ICON)
+    text_lines = ["📅 次日板块预测(收盘前 · 启发式未回测)", overview, ""]
+    elements = [
+        md_element("**📅 次日板块预测**　_收盘前启发式预判, 未回测, 仅供布局参考_"),
+        md_element(overview),
+    ]
+    cols = [
+        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "26%"},
+        {"name": "traj", "display_name": "近期轨迹", "data_type": "text", "width": "30%"},
+        {"name": "reason", "display_name": "理由", "data_type": "text", "width": "44%"},
+    ]
+    # ── 可操作三组上表(封顶, 多余只标计数) ──
+    for direction in ("弱转强候选", "强转弱候选", "强势延续"):
+        gitems = groups.get(direction) or []
+        if not gitems:
+            continue
+        icon = _PRED_ICON[direction]
+        cap = _TABLE_CAP[direction]
+        shown = gitems[:cap]
+        more = f"　等共 {len(gitems)} 个" if len(gitems) > cap else ""
+        text_lines.append(f"{icon} {direction}: "
+                          + "、".join(a["theme"] for a in shown) + more)
+        elements.append(md_element(f"{icon} **{direction}**（{len(gitems)}）"))
+        rows = [{"theme": a["theme"], "traj": a["traj"], "reason": a["reason"]} for a in shown]
+        elements.append(table_element(cols, rows, page_size=10))
+    # ── 疑似终结: 数量+几个例子, 折叠不展开(沉寂题材, 无操作价值) ──
+    ended = groups.get("疑似终结") or []
+    if ended:
+        icon = _PRED_ICON["疑似终结"]
+        ex = "、".join(a["theme"] for a in ended[:_ENDED_EXAMPLES])
+        tail = " 等" if len(ended) > _ENDED_EXAMPLES else ""
+        line = f"{icon} 疑似终结 {len(ended)} 个（已沉寂, 不展开）：{ex}{tail}"
+        text_lines.append("")
+        text_lines.append(line)
+        elements.append(md_element(line))
+    try:
+        from backend.services import notifier
+        await notifier.send_dual_card("\n".join(text_lines),
+                                      lark_title="📅 次日板块预测", elements=elements)
+    except Exception as e:
+        logger.warning(f"[sector_predict] 推送失败: {e}")

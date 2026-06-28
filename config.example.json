@@ -1,0 +1,39 @@
+{
+  "_说明": "复制本文件为 config.json 并填入真实值。config.json 已被 gitignore, 不会上传。",
+
+  "lark_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/<你的飞书机器人 hook>",
+  "lark_enabled": true,
+  "push_enabled": false,
+  "pushplus_token": "<PushPlus token>",
+  "pushplus_enabled": false,
+
+  "scan_interval_seconds": 30,
+  "trading_hours": [
+    { "start": "09:25", "end": "11:30" },
+    { "start": "13:00", "end": "15:00" }
+  ],
+
+  "ai_report_enabled": true,
+  "ai_base_url": "https://api.deepseek.com/v1",
+  "ai_model": "deepseek-v4-pro",
+  "anthropic_api_key": "<AI 接口 Key>",
+
+  "sso_enabled": false,
+  "site_url": "http://<部署地址>",
+
+  "database": {
+    "host": "<MySQL host>",
+    "port": 3306,
+    "user": "<db user>",
+    "password": "<db password>",
+    "db": "<db name>"
+  },
+
+  "blogger_tracking": {
+    "enabled": false,
+    "renew_token": "<自定义续签 token, 与油猴脚本一致>",
+    "user_code": "<博主 user_code>",
+    "cookie": "",
+    "hexin_v": ""
+  }
+}

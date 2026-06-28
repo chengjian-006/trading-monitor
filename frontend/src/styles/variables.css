@@ -1,0 +1,106 @@
+:root {
+  --bg: #F6F8FA;
+  --surface: #FFFFFF;
+  --primary: #0969DA;
+  --text1: #1F2328;
+  --text2: #656D76;
+  --border: #D1D9E0;
+  --green: #1A7F37;
+  --red: #CF222E;
+  --orange: #BF8700;
+  --green-bg: rgba(26, 127, 55, 0.08);
+  --red-bg: rgba(207, 34, 46, 0.08);
+  --orange-bg: rgba(191, 135, 0, 0.08);
+
+  /* Navbar */
+  --navbar-height: 56px;
+  --navbar-bg: linear-gradient(135deg, #0f1923 0%, #1a1a2e 50%, #16213e 100%);
+
+  /* Sidebar */
+  --sidebar-width: 160px;
+  --sidebar-bg: linear-gradient(180deg, #f8faff 0%, #fff 100%);
+  --sidebar-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
+  --sidebar-active-color: var(--primary);
+  --sidebar-active-bg: rgba(9, 105, 218, 0.1);
+
+  /* Login */
+  --login-bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+}
+
+/* Force NModal vertical centering */
+.n-modal-body-wrapper .n-modal-scroll-content {
+  align-items: center;
+  justify-content: center;
+}
+
+/* DataTable 列头竖线分隔 */
+.n-data-table-th:not(:last-child) {
+  border-right: 1px solid rgba(9, 105, 218, 0.25);
+}
+
+/* ── 全站 DataTable 列头统一规范 ── */
+.n-data-table-th {
+  position: relative !important;
+  vertical-align: middle !important;
+  padding-top: 8px !important;
+  padding-bottom: 14px !important;  /* 给底部箭头留位 */
+}
+.n-data-table-th__title-wrapper {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
+  padding-right: 0 !important;
+}
+.n-data-table-th__title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.n-data-table-th .n-data-table-sorter {
+  position: absolute !important;
+  right: 4px;
+  bottom: 2px;
+  margin-left: 0 !important;
+}
+
+/* Message 居中 + 放大 */
+.n-message-container {
+  top: 50% !important;
+  transform: translateY(-50%);
+}
+.n-message-container .n-message {
+  font-size: 15px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  zoom: 1.25;
+}
+
+body {
+  font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text1);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* 隐藏页面级滚动条（保留滚动能力，去除右侧滚动条占位） */
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  display: none;
+}
+html, body {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}

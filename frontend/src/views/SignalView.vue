@@ -1,0 +1,355 @@
+<script setup lang="ts">
+// v1.7.93: 删除"今日信号"Tab(信号在"今日预警"页 + 股票池行内展开看), 去掉 NTabs 容器
+// 主看板只保留两块: 顶部实时 MarketOverviewBar + AI 市场分析卡片
+import { onMounted, ref } from 'vue'
+import { NSkeleton, NCard, NButton, NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui'
+import { SparklesOutline, RefreshOutline, ChevronUpOutline, ChevronDownOutline, ThumbsUpOutline, ThumbsDownOutline, ThumbsUp, ThumbsDown } from '@vicons/ionicons5'
+import { useGlobalMessage } from '../composables/useGlobalMessage'
+import MarketOverviewBar from '../components/common/MarketOverviewBar.vue'
+import EmotionPanel from '../components/common/EmotionPanel.vue'
+import MarketRiskBanner from '../components/common/MarketRiskBanner.vue'
+import ThemeHeatPanel from '../components/common/ThemeHeatPanel.vue'
+import SectorRotationPanel from '../components/common/SectorRotationPanel.vue'
+import NearBuyPanel from '../components/common/NearBuyPanel.vue'
+import MarketIndexOverview from '../components/common/MarketIndexOverview.vue'
+import { fetchTodayReports, fetchLatestReport, getSlotName, upsertReportFeedback, deleteReportFeedback, fetchReportFeedback, type MarketReport, type ReportFeedback } from '../api/market-report'
+
+const reports = ref<MarketReport[]>([])
+const reportLoading = ref(false)
+const reportCollapsed = ref(false)
+const message = useGlobalMessage()
+
+// report_id -> 'up' | 'down' | null
+const feedbackMap = ref<Record<number, 'up' | 'down'>>({})
+
+async function loadReportFeedback(ids: number[]) {
+  if (!ids.length) {
+    feedbackMap.value = {}
+    return
+  }
+  try {
+    const list = await fetchReportFeedback(ids)
+    const map: Record<number, 'up' | 'down'> = {}
+    for (const f of list) map[f.report_id] = f.vote
+    feedbackMap.value = map
+  } catch {
+    // silent
+  }
+}
+
+async function loadReports() {
+  reportLoading.value = true
+  try {
+    const todayList = await fetchTodayReports()
+    if (todayList.length) {
+      reports.value = todayList
+    } else {
+      const latest = await fetchLatestReport()
+      reports.value = latest ? [latest] : []
+    }
+    await loadReportFeedback(reports.value.map(r => r.id).filter(Boolean))
+  } catch {
+    /* silent */
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+async function toggleVote(reportId: number, vote: 'up' | 'down') {
+  const current = feedbackMap.value[reportId]
+  try {
+    if (current === vote) {
+      // 同方向再点 → 取消
+      await deleteReportFeedback(reportId)
+      const next = { ...feedbackMap.value }
+      delete next[reportId]
+      feedbackMap.value = next
+      message.info('已取消标记')
+    } else {
+      await upsertReportFeedback(reportId, vote)
+      feedbackMap.value = { ...feedbackMap.value, [reportId]: vote }
+      message.success(vote === 'up' ? '已标记 👍' : '已标记 👎 (反馈将用于优化 AI prompt)')
+    }
+  } catch {
+    message.error('标记失败')
+  }
+}
+
+// 旧 AI 报告里"全球股市/A股大盘概况/市场温度"区块在前端剥掉(数据已由顶部 MarketOverviewBar 实时刷新)
+const STRIP_SECTIONS = ['全球股市', 'A股大盘概况', '大盘概况', '市场温度']
+
+function stripDataSections(html: string): string {
+  let out = html
+  for (const title of STRIP_SECTIONS) {
+    const re = new RegExp(
+      `<h3[^>]*>\\s*${title}[^<]*(?:<[^>]*>[^<]*<\\/[^>]*>[^<]*)*<\\/h3>[\\s\\S]*?(?=<h3|$)`,
+      'g'
+    )
+    out = out.replace(re, '')
+  }
+  return out
+}
+
+function renderContent(text: string): string {
+  if (!text) return ''
+  if (text.includes('<table') || text.includes('<h3')) {
+    return stripDataSections(text)
+  }
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+    .replace(/\n/g, '<br>')
+    .replace(/<br><blockquote>/g, '<blockquote>')
+    .replace(/<\/blockquote><br>/g, '</blockquote>')
+}
+
+onMounted(() => {
+  loadReports()
+})
+</script>
+
+<template>
+  <div class="signal-view">
+    <!-- 大盘指数概览: 指数 tab 切换 + 单张大分时图 + 右侧成交额栏 (参照东财/同花顺盘面风格), 置顶 -->
+    <MarketIndexOverview />
+
+    <!-- 实时市场概览 (全球/A股/温度), 30s 自动刷新 -->
+    <MarketOverviewBar />
+
+    <!-- 短线情绪面板 (温度计/封板率/连板梯队), 紧跟概览条: 开盘先看"今天敢不敢干" -->
+    <EmotionPanel />
+
+    <!-- 市场风险两级预警状态条 (GREEN/YELLOW/RED 三态), 接情绪面板: 环境级"该不该开新仓" -->
+    <MarketRiskBanner />
+
+    <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
+    <ThemeHeatPanel />
+
+    <!-- 板块轮动·弱强转换: 盘中题材走强/退潮状态 + 14:30 次日预测 -->
+    <SectorRotationPanel />
+
+    <!-- 临近买点 (自选距四买点的触发/接近), 接情绪之后: "哪些自选已贴近买点" -->
+    <NearBuyPanel />
+
+    <!-- AI 市场分析 -->
+    <NCard size="small" class="report-card" :bordered="true">
+      <template #header>
+        <div class="report-header">
+          <NIcon :component="SparklesOutline" :size="16" class="report-icon" />
+          <span>AI 市场分析</span>
+          <span v-if="reports.length" class="report-count">{{ reports.length }} 份</span>
+          <span class="header-spacer" />
+          <NButton quaternary circle size="tiny" @click="loadReports" :loading="reportLoading" title="刷新" aria-label="刷新">
+            <template #icon><NIcon :component="RefreshOutline" :size="14" /></template>
+          </NButton>
+          <NButton quaternary circle size="tiny" @click="reportCollapsed = !reportCollapsed" :title="reportCollapsed ? '展开' : '收起'" :aria-label="reportCollapsed ? '展开' : '收起'">
+            <template #icon><NIcon :component="reportCollapsed ? ChevronDownOutline : ChevronUpOutline" :size="14" /></template>
+          </NButton>
+        </div>
+      </template>
+
+      <div v-show="!reportCollapsed">
+        <NSkeleton v-if="reportLoading && !reports.length" :repeat="3" text />
+
+        <template v-else-if="reports.length">
+          <div class="report-latest">
+            <div class="report-meta">
+              <NTag size="small" type="info" :bordered="false">{{ getSlotName(reports[0].time_slot) }}</NTag>
+              <span class="report-time">{{ reports[0].created_at }}</span>
+              <span class="report-feedback">
+                <NButton quaternary circle size="tiny"
+                         :type="feedbackMap[reports[0].id] === 'up' ? 'success' : 'default'"
+                         :title="feedbackMap[reports[0].id] === 'up' ? '已标记有用 (再点取消)' : '标记有用'"
+                         :aria-label="feedbackMap[reports[0].id] === 'up' ? '已标记有用 (再点取消)' : '标记有用'"
+                         @click="toggleVote(reports[0].id, 'up')">
+                  <template #icon>
+                    <NIcon :component="feedbackMap[reports[0].id] === 'up' ? ThumbsUp : ThumbsUpOutline" :size="14" />
+                  </template>
+                </NButton>
+                <NButton quaternary circle size="tiny"
+                         :type="feedbackMap[reports[0].id] === 'down' ? 'error' : 'default'"
+                         :title="feedbackMap[reports[0].id] === 'down' ? '已标记无用 (再点取消)' : '标记无用 — 将用于优化 AI prompt'"
+                         :aria-label="feedbackMap[reports[0].id] === 'down' ? '已标记无用 (再点取消)' : '标记无用 — 将用于优化 AI prompt'"
+                         @click="toggleVote(reports[0].id, 'down')">
+                  <template #icon>
+                    <NIcon :component="feedbackMap[reports[0].id] === 'down' ? ThumbsDown : ThumbsDownOutline" :size="14" />
+                  </template>
+                </NButton>
+              </span>
+            </div>
+            <div class="report-content" v-html="renderContent(reports[0].content)" />
+          </div>
+
+          <NCollapse v-if="reports.length > 1" class="report-history">
+            <NCollapseItem :title="`查看更早的分析 (${reports.length - 1} 份)`" name="history">
+              <div v-for="r in reports.slice(1)" :key="r.id" class="report-item">
+                <div class="report-meta">
+                  <NTag size="small" type="default" :bordered="false">{{ getSlotName(r.time_slot) }}</NTag>
+                  <span class="report-time">{{ r.created_at }}</span>
+                  <span class="report-feedback">
+                    <NButton quaternary circle size="tiny"
+                             :type="feedbackMap[r.id] === 'up' ? 'success' : 'default'"
+                             aria-label="标记有用"
+                             @click="toggleVote(r.id, 'up')">
+                      <template #icon>
+                        <NIcon :component="feedbackMap[r.id] === 'up' ? ThumbsUp : ThumbsUpOutline" :size="14" />
+                      </template>
+                    </NButton>
+                    <NButton quaternary circle size="tiny"
+                             :type="feedbackMap[r.id] === 'down' ? 'error' : 'default'"
+                             aria-label="标记无用"
+                             @click="toggleVote(r.id, 'down')">
+                      <template #icon>
+                        <NIcon :component="feedbackMap[r.id] === 'down' ? ThumbsDown : ThumbsDownOutline" :size="14" />
+                      </template>
+                    </NButton>
+                  </span>
+                </div>
+                <div class="report-content" v-html="renderContent(r.content)" />
+              </div>
+            </NCollapseItem>
+          </NCollapse>
+        </template>
+
+        <div v-else class="report-empty">
+          <NIcon :component="SparklesOutline" :size="20" class="report-empty-icon" />
+          <div>等待 AI 分析生成 ...</div>
+          <div class="report-empty-hint">每个交易日 09:26 / 10:00 / 11:30 / 14:00 / 15:00 自动生成</div>
+        </div>
+      </div>
+    </NCard>
+  </div>
+</template>
+
+
+<style scoped>
+.signal-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.report-card {
+  border-radius: 6px;
+}
+.report-card :deep(.n-card-header) {
+  padding: 8px 12px;
+}
+.report-card :deep(.n-card__content) {
+  padding: 10px 12px;
+}
+.report-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.report-icon {
+  color: var(--primary);
+}
+.report-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+  background: #f0f0f0;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.header-spacer {
+  flex: 1;
+}
+.report-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.report-time {
+  font-size: 12px;
+  color: var(--text2);
+}
+.report-feedback {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 2px;
+}
+.report-content {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text1);
+}
+.report-content :deep(strong) {
+  color: var(--primary);
+}
+.report-content :deep(blockquote) {
+  margin: 4px 0;
+  padding: 2px 10px;
+  border-left: 3px solid var(--primary);
+  background: rgba(46, 128, 255, 0.04);
+  color: var(--text2);
+}
+.report-content :deep(h3),
+.report-content :deep(h4) {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.report-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin: 6px 0;
+}
+.report-content :deep(th),
+.report-content :deep(td) {
+  padding: 4px 6px;
+  border-bottom: 1px solid #f0f0f0;
+  text-align: left;
+}
+.report-content :deep(th) {
+  background: #f0f7ff;
+  font-weight: 600;
+}
+.report-content :deep(p) {
+  margin: 4px 0;
+}
+.report-history {
+  margin-top: 12px;
+}
+.report-item {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.report-item:last-child {
+  border-bottom: none;
+}
+.report-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text2);
+  font-size: 13px;
+}
+.report-empty-icon {
+  color: #d0d0d0;
+  margin-bottom: 8px;
+}
+.report-empty-hint {
+  font-size: 11px;
+  color: #aaa;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .signal-view { gap: 6px; }
+  .report-card :deep(.n-card-header) { padding: 6px 10px; }
+  .report-card :deep(.n-card__content) { padding: 8px 10px; }
+  /* AI 报告正文(markdown v-html)若含宽表/长代码, 横向滚动而非撑破 */
+  .report-content { font-size: 13px; line-height: 1.6; }
+  .report-content :deep(table),
+  .report-content :deep(pre) { display: block; overflow-x: auto; max-width: 100%; }
+  .report-content :deep(img) { max-width: 100%; height: auto; }
+}
+</style>

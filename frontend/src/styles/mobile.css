@@ -1,0 +1,231 @@
+/* ====================================================================
+ * 移动端布局修正 (max-width: 768px)
+ * 全局非侵入式调整：不修改 view 内部结构，只在窄屏覆盖样式。
+ * ==================================================================== */
+
+@media (max-width: 768px) {
+  /* 关键: 关掉全站 zoom: 1.25 —— 它把已经紧的内容再放大 1.25, 是挤爆的根因 */
+  html {
+    zoom: 1 !important;
+  }
+
+  /* 主内容区 padding 收紧 */
+  .main-content,
+  .main-content.mobile {
+    padding: 10px !important;
+    padding-bottom: 72px !important;
+  }
+
+  /* ── 顶部页头区域(标题 + 操作按钮组)允许换行 ── */
+  .page-header,
+  .view-header,
+  .header-bar,
+  .toolbar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* 通用: 任何 view 第一层 .header / 类似容器(常用 flex 排标题+按钮)允许换行 */
+  .view-container > .header,
+  .view-container > header,
+  .page-wrap > header {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+
+  /* ── NaiveUI: 按钮/标签/输入紧凑 ── */
+  .n-button {
+    padding: 0 10px !important;
+    font-size: 13px !important;
+  }
+  .n-input,
+  .n-input__input-el,
+  .n-select,
+  .n-base-selection-label {
+    font-size: 13px !important;
+  }
+
+  /* 表单项默认是 label 左 + input 右; 移动端改为上下排列, 避免挤压 */
+  .n-form-item {
+    margin-bottom: 8px !important;
+  }
+  .n-form-item .n-form-item-label {
+    padding: 0 0 4px !important;
+    height: auto !important;
+    line-height: 1.4 !important;
+    font-size: 12px !important;
+  }
+  .n-form .n-form-item.n-form-item--medium .n-form-item-blank {
+    min-height: 30px;
+  }
+
+  /* ── NaiveUI: DataTable 紧凑 + 强制横向滚动 ── */
+  .n-data-table {
+    font-size: 12px !important;
+  }
+  .n-data-table .n-data-table-table {
+    min-width: max-content; /* 让内容决定宽度, 撑出滚动 */
+  }
+  .n-data-table-th,
+  .n-data-table-td {
+    padding: 6px 8px !important;
+  }
+  .n-data-table-th__title {
+    font-size: 11px !important;
+  }
+  /* 容器外层加强滚动 */
+  .n-data-table-base-table {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── NaiveUI: Card / Tab / Tag 紧凑 ── */
+  .n-card .n-card__content,
+  .n-card > .n-card-header {
+    padding: 10px !important;
+  }
+  .n-card-header__main {
+    font-size: 14px !important;
+  }
+  .n-tabs-tab {
+    padding: 8px 10px !important;
+    font-size: 13px !important;
+  }
+  .n-tag {
+    font-size: 11px !important;
+  }
+
+  /* ── NaiveUI: Modal 在窄屏下宽度自适应 ── */
+  .n-modal.n-card {
+    max-width: 94vw !important;
+    width: 94vw !important;
+  }
+  /* 内嵌写法 <NModal><NCard style="width:460px"> —— preset=card 规则匹配不到, 这里兜底封顶 */
+  .n-modal .n-card,
+  .n-modal-body-wrapper .n-card {
+    max-width: 94vw !important;
+  }
+
+  /* ── NaiveUI: Drawer 写死 :width(如 780px) 在窄屏封顶, 不超出 viewport ── */
+  .n-drawer.n-drawer--right-placement,
+  .n-drawer.n-drawer--left-placement {
+    max-width: 90vw !important;
+  }
+
+  /* ── 弹窗内容超长时封顶高度 + 内滚, 防内容把弹窗顶出屏幕导致按钮(关闭/取消)够不到 ── */
+  .n-modal.n-card,
+  .n-modal .n-card {
+    max-height: 90vh !important;
+    display: flex;
+    flex-direction: column;
+  }
+  .n-modal.n-card > .n-card__content,
+  .n-modal .n-card > .n-card__content,
+  .n-modal-body-wrapper {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Tooltip / Popover 浮层宽度封顶, 防长内容(如 K 线买卖点浮层)超出屏幕边界遮挡 ── */
+  .n-tooltip,
+  .n-popover,
+  .n-popover.n-popover-shared {
+    max-width: 90vw !important;
+  }
+
+  /* ── 通用: 长 URL/长文本 自动换行, 避免撑出 viewport ── */
+  .main-content * {
+    word-break: break-word;
+  }
+
+  /* ── 通用: 把页面里多个并排按钮的 flex 容器允许换行 ── */
+  .actions,
+  .button-group,
+  .btn-group {
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+  }
+
+  /* ── 卡片网格 / 列表 在窄屏自动单列 ── */
+  .grid-2col,
+  .stats-grid,
+  .stats-list,
+  .summary-grid,
+  .card-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ── flex 横排的统计行(如实盘vs模型 contrast-row)允许换行, 不横向溢出 ── */
+  .contrast-row,
+  .stat-row,
+  .metric-row {
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+  }
+
+  /* 兜底: 任何容器都不能撑破 viewport 宽度 */
+  .main-content > * {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  /* ── 系统性修复: 写死像素宽的表单控件(如 width:500px/220px 内联样式)封顶到容器内 ──
+     根因是 inline style 优先级高于 CSS, 这里用 !important 把所有控件宽度限到 ≤100%、去掉 min-width,
+     窄屏放不下就靠下面的容器换行规则换行, 而不是横向撑破。 */
+  .main-content .n-input,
+  .main-content .n-input-number,
+  .main-content .n-select,
+  .main-content .n-base-selection,
+  .main-content .n-date-picker,
+  .main-content .n-cascader,
+  .main-content .n-auto-complete {
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  /* ── 工具栏/过滤栏/页头/操作区: 多控件一行排不下时换行, 不横向溢出 ── */
+  .main-content [class*='toolbar'],
+  .main-content [class*='filter'],
+  .main-content [class*='-bar'],
+  .main-content [class*='actions'],
+  .main-content [class*='field-inline'],
+  .main-content [class*='field-row'],
+  .main-content [class*='form-row'],
+  .main-content [class*='grid-toolbar'],
+  .main-content .page-header,
+  .main-content .title-row,
+  .main-content .filters {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  /* 标签上 + 输入框下 那种行, 输入框占满一行更好用 */
+  .field-inline > .n-input,
+  .field-inline > .n-input-number,
+  .field-inline > .n-date-picker {
+    flex: 1 1 100% !important;
+  }
+
+  /* ── 可读性: 正文/表格字号略提, 避免太小 ── */
+  .n-data-table {
+    font-size: 12.5px !important;
+  }
+  .config-hint,
+  .field-label {
+    font-size: 12px !important;
+  }
+}
+
+/* 触摸友好: 在任何带 touch 的设备上(不限宽), 把可点击元素最小尺寸拉到 32px+ */
+@media (hover: none) and (pointer: coarse) {
+  .n-button {
+    min-height: 36px;
+  }
+  .clickable,
+  [role='button'] {
+    min-height: 36px;
+  }
+  /* 表格内的小图标按钮(收藏/购物车/删除)也保证可点 */
+  .n-data-table .n-button {
+    min-height: 32px;
+  }
+}

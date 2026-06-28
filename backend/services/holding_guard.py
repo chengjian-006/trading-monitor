@@ -1,0 +1,354 @@
+"""持仓守护提醒 (v1.7.x) — 只提醒不下单的盯盘守护, 合并为单一服务。
+
+规则A 接近前高: 持仓现价逼近近60日波段阻力(下方 ≤2%)时提醒, 留意突破/受压。
+规则B 盈利保护: 曾大幅获利(峰值浮盈≥+10%)又回吐到逼近成本线(当前浮盈≤+2%)时提醒,
+              避免"把赚过钱的交易做成亏损离场"。回测见 bt_profit_protect.py / 记忆 project_profit-protect-backtest。
+持仓异动(holding_anomaly): 🔥涨停/🧊跌停(带封单) / ⚡急速拉升/🪨急速跳水 / ⚠️封板异动(封单松动 or 板上放量)+💥开板。
+              急跌/跌停与当日已发卖点去重; 封板/封单/板上放量用新浪五档+累计成交额判定。设计见 holding-anomaly spec。
+
+设计文档: docs/superpowers/specs/2026-06-16-holding-guard-reminders-design.md
+- 持仓来源: repository.get_holdings_full_info(1) → (cost_map, date_map, model_map) 三件套(FIFO 仅含未平仓)。
+- 现价: data_fetcher.get_realtime_quotes(批量一次); 日K: data_fetcher.get_daily_kline(每票一次, 两规则共用)。
+- 推送: notifier.send_dual(企微+飞书双推); 默认不落信号库(纯推送, 不污染胜率统计)。
+- 节流: 每股每规则每日最多1次(进程内, 服务重启清当日, 提醒类容忍度高, 默认接受)。
+"""
+import logging
+import time
+from datetime import date, datetime
+
+from backend import data_fetcher
+from backend.core.trading_calendar import is_workday
+from backend.models import repository
+from backend.services import notifier
+from backend.services import holding_anomaly as ha
+
+logger = logging.getLogger(__name__)
+
+# ── 参数(集中常量, 便于调) ──
+WINDOW_HIGH = 60        # 前高回看窗口(日)
+SKIP_RECENT = 5         # 前高跳过最近 N 根
+NEAR_HIGH_TOL = 0.02    # 接近前高阈值(≤2%)
+PEAK_GAIN_MIN = 0.10    # 盈利保护: 峰值浮盈门槛
+GIVEBACK_MAX = 0.02     # 盈利保护: 回吐触发线(当前浮盈≤+2%)
+WIN_START, WIN_END = "09:25", "15:00"   # 盘中窗口
+# 持仓异动(v1.7.x): 急涨/急跌速率窗口与阈值, 涨停跌停封单松动复用五档
+SURGE_WIN_SEC = 180     # 急涨急跌速率窗口(约3分钟)
+SURGE_PP = 3.0          # 急涨急跌阈(涨跌幅百分点)
+SURGE_MAX_DAILY = 2     # 急涨急跌每股每日次数上限
+# 板上放量(封板期间分钟成交额放量): 当前窗口分钟速率 ÷ 封板前基线速率 ≥ 阈值 → 报
+BOARD_VOL_WIN = 60      # 板上放量速率窗口(秒)
+BOARD_VOL_X = 2.0       # 板上放量倍数阈值
+
+# 动量突破类: 回踩多为健康洗盘再加速, 机械保本会砍在洗盘底(bt_profit_protect 全样 Δ−1.12%),
+# 故文案附"留意而非急走"提醒。后续若中继平台突破也证实同性可加入。
+MOMENTUM_BREAKOUT_MODELS = {"BUY_VOL_BREAKOUT"}
+
+# 买点 signal_id → 文案用中文名(仅盈利保护 footer 用)
+MODEL_NAMES = {
+    "BUY_RALLY_MA20": "回踩MA20",
+    "BUY_RALLY_MA10": "回踩MA10",
+    "BUY_VOL_BREAKOUT": "缩量突破",
+    "BUY_PLATFORM_BREAKOUT": "中继平台突破",
+    "BUY_STRONG_START": "强势起点",
+    "BUY_WEAK_EXTREME": "弱势极限",
+}
+
+
+# ══════════════ 纯函数(可单测, 不连库不联网) ══════════════
+
+def prior_high(df, win: int = WINDOW_HIGH, skip: int = SKIP_RECENT):
+    """近期波段前高(阻力位): 跳过最近 skip 根, 在更早 win 根窗口内取 high 最大值。
+
+    返回 (ph, ph_date); 失效时返回 (None, None):
+    - K线不足(< win+skip 根, 新股);
+    - 阻力已破: 被跳过的最近 skip 根里已有 high 超过该峰, 说明近日已突破/创新高,
+      这个旧高点不再是上方阻力(已变支撑), 不应再喊「接近前高」(防 京东方A/沪电股份式误报)。
+    """
+    if df is None or len(df) < win + skip:
+        return None, None
+    window = df.iloc[-(win + skip):-skip] if skip else df.iloc[-win:]
+    idx = window["high"].astype(float).idxmax()
+    ph = float(window.loc[idx, "high"])
+    if skip:
+        recent_hi = float(df.iloc[-skip:]["high"].astype(float).max())
+        if recent_hi > ph:   # 近日已突破该峰 → 阻力已破, 失效
+            return None, None
+    return ph, str(window.loc[idx, "date"])[:10]
+
+
+def is_near_high(price: float, ph: float, tol: float = NEAR_HIGH_TOL) -> bool:
+    """前高下方且距离 ≤tol 触发; 已突破站上(price>ph)不报。"""
+    if not ph or ph <= 0:
+        return False
+    return ph * (1 - tol) <= price <= ph
+
+
+def compute_peak(df, entry_date, price: float) -> float:
+    """建仓至今峰值价: entry_date 起子段的 high.max, 与盘中现价取大。"""
+    peak = float(price)
+    if df is not None and len(df) and entry_date:
+        ed = str(entry_date)[:10]
+        sub = df[df["date"].astype(str).str[:10] >= ed]
+        if len(sub):
+            peak = max(peak, float(sub["high"].astype(float).max()))
+    return peak
+
+
+def profit_protect_triggered(cost: float, peak: float, price: float,
+                             peak_min: float = PEAK_GAIN_MIN,
+                             giveback_max: float = GIVEBACK_MAX) -> bool:
+    """峰值浮盈达标(确实赚过) 且 当前浮盈回吐到逼近成本线 → 触发。"""
+    if not cost or cost <= 0:
+        return False
+    return (peak / cost - 1) >= peak_min and (price / cost - 1) <= giveback_max
+
+
+def model_advisory(entry_model) -> str:
+    """规则B 模型上下文附加句: 仅动量突破类附洗盘提醒, 其余/未知为空。"""
+    if entry_model in MOMENTUM_BREAKOUT_MODELS:
+        return "动量突破回踩常是洗盘，留意而非急走"
+    return ""
+
+
+# ══════════════ 文案构建(纯函数) ══════════════
+
+def build_near_high_msg(name: str, code: str, price: float, ph: float, ph_date: str) -> str:
+    dist = price / ph - 1
+    return (f"📈 {name}({code}) 接近前高\n"
+            f"现价 ¥{price:.2f}，距近{WINDOW_HIGH}日波段高 ¥{ph:.2f}({ph_date[5:]})仅 {dist*100:+.1f}%\n"
+            f"留意：放量站上=突破确认，滞涨/长上影=阻力压制")
+
+
+def build_profit_protect_msg(name: str, code: str, peak_gain: float, cur_gain: float,
+                             cost: float, advisory: str = "", model_name: str = "") -> str:
+    lines = [f"🛡️ {name}({code}) 盈利保护",
+             f"最高赚过 {peak_gain*100:+.1f}%，现仅 {cur_gain*100:+.1f}%(成本 ¥{cost:.2f})，逼近成本线",
+             "别让这笔赚过的交易做成亏损，考虑保本/锁利离场"]
+    if advisory:
+        lines.append(advisory)
+    if model_name:
+        lines.append(f"(建仓：{model_name})")
+    return "\n".join(lines)
+
+
+# ══════════════ 节流(进程内, 每股每规则每日一次) ══════════════
+
+class GuardThrottle:
+    """每股每规则每日计数节流; 跨日重置。throttled(limit=N) → 当日已推 ≥N 次则挡。
+
+    向后兼容: limit 默认 1, 原 接近前高/盈利保护 的 throttled/mark 行为不变(每日1次)。
+    急拉/急跌等用 limit=2。
+    """
+    def __init__(self):
+        self._day = None
+        self._counts: dict[tuple[str, str], int] = {}
+
+    def _roll(self, today: str):
+        if today != self._day:
+            self._day, self._counts = today, {}
+
+    def count(self, code: str, rule: str, today: str) -> int:
+        self._roll(today)
+        return self._counts.get((code, rule), 0)
+
+    def throttled(self, code: str, rule: str, today: str, limit: int = 1) -> bool:
+        return self.count(code, rule, today) >= limit
+
+    def mark(self, code: str, rule: str, today: str):
+        self._roll(today)
+        self._counts[(code, rule)] = self._counts.get((code, rule), 0) + 1
+
+
+_throttle = GuardThrottle()
+
+# 持仓异动跟踪器(进程内, 重启清空可接受)
+_pct_hist = ha.PctHistory()
+_amt_hist = ha.AmountHistory()
+_seal_peak = ha.SealPeakTracker()
+_seal_base = ha.SealBaseRate()     # 封板前分钟成交额基线, 供板上放量倍数
+_seal_state: dict[str, str] = {}   # code → 当前封死方向(up/down), 供开板检测
+
+
+async def _send(content: str, title: str):
+    try:
+        await notifier.send_dual(content, lark_title=title)
+    except Exception as e:
+        logger.warning(f"[holding_guard] 推送失败({title}): {e}")
+
+
+async def _sell_signal_today(code: str) -> bool:
+    """该股今日是否已发过卖点(供急跌/跌停去重, 避免与止损/跌破MA重复)。"""
+    try:
+        sigs = await repository.get_today_signals(1, code)
+    except Exception:
+        return False
+    return any(s.get("direction") in ("sell", "reduce") for s in sigs)
+
+
+async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: float):
+    """持仓异动 5 规则: 急涨/急跌 + 涨停/跌停(带封单) + 封单松动/开板。"""
+    price = float(q["price"])
+    pre_close = float(q.get("pre_close") or 0)
+    pct = float(q.get("pct_change") or 0)
+    amount = float(q.get("amount") or 0)
+    vol_ratio = q.get("volume_ratio")
+    ask1_vol, bid1_vol = q.get("ask1_vol"), q.get("bid1_vol")
+    has_l1 = "ask1_vol" in q   # 仅新浪源有五档
+    win_min = SURGE_WIN_SEC // 60
+
+    # ① 急涨 / 急跌(速率)
+    _pct_hist.push(code, now_ts, pct)
+    if amount:
+        _amt_hist.push(code, now_ts, amount)   # 累计成交额时序, 供板上放量
+    delta = _pct_hist.delta(code, now_ts, pct, window=SURGE_WIN_SEC)
+    if delta is not None:
+        if delta >= SURGE_PP and not _throttle.throttled(code, "surge", today, limit=SURGE_MAX_DAILY):
+            await _send(ha.build_surge_msg(name, code, delta, win_min, price, pct), "⚡ 持仓异动·急速拉升")
+            _throttle.mark(code, "surge", today)
+        elif delta <= -SURGE_PP and not _throttle.throttled(code, "plunge", today, limit=SURGE_MAX_DAILY):
+            if not await _sell_signal_today(code):   # 与卖点去重
+                await _send(ha.build_plunge_msg(name, code, delta, win_min, price, pct), "🪨 持仓异动·急速跳水")
+                _throttle.mark(code, "plunge", today)
+
+    # ② 涨停 / 跌停 + 封单松动 + 开板
+    side = ha.at_limit_side(code, name, price, pre_close)
+    sealed = ha.confirm_seal(side, ask1_vol, bid1_vol) if side else None
+    prev = _seal_state.get(code)
+
+    if side and sealed is not False:   # 封死, 或无五档(未知)仍报基础涨跌停
+        amt = ha.seal_amount(q, side) if has_l1 else None
+        rule = f"limit_{side}"
+        if not _throttle.throttled(code, rule, today):
+            if side == "up":
+                await _send(ha.build_limit_up_msg(name, code, price, pct, amt, vol_ratio, amount),
+                            "🔥 持仓异动·涨停")
+                _throttle.mark(code, rule, today)
+            elif not await _sell_signal_today(code):   # 跌停与卖点去重
+                await _send(ha.build_limit_down_msg(name, code, price, pct, amt, amount),
+                            "🧊 持仓异动·跌停")
+                _throttle.mark(code, rule, today)
+            else:
+                _throttle.mark(code, rule, today)      # 被去重抑制也记一次, 当日不再试
+        # 封板异动: 封单松动 or 板上放量(任一命中即报, 文案注明原因; 均需五档)
+        if has_l1:
+            rate = _amt_hist.rate(code, now_ts, BOARD_VOL_WIN)
+            base = _seal_base.ensure(code, side, rate)        # 首入封板时捕获基线
+            surge_ratio = ha.board_volume_ratio(rate, base)
+            tier = peak = None
+            if amt:
+                peak = _seal_peak.update(code, side, amt)
+                tier = ha.seal_weaken_tier(peak, amt)
+            weaken_hit = bool(tier) and not _throttle.throttled(code, f"seal_weaken_{int((tier or 0) * 100)}", today)
+            vol_hit = bool(surge_ratio and surge_ratio >= BOARD_VOL_X) and not _throttle.throttled(code, "board_vol", today)
+            if weaken_hit or vol_hit:
+                if weaken_hit and vol_hit:
+                    title = "⚠️ 持仓异动·封板异动"
+                elif weaken_hit:
+                    title = "⚠️ 持仓异动·封单松动"
+                else:
+                    title = "⚠️ 持仓异动·封板放量"
+                msg = ha.build_board_anomaly_msg(
+                    name, code, side,
+                    peak_amt=peak if weaken_hit else None,
+                    cur_amt=amt if weaken_hit else None,
+                    surge_ratio=surge_ratio if vol_hit else None,
+                )
+                await _send(msg, title)
+                if weaken_hit:
+                    _throttle.mark(code, f"seal_weaken_{int(tier * 100)}", today)
+                if vol_hit:
+                    _throttle.mark(code, "board_vol", today)
+        _seal_state[code] = side
+    elif prev:   # 曾封死, 现未封死 → 开板
+        if not _throttle.throttled(code, "board_open", today):
+            await _send(ha.build_board_open_msg(name, code, price, pct, prev), "💥 持仓异动·开板")
+            _throttle.mark(code, "board_open", today)
+        _seal_peak.clear(code, prev)
+        _seal_base.clear(code, prev)
+        _seal_state.pop(code, None)
+
+
+# ══════════════ 任务编排(盘中 tick) ══════════════
+
+def _natural_days_since(entry_date) -> int:
+    try:
+        ed = datetime.strptime(str(entry_date)[:10], "%Y-%m-%d").date()
+        return (date.today() - ed).days
+    except Exception:
+        return 0
+
+
+async def holding_guard_tick():
+    """盘中(interval 60s): 真实持仓的 接近前高 / 盈利保护 守护提醒。只提醒不落库。"""
+    if not is_workday():
+        return
+    hm = datetime.now().strftime("%H:%M")
+    if not (WIN_START <= hm <= WIN_END):
+        return
+    today = date.today().isoformat()
+
+    try:
+        cost_map, date_map, model_map = await repository.get_holdings_full_info(1)
+    except Exception as e:
+        logger.warning(f"[holding_guard] 取持仓失败: {e}")
+        return
+    codes = list(cost_map)
+    if not codes:
+        return
+
+    try:
+        quotes = await data_fetcher.get_realtime_quotes(codes)
+    except Exception as e:
+        logger.warning(f"[holding_guard] 取现价失败: {e}")
+        return
+
+    now_ts = time.time()
+    for code in codes:
+        q = quotes.get(code)
+        if not q or not q.get("price"):
+            continue
+        price = float(q["price"])
+        name = q.get("name") or code
+
+        # 持仓异动(涨停/跌停/急涨/急跌/封单松动) — 只用实时行情, 不依赖日K, 先跑
+        try:
+            await _check_anomaly(code, name, q, today, now_ts)
+        except Exception as e:
+            logger.warning(f"[holding_guard] 异动检查失败({code}): {e}")
+
+        entry_date = date_map.get(code)
+        days = max(70, _natural_days_since(entry_date) + 10) if entry_date else 70
+        try:
+            df = await data_fetcher.get_daily_kline(code, days=days)
+        except Exception as e:
+            logger.warning(f"[holding_guard] 取日K失败({code}): {e}")
+            continue
+        if df is None or df.empty:
+            continue
+
+        # 规则A 接近前高
+        ph, ph_date = prior_high(df)
+        if ph and is_near_high(price, ph) and not _throttle.throttled(code, "prior_high", today):
+            try:
+                await notifier.send_dual(build_near_high_msg(name, code, price, ph, ph_date),
+                                         lark_title="📈 持仓守护·接近前高")
+                _throttle.mark(code, "prior_high", today)
+            except Exception as e:
+                logger.warning(f"[holding_guard] 接近前高推送失败({code}): {e}")
+
+        # 规则B 盈利保护
+        cost = cost_map.get(code)
+        if cost and entry_date:
+            peak = compute_peak(df, entry_date, price)
+            if profit_protect_triggered(cost, peak, price) \
+                    and not _throttle.throttled(code, "profit_protect", today):
+                entry_model = model_map.get(code)
+                msg = build_profit_protect_msg(
+                    name, code, peak / cost - 1, price / cost - 1, cost,
+                    advisory=model_advisory(entry_model),
+                    model_name=MODEL_NAMES.get(entry_model, ""))
+                try:
+                    await notifier.send_dual(msg, lark_title="🛡️ 持仓守护·盈利保护")
+                    _throttle.mark(code, "profit_protect", today)
+                except Exception as e:
+                    logger.warning(f"[holding_guard] 盈利保护推送失败({code}): {e}")

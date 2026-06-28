@@ -1,0 +1,63 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# 密钥/配置(含数据库口令, 不入库) — 真实值放 config.json, 仓库只留 config.example.json
+config.json
+config.json.*
+config.json.bak*
+config.*.bak
+
+# Claude Code 本地设置(含诊断命令, 可能嵌库口令) 与诊断输出
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+backend/scripts/diag_out.txt
+backend/scripts/_diag_out.txt
+nul
+
+# 日志与运行产物
+app.log
+app.log.*
+*.log
+deploy_out.txt
+_diag.py
+# 临时诊断数据 dump
+backend/scripts/_*.json
+
+# 部署产物
+*.tar.gz
+
+# 前端依赖与构建
+frontend/node_modules/
+frontend/dist/
+node_modules/
+
+# 编辑器
+.vscode/
+.idea/
+
+# 数据导出(临时分析产物)
+*_清单.csv
+
+# 一次性诊断/探针/验证脚本与回测脚本(不进版本库, 也不再干扰 git status)
+backend/scripts/_*.py
+backend/scripts/bt_*.py
+backend/scripts/find_platform_like.py
+backend/scripts/verify_platform_recent.py
+backend/scripts/add_name_col.py
+backend/scripts/gen_models_xlsx.py
+# 回测缓存(全市场日线 csv, 体积大且可重生)
+backend/scripts/bt_cache/
+
+# 散落的导出表格/数据(复盘 xlsx、扫描 csv 等)
+/*.xlsx
+/*.csv
+docs/*.xlsx
+
+# 一次性备份(脏数据/迁移快照), 留本地不入库
+backend/scripts/_backup_*.json
+docs/signalid_migration_backup_*.json

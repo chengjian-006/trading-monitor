@@ -1,0 +1,410 @@
+<script setup lang="ts">
+import { computed, h, ref } from 'vue'
+import { NTag, NButton, NIcon, NPopconfirm } from 'naive-ui'
+import { useGlobalMessage } from '../../composables/useGlobalMessage'
+import { formatYi } from '../../utils/formatAmount'
+import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications } from '@vicons/ionicons5'
+import type { Stock } from '../../types'
+import { useStockStore } from '../../stores/stock'
+import { useSignalStore } from '../../stores/signal'
+// v1.7.x: SignalSummaryBar 移到 PoolView 顶部, 此处不再引入
+import SubstanceCheckDrawer from './SubstanceCheckDrawer.vue'
+import StockAlertModal from './StockAlertModal.vue'
+import { useUiStore } from '../../stores/ui'
+import { useStockAlerts } from '../../composables/useStockAlerts'
+import { onMounted } from 'vue'
+
+const stockStore = useStockStore()
+const signalStore = useSignalStore()
+const message = useGlobalMessage()
+const ui = useUiStore()
+
+// 点代码 → 全局通用个股详情弹窗
+function openCharts(code: string, name: string) {
+  ui.openStock(code, name)
+}
+
+import { useSignalGrouping } from '../../composables/useSignalGrouping'
+const { signalsByCode } = useSignalGrouping(() => signalStore.signals)
+
+// v1.7.x: 买入/卖出独立计数, 给红绿双气泡用
+function signalCounts(code: string): { buy: number; sell: number; other: number } {
+  const list = signalsByCode.value.get(code)
+  if (!list || !list.length) return { buy: 0, sell: 0, other: 0 }
+  let buy = 0, sell = 0
+  for (const s of list) {
+    if (s.direction === 'buy' || s.direction === 'add') buy++
+    else if (s.direction === 'sell' || s.direction === 'reduce') sell++
+  }
+  return { buy, sell, other: list.length - buy - sell }
+}
+
+defineProps<{ stocks: Stock[] }>()
+
+// AI 核查抽屉状态
+const substanceShow = ref(false)
+const substanceStock = ref<Stock | null>(null)
+
+function openSubstance(s: Stock) {
+  substanceStock.value = s
+  substanceShow.value = true
+}
+
+function formatAmount(val: number | null | undefined) {
+  if (val == null || val === 0) return ''
+  return formatYi(val)   // 成交额统一亿(2位)
+}
+
+// ── 涨停/跌停/连板 派生 (与 StockTable 同口径, 手机卡片复用) ──
+function limitPct(s: Stock): number {
+  const code = s.code || ''
+  const name = s.name || ''
+  if (/ST/i.test(name)) return 5
+  if (/^(688|689)/.test(code)) return 20
+  if (/^(300|301)/.test(code)) return 20
+  if (/^(8|4|92)/.test(code)) return 30
+  return 10
+}
+function isLimitUp(s: Stock): boolean {
+  return s.pct_change != null && s.pct_change >= limitPct(s) - 0.5
+}
+function isLimitDown(s: Stock): boolean {
+  return s.pct_change != null && s.pct_change <= -(limitPct(s) - 0.5)
+}
+
+async function handleDelete(code: string, name: string) {
+  try {
+    await stockStore.removeStock(code)
+    message.success(() => h('span', {}, [h('b', name), `（${code}）已删除`]))
+  } catch {
+    message.error(() => h('span', {}, ['删除 ', h('b', name), `（${code}）失败`]))
+  }
+}
+
+async function handleToggleFocus(s: Stock) {
+  const next = s.focused ? 0 : 1
+  try {
+    await stockStore.updateStock(s.code, { focused: String(next) })
+    s.focused = next
+  } catch {
+    message.error('操作失败')
+  }
+}
+
+// ── 自定义预警 ──
+const { loadAlerts, reloadAlerts, summaryFor } = useStockAlerts()
+const showAlertModal = ref(false)
+const alertStock = ref<Stock | null>(null)
+function openAlert(s: Stock) {
+  alertStock.value = s
+  showAlertModal.value = true
+}
+onMounted(() => { loadAlerts() })
+</script>
+
+<template>
+  <div class="stock-list">
+    <!-- v1.7.x: SignalSummaryBar 已上移到 PoolView 顶部统一渲染, 此处不重复 -->
+    <div v-for="s in stocks" :key="s.code"
+      :class="['stock-card', {
+        focused: s.focused,
+        signaled: signalsByCode.has(s.code),
+        hold: s.status === 'hold'
+      }]"
+    >
+      <div class="stock-top">
+        <div class="stock-top-left">
+          <span v-if="s.focused" class="stock-star">*</span>
+          <span class="stock-name" :style="{ color: s.focused ? '#e63946' : s.status === 'hold' ? '#1a56a8' : signalsByCode.has(s.code) ? '#d35400' : 'inherit' }">{{ s.name }}</span>
+          <span class="stock-code" role="button" tabindex="0" :style="{ color: s.focused ? '#e63946' : '#2080f0', textDecoration: 'underline', textDecorationStyle: 'dotted', cursor: 'pointer' }" title="点击查看分时 + 日K" :aria-label="`查看 ${s.name} 分时 + 日K`" @click="openCharts(s.code, s.name)" @keydown.enter="openCharts(s.code, s.name)">{{ s.code }}</span>
+          <template v-if="signalsByCode.has(s.code)">
+            <span v-if="signalCounts(s.code).buy > 0" class="signal-badge signal-badge-buy" :title="`${signalCounts(s.code).buy} 个买入信号`">{{ signalCounts(s.code).buy }}</span>
+            <span v-if="signalCounts(s.code).sell > 0" class="signal-badge signal-badge-sell" :title="`${signalCounts(s.code).sell} 个卖出/减仓信号`">{{ signalCounts(s.code).sell }}</span>
+            <span v-if="signalCounts(s.code).buy === 0 && signalCounts(s.code).sell === 0" class="signal-badge signal-badge-other" :title="`${signalCounts(s.code).other} 个提示信号`">{{ signalCounts(s.code).other }}</span>
+          </template>
+          <!-- 涨停/跌停/连板: 游资核心标签, 与宽表同口径 -->
+          <span v-if="isLimitUp(s)" class="mini-badge badge-limit-up">涨停</span>
+          <span v-else-if="isLimitDown(s)" class="mini-badge badge-limit-down">跌停</span>
+          <span v-if="s.limit_up_days != null && s.limit_up_days >= 1" class="mini-badge" :class="s.limit_up_days >= 2 ? 'badge-lianban' : 'badge-shouban'">{{ s.limit_up_days >= 2 ? `${s.limit_up_days}连板` : '首板' }}</span>
+        </div>
+        <NTag size="small" :type="s.trade_type === 'short' ? 'info' : 'warning'" :bordered="false">
+          {{ s.trade_type === 'short' ? '短线' : '中线' }}
+        </NTag>
+      </div>
+      <div class="stock-middle">
+        <span class="stock-price">{{ s.price != null ? s.price.toFixed(2) : '-' }}</span>
+        <span
+          v-if="s.pct_change != null"
+          :class="['stock-pct', s.pct_change >= 0 ? 'up' : 'down']"
+        >
+          {{ s.pct_change >= 0 ? '+' : '' }}{{ s.pct_change.toFixed(2) }}%
+        </span>
+        <span v-if="s.speed != null && s.speed !== 0" :class="['stock-pct', s.speed >= 0 ? 'up' : 'down']" style="font-size: 12px;">
+          涨速{{ s.speed >= 0 ? '+' : '' }}{{ s.speed.toFixed(2) }}%
+        </span>
+      </div>
+      <div v-if="signalsByCode.has(s.code)" class="stock-signals">
+        <span v-for="sig in signalsByCode.get(s.code)" :key="sig.signal_name + sig.triggered_at" :class="['signal-tag', sig.direction === 'sell' || sig.direction === 'reduce' ? 'tag-sell' : 'tag-buy']">{{ sig.signal_name }}</span>
+      </div>
+      <div v-if="s.pct_5d != null || s.turnover != null || s.volume_ratio != null" class="stock-metrics">
+        <span v-if="s.pct_5d != null">5日<b :class="s.pct_5d >= 0 ? 'up' : 'down'">{{ s.pct_5d >= 0 ? '+' : '' }}{{ s.pct_5d.toFixed(2) }}%</b></span>
+        <span v-if="s.turnover != null">换手 <b>{{ s.turnover.toFixed(2) }}%</b></span>
+        <span v-if="s.volume_ratio != null">量比 <b>{{ s.volume_ratio.toFixed(2) }}</b></span>
+      </div>
+      <div v-if="s.industry || s.amount" class="stock-extra">
+        <span v-if="s.industry" class="stock-industry">{{ s.industry }}</span>
+        <span v-if="s.sector_rank === 1" class="sector-leader-badge">板块最强</span>
+        <span v-if="s.amount" class="stock-amount">{{ formatAmount(s.amount) }}</span>
+      </div>
+      <div class="stock-bottom">
+        <NTag size="tiny" :type="s.status === 'hold' ? 'success' : 'default'" :bordered="false">
+          {{ s.status === 'hold' ? '持仓' : '观察' }}
+        </NTag>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+          <NButton size="small" :type="(s.substance_score ?? 0) >= 4 ? 'success' : ((s.substance_score ?? 0) >= 1 ? 'warning' : 'primary')" secondary @click="openSubstance(s)">
+            <template #icon><NIcon><SparklesOutline /></NIcon></template>
+            <span v-if="s.substance_score && s.substance_score > 0">{{ '⭐'.repeat(s.substance_score) }}</span>
+            <span v-else>AI 核查</span>
+          </NButton>
+          <NButton size="small" :type="summaryFor(s.code) ? (summaryFor(s.code)!.triggered > 0 ? 'warning' : 'primary') : 'default'" secondary @click="openAlert(s)">
+            <template #icon><NIcon><component :is="summaryFor(s.code) ? Notifications : NotificationsOutline" /></NIcon></template>
+            预警<span v-if="summaryFor(s.code)">{{ summaryFor(s.code)!.triggered > 0 ? '!' : summaryFor(s.code)!.active }}</span>
+          </NButton>
+          <NButton size="small" :type="s.focused ? 'warning' : 'primary'" :secondary="!s.focused" @click="handleToggleFocus(s)">
+            <template #icon><NIcon><component :is="s.focused ? Star : StarOutline" /></NIcon></template>
+            {{ s.focused ? '已关注' : '关注' }}
+          </NButton>
+          <NPopconfirm @positive-click="handleDelete(s.code, s.name)" positive-text="删除" negative-text="取消">
+            <template #trigger>
+              <NButton size="small" type="error" secondary>
+                <template #icon><NIcon><TrashOutline /></NIcon></template>
+                删除
+              </NButton>
+            </template>
+            确认从股票池删除 {{ s.name }}（{{ s.code }}）?
+          </NPopconfirm>
+        </div>
+      </div>
+    </div>
+    <div v-if="stocks.length === 0" class="empty">暂无股票</div>
+
+    <!-- AI 真受益核查抽屉 -->
+    <SubstanceCheckDrawer
+      v-if="substanceStock"
+      v-model:show="substanceShow"
+      :code="substanceStock.code"
+      :name="substanceStock.name"
+      :industry="substanceStock.industry || ''"
+      :strategy="substanceStock.strategy || ''"
+    />
+    <StockAlertModal
+      v-model:show="showAlertModal"
+      :code="alertStock?.code || ''"
+      :name="alertStock?.name || ''"
+      @changed="reloadAlerts"
+    />
+  </div>
+</template>
+
+<style scoped>
+.stock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.stock-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  touch-action: manipulation;
+}
+.stock-card.focused {
+  font-weight: 700;
+}
+.stock-card.signaled {
+  background: rgba(255, 120, 0, 0.12);
+  border-color: rgba(255, 120, 0, 0.4);
+  border-left: 4px solid #ff6b00;
+}
+.stock-card.hold {
+  background: rgba(32, 128, 240, 0.08);
+  border-color: rgba(32, 128, 240, 0.2);
+}
+.stock-card.hold.signaled {
+  background: rgba(32, 128, 240, 0.08);
+  border-left: 4px solid #ff6b00;
+}
+.stock-top-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.signal-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: 4px;
+  line-height: 1;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.signal-badge-buy   { background: #ff3b00; }
+.signal-badge-sell  { background: #16a34a; }
+.signal-badge-other { background: #94a3b8; }
+.stock-signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.signal-tag {
+  color: white;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.signal-tag.tag-buy {
+  background: #ff6b00;
+}
+.signal-tag.tag-sell {
+  background: #16a34a;
+}
+.stock-star {
+  color: var(--red);
+  font-weight: 700;
+  margin-right: 2px;
+}
+.stock-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.stock-name {
+  font-weight: 600;
+  font-size: 15px;
+  margin-right: 8px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stock-code {
+  font-family: monospace;
+  color: var(--primary);
+  font-size: 13px;
+  touch-action: manipulation;
+}
+.stock-middle {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.stock-price {
+  font-size: 18px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.stock-pct {
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stock-pct.up {
+  color: var(--red);
+}
+.stock-pct.down {
+  color: var(--green);
+}
+.stock-extra {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+.stock-industry {
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.stock-amount {
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+.sector-leader-badge {
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, #ff6b00, #ff3b00);
+  color: white;
+}
+/* 名称行迷你徽章: 涨停/跌停/连板/首板 (A股 红涨绿跌) */
+.mini-badge {
+  margin-left: 4px;
+  padding: 0 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+.badge-limit-up {
+  background: var(--red);
+  color: #fff;
+}
+.badge-limit-down {
+  background: var(--green);
+  color: #fff;
+}
+.badge-lianban {
+  background: linear-gradient(135deg, #ff6b00, #ff2d00);
+  color: #fff;
+}
+.badge-shouban {
+  background: #fff1f0;
+  color: #cf1322;
+  border: 1px solid #ffa39e;
+}
+/* 关键指标行: 5日涨幅 / 换手 / 量比 */
+.stock-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+.stock-metrics b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text1);
+}
+.stock-metrics b.up {
+  color: var(--red);
+}
+.stock-metrics b.down {
+  color: var(--green);
+}
+.stock-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text2);
+}
+</style>
