@@ -893,6 +893,10 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_biz_paper_account ADD COLUMN unlimited_bullets TINYINT NOT NULL DEFAULT 0",
     "ALTER TABLE cfzy_biz_paper_account DROP INDEX uk_paper_account_user",
     "ALTER TABLE cfzy_biz_paper_account ADD UNIQUE KEY uk_paper_account (user_id, account_key)",
+    # 性能: cfzy_sys_kline_cache 主键 (code, trade_date), 但风控/胜率/持仓回填等任务按
+    #   WHERE trade_date >= %s (不带 code) 查 → 主键用不上, 601万行全表扫描~2.6s且占着连接。
+    #   补 trade_date 单列索引, 窄日期范围查询从全表扫降到索引范围扫。
+    "ALTER TABLE cfzy_sys_kline_cache ADD INDEX idx_kc_trade_date (trade_date)",
 ]
 
 
@@ -1445,8 +1449,13 @@ async def init_db():
         db=cfg.get("db", "trading"),
         charset="utf8mb4",
         autocommit=True,
-        minsize=1,
-        maxsize=10,
+        # 生产 DB 跨云(火山引擎 RDS), 单查询往返~44ms、建连接~280ms。
+        # minsize 提到 5 常驻保温连接, 避免冷连接每次付 280ms 重连;
+        # maxsize 提到 25 缓解前台接口 + 一堆高频后台任务(3s/30s/60s)争抢连接排队;
+        # pool_recycle 1h 主动回收, 防远端 wait_timeout 静默掐断后拿到死连接。
+        minsize=5,
+        maxsize=25,
+        pool_recycle=3600,
     )
     async with _pool.acquire() as conn:
         await _rename_tables(conn)

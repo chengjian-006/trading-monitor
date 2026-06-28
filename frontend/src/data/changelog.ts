@@ -12,6 +12,18 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.527',
+    date: '2026-06-29',
+    title: '盘中卡顿排查·四项性能优化(连接池/索引/N+1/同步AI卸线程)',
+    changes: [
+      { text: '排查「系统变慢」根因:生产 DB 是跨云(华为云 ECS→火山引擎 RDS),单条 SQL 往返~44ms、建连接~280ms,是放大一切的总开关。叠加单进程 uvicorn + 连接池仅10 + 几处同步阻塞,盘中高频后台任务一忙,前台接口就在「等空闲连接」上排队卡顿。', tag: 'fix' },
+      { text: 'DB 连接池扩容保温:minsize 1→5(常驻保温连接,免每次付 280ms 冷重连)、maxsize 10→25(缓解前台与一堆 3s/30s/60s 后台任务争抢)、加 pool_recycle=3600(防远端 wait_timeout 掐断后拿到死连接)。', tag: 'improve' },
+      { text: 'cfzy_sys_kline_cache(601万行)补 trade_date 单列索引:原主键 (code,trade_date) 帮不上「只按 trade_date 查」的风控/胜率/回填任务,全表扫描~2.6s且占着连接。加索引后单日查询 2.6s→185ms、窄区间走 range 扫描。', tag: 'improve' },
+      { text: '交易回合重建消除 N+1:原逐 code 查买点信号(N 个 code = N 次跨云往返×44ms),改一次查全量按 code 分组,导入交割单时不再秒级卡。', tag: 'improve' },
+      { text: '同步大模型调用卸到线程:截图识别股票(OCR)、个股内容分析两处此前用同步 OpenAI 客户端裸调,LLM 跑 10~60s 会冻住整个事件循环、拖慢全站所有请求;改 asyncio.to_thread 卸载,OCR 并补 90s 超时兜底。', tag: 'fix' },
+    ],
+  },
+  {
     version: 'v1.7.526',
     date: '2026-06-28',
     title: '黑天鹅预警·风险公告接 AI 逐股研判(抓公告正文+严重度评级)',

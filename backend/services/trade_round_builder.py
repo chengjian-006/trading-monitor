@@ -168,7 +168,7 @@ def attach_entry_signal(round_obj: dict, signals: list[dict], window_days: int =
 from collections import defaultdict
 
 from backend.models.repo.trade_rounds import (
-    get_trades_for_rounds, get_buy_signals_by_code, replace_rounds_for_code,
+    get_trades_for_rounds, get_buy_signals_for_user, replace_rounds_for_code,
 )
 
 
@@ -197,12 +197,13 @@ async def rebuild_user_rounds(user_id: int) -> int:
 async def _rebuild_user_rounds_inner(user_id: int) -> int:
     trades = await get_trades_for_rounds(user_id)
     grouped = group_trades_by_code(trades)
+    signals_by_code = await get_buy_signals_for_user(user_id)  # 一次查询替代逐 code N+1
     total = 0
     for code, code_trades in grouped.items():
         rounds = build_rounds_from_trades(code_trades)
         if not rounds:
             continue
-        signals = await get_buy_signals_by_code(user_id, code)
+        signals = signals_by_code.get(code, [])
         for r in rounds:
             attach_entry_signal(r, signals)
         await replace_rounds_for_code(user_id, code, "real", rounds)

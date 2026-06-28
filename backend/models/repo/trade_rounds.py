@@ -37,6 +37,24 @@ async def get_buy_signals_by_code(user_id: int, code: str) -> list[dict]:
     )
 
 
+async def get_buy_signals_for_user(user_id: int) -> dict[str, list[dict]]:
+    """一次取用户全部买点信号, 按 code 分组归因。
+
+    替代回合重建里逐 code 调 get_buy_signals_by_code 的 N+1 查询: 用户有 N 个不同
+    code 就要 N 次往返, 跨云 DB 每次 ~44ms 会累成秒级。这里一次查询 + Python 分组。
+    """
+    rows = await _fetchall(
+        "SELECT code, id, signal_id, signal_name, price, DATE(triggered_at) AS date "
+        "FROM cfzy_biz_signals WHERE user_id = %s "
+        "AND signal_id LIKE 'BUY\\_%%' ORDER BY code, triggered_at ASC",
+        (user_id,),
+    )
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r["code"], []).append(r)
+    return grouped
+
+
 def _round_row(user_id: int, r: dict) -> tuple:
     return (
         user_id, r["code"], r["name"], r["source"], r.get("source_ref", ""),

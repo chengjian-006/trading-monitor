@@ -7,6 +7,7 @@
   用户输入 code + theme → 调 LLM → 格式化报告 → 人工打分(0-5星) → 存 DB
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -115,7 +116,9 @@ async def analyze_substance(code: str, name: str, theme: str, industry: str = ""
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url)
-        response = client.chat.completions.create(
+        # 同步 OpenAI 调用卸到线程, 否则 LLM 最多 60s 会冻住事件循环、拖慢全站所有请求。
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
             model=model,
             max_tokens=4000,
             messages=[

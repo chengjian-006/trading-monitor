@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import logging
 from datetime import datetime, timedelta
@@ -141,7 +142,10 @@ async def ocr_recognize(file: UploadFile = File(...), user: dict = Depends(get_c
     )
 
     try:
-        response = client.chat.completions.create(
+        # 同步 OpenAI 客户端卸到线程, 否则视觉模型 10~60s 会冻住整个事件循环、拖慢全站所有请求。
+        # 显式 timeout 兜底, 防外部 API 挂死。
+        response = await asyncio.to_thread(
+            client.chat.completions.create,
             model=cfg.get("ai_vision_model", "qwen/qwen3-vl-235b-a22b-instruct"),
             max_tokens=4096,
             messages=[{
@@ -151,6 +155,7 @@ async def ocr_recognize(file: UploadFile = File(...), user: dict = Depends(get_c
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                 ],
             }],
+            timeout=90,
         )
         result_text = response.choices[0].message.content.strip()
         # 提取JSON部分
