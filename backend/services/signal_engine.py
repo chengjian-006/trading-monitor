@@ -263,7 +263,8 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
         ma20v = latest.get("ma20", np.nan)
         ma60v = latest.get("ma60", np.nan)
         if not pd.isna(ma5) and not pd.isna(ma10) and not pd.isna(ma20v) and not pd.isna(ma60v):
-            ss_result = _detect_strong_start_right(d, latest, sc_ss, cfg.get("BUY_WEAK_EXTREME", {}))
+            ss_result = _detect_strong_start_right(d, latest, sc_ss, cfg.get("BUY_WEAK_EXTREME", {}),
+                                                   code=code, name=name)
             if ss_result:
                 signals.append(Signal(
                     signal_id="BUY_STRONG_START",

@@ -212,7 +212,8 @@ def _detect_s0_weak_extreme(d: pd.DataFrame, latest: pd.Series, sc: dict) -> Opt
 
 
 def _detect_strong_start_right(d: pd.DataFrame, latest: pd.Series,
-                                sc: dict, s0_sc: dict) -> Optional[str]:
+                                sc: dict, s0_sc: dict,
+                                code: str | None = None, name: str = "") -> Optional[str]:
     """检测"强势起点（右侧）": 左侧弱势极限缩量基础上, 今日放量启动 (5 AND)."""
     if len(d) < 15:
         return None
@@ -227,6 +228,18 @@ def _detect_strong_start_right(d: pd.DataFrame, latest: pd.Series,
         return None
     if not (close > ma10 or close > ma20):
         return None
+
+    # v1.7.529: 排除"触发侧追涨停" (同 BUY_VOL_BREAKOUT v1.7.520) — 现价已封/逼近今日涨停板时不发买点。
+    #   强势起点本就是"今日已放量涨起来"才认定的右侧追入, 09:31 报出时常已秒拉至涨停板上, 用户根本挂不进
+    #   (实例: 多氟多 0629 09:31 报出即买不到) → 现价距板 ≤ chase_limit_buffer_pct 视为接近涨停不报。
+    #   板幅感知(主板10%/创业科创20%/北交所30%/ST5%); 回测无 code(realtime=None) → is_at_limit_up 返回
+    #   False 自动跳过, 与历史回测口径一致。
+    if bool(sc.get("chase_limit_skip", True)) and code:
+        prev_close = float(d.iloc[-2].get("close") or 0)
+        if prev_close > 0:
+            cur_pct = (close - prev_close) / prev_close * 100
+            if is_at_limit_up(code, cur_pct, name, tol=float(sc.get("chase_limit_buffer_pct", 1.0))):
+                return None
 
     lookback = int(sc.get("lookback_days", 5))
     qualified_day_idx = None
