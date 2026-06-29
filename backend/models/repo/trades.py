@@ -1,6 +1,58 @@
 """交割单 CRUD + 持仓同步 - cfzy_biz_trades 表 + cfzy_biz_stock_pool 联动."""
+from datetime import date, datetime
+
 from backend.models.database import get_pool
 from backend.models.repo._db import _fetchall, _fetchone
+
+# 跨格式/跨日重复导入去重窗口(天): 交割单(真实成交日)与历史成交(用户手选注入日)会给
+# 同一笔成交打上不同 trade_date(实测差 1~7 天), 唯一键含 trade_date 拦不住。指纹相同且
+# 成交日相距在此窗口内即判为同一笔跳过; 窗口足够宽覆盖日期漂移, 又能放过几十天后偶然
+# 撞到同量同价同秒的另一笔真实成交(概率极低但留个保险)。
+_DEDUP_WINDOW_DAYS = 30
+
+
+def _as_date(v):
+    """trade_date 归一为 date(支持 date / datetime / 'YYYY-MM-DD' 字符串)。"""
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    try:
+        return datetime.strptime(str(v)[:10], "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
+def _fingerprint(code, direction, quantity, price, trade_time):
+    """日期无关的成交指纹: 秒级时间 + 量 + 价唯一锁定一笔成交。"""
+    return (str(code), str(direction), int(quantity),
+            round(float(price), 3), str(trade_time))
+
+
+def filter_new_records(records: list[dict], existing: list[dict],
+                       window_days: int = _DEDUP_WINDOW_DAYS) -> list[dict]:
+    """从待入库 records 里剔除与 existing(或同批已留)重复的成交, 返回应新增的子集。
+
+    判重: 指纹相同(_fingerprint) 且成交日相距 ≤ window_days。纯逻辑, 不连库, 供单测。
+    """
+    seen: dict[tuple, list] = {}
+    for e in existing:
+        fp = _fingerprint(e["code"], e["direction"], e["quantity"], e["price"], e["trade_time"])
+        d = _as_date(e["trade_date"])
+        if d is not None:
+            seen.setdefault(fp, []).append(d)
+
+    fresh = []
+    for r in records:
+        fp = _fingerprint(r["code"], r["direction"], r["quantity"], r["price"], r["trade_time"])
+        d = _as_date(r["trade_date"])
+        prev = seen.get(fp)
+        if prev and d is not None and any(abs((d - p).days) <= window_days for p in prev):
+            continue   # 同一笔成交已存在(可能 trade_date 不同), 跳过防重复导入
+        if d is not None:
+            seen.setdefault(fp, []).append(d)   # 同批内也去重
+        fresh.append(r)
+    return fresh
 
 
 async def has_import_today(user_id: int) -> bool:
@@ -37,9 +89,25 @@ async def delete_trades_on_date(user_id: int, trade_date) -> int:
 
 
 async def save_trade_records(user_id: int, records: list[dict]) -> int:
-    """增量保存交割记录, 重复数据自动跳过. 返回新增条数."""
+    """增量保存交割记录, 重复数据自动跳过. 返回新增条数.
+
+    去重两层: ① 日期无关指纹(_fingerprint)—— 同一笔成交在交割单/历史成交两种格式里
+    trade_date 不一致也能识别为重复(指纹相同且成交日在 _DEDUP_WINDOW_DAYS 内即跳过);
+    ② INSERT IGNORE 兜底精确重复(同 uk_trade)。
+    """
     if not records:
         return 0
+    codes = {r["code"] for r in records}
+    placeholders = ",".join(["%s"] * len(codes))
+    existing = await _fetchall(
+        f"SELECT code, direction, quantity, price, trade_time, trade_date "
+        f"FROM cfzy_biz_trades WHERE user_id = %s AND code IN ({placeholders})",
+        (user_id, *codes),
+    )
+    fresh = filter_new_records(records, existing)
+    if not fresh:
+        return 0
+
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
@@ -50,7 +118,7 @@ async def save_trade_records(user_id: int, records: list[dict]) -> int:
                 [(user_id, r["trade_date"], r["trade_time"], r["code"], r["name"],
                   r["direction"], r["quantity"], r["price"], r["amount"],
                   r["fee"], r["stamp_tax"], r["transfer_fee"], r["net_amount"])
-                 for r in records],
+                 for r in fresh],
             )
             return cur.rowcount
 
