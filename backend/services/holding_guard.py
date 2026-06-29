@@ -10,7 +10,8 @@
 - 持仓来源: repository.get_holdings_full_info(1) → (cost_map, date_map, model_map) 三件套(FIFO 仅含未平仓)。
 - 现价: data_fetcher.get_realtime_quotes(批量一次); 日K: data_fetcher.get_daily_kline(每票一次, 两规则共用)。
 - 推送: notifier.send_dual(企微+飞书双推); 默认不落信号库(纯推送, 不污染胜率统计)。
-- 节流: 每股每规则每日最多1次(进程内, 服务重启清当日, 提醒类容忍度高, 默认接受)。
+- 节流: 每股每规则每日最多1次(进程内, 服务重启清当日, 提醒类容忍度高, 默认接受);
+        急拉/急跌例外=每日2次且两条间隔≥30min冷却(防同一波拉升跨相邻tick背靠背连发)。
 """
 import logging
 import time
@@ -35,6 +36,7 @@ WIN_START, WIN_END = "09:25", "15:00"   # 盘中窗口
 SURGE_WIN_SEC = 180     # 急涨急跌速率窗口(约3分钟)
 SURGE_PP = 3.0          # 急涨急跌阈(涨跌幅百分点)
 SURGE_MAX_DAILY = 2     # 急涨急跌每股每日次数上限
+SURGE_COOLDOWN_SEC = 1800  # 急涨急跌两条之间最小冷却(30分钟): 防一波连续急拉跨相邻tick把2次配额背靠背烧光(康强电子0629 14:11→14:12连发);第2条留给晚些时候真正另起的独立急拉
 # 板上放量(封板期间分钟成交额放量): 当前窗口分钟速率 ÷ 封板前基线速率 ≥ 阈值 → 报
 BOARD_VOL_WIN = 60      # 板上放量速率窗口(秒)
 BOARD_VOL_X = 2.0       # 板上放量倍数阈值
@@ -137,15 +139,16 @@ class GuardThrottle:
     """每股每规则每日计数节流; 跨日重置。throttled(limit=N) → 当日已推 ≥N 次则挡。
 
     向后兼容: limit 默认 1, 原 接近前高/盈利保护 的 throttled/mark 行为不变(每日1次)。
-    急拉/急跌等用 limit=2。
+    急拉/急跌等用 limit=2, 并叠加 cooling() 冷却(两条之间需间隔最小秒数, 防同一波连发)。
     """
     def __init__(self):
         self._day = None
         self._counts: dict[tuple[str, str], int] = {}
+        self._last_ts: dict[tuple[str, str], float] = {}   # 末次 mark 时间戳, 供冷却判定
 
     def _roll(self, today: str):
         if today != self._day:
-            self._day, self._counts = today, {}
+            self._day, self._counts, self._last_ts = today, {}, {}
 
     def count(self, code: str, rule: str, today: str) -> int:
         self._roll(today)
@@ -154,9 +157,16 @@ class GuardThrottle:
     def throttled(self, code: str, rule: str, today: str, limit: int = 1) -> bool:
         return self.count(code, rule, today) >= limit
 
-    def mark(self, code: str, rule: str, today: str):
+    def cooling(self, code: str, rule: str, now_ts: float, cooldown_sec: float) -> bool:
+        """距末次推送不足 cooldown_sec → True(冷却中, 应挡)。无记录/已超冷却 → False。"""
+        last = self._last_ts.get((code, rule))
+        return last is not None and (now_ts - last) < cooldown_sec
+
+    def mark(self, code: str, rule: str, today: str, ts: float | None = None):
         self._roll(today)
         self._counts[(code, rule)] = self._counts.get((code, rule), 0) + 1
+        if ts is not None:
+            self._last_ts[(code, rule)] = ts
 
 
 _throttle = GuardThrottle()
@@ -202,13 +212,17 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         _amt_hist.push(code, now_ts, amount)   # 累计成交额时序, 供板上放量
     delta = _pct_hist.delta(code, now_ts, pct, window=SURGE_WIN_SEC)
     if delta is not None:
-        if delta >= SURGE_PP and not _throttle.throttled(code, "surge", today, limit=SURGE_MAX_DAILY):
+        # 每日上限(SURGE_MAX_DAILY) + 冷却(SURGE_COOLDOWN_SEC): 上限防总量, 冷却防同一波拉升
+        #   跨相邻 tick(60s)把配额背靠背烧光 → 第2条只在距上一条 ≥30min 时才放行(独立的另一波)。
+        if (delta >= SURGE_PP and not _throttle.throttled(code, "surge", today, limit=SURGE_MAX_DAILY)
+                and not _throttle.cooling(code, "surge", now_ts, SURGE_COOLDOWN_SEC)):
             await _send(ha.build_surge_msg(name, code, delta, win_min, price, pct), "⚡ 持仓异动·急速拉升")
-            _throttle.mark(code, "surge", today)
-        elif delta <= -SURGE_PP and not _throttle.throttled(code, "plunge", today, limit=SURGE_MAX_DAILY):
+            _throttle.mark(code, "surge", today, ts=now_ts)
+        elif (delta <= -SURGE_PP and not _throttle.throttled(code, "plunge", today, limit=SURGE_MAX_DAILY)
+                and not _throttle.cooling(code, "plunge", now_ts, SURGE_COOLDOWN_SEC)):
             if not await _sell_signal_today(code):   # 与卖点去重
                 await _send(ha.build_plunge_msg(name, code, delta, win_min, price, pct), "🪨 持仓异动·急速跳水")
-                _throttle.mark(code, "plunge", today)
+                _throttle.mark(code, "plunge", today, ts=now_ts)
 
     # ② 涨停 / 跌停 + 封单松动 + 开板
     side = ha.at_limit_side(code, name, price, pre_close)

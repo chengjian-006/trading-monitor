@@ -237,6 +237,27 @@ def test_throttle_count_limit_2():
     assert t.throttled("000001", "surge", "2026-06-16", limit=2) is True   # 2>=2
 
 
+def test_throttle_cooling_blocks_within_window():
+    # 急拉冷却: 第1条 14:11 推送后, 14:12(60s后)在30min冷却内应被挡, 30min后才放行
+    t = GuardThrottle()
+    base = 1_000_000.0
+    assert t.cooling("000001", "surge", base, 1800) is False   # 无记录, 不冷却
+    t.mark("000001", "surge", "2026-06-16", ts=base)
+    assert t.cooling("000001", "surge", base + 60, 1800) is True    # 60s后仍冷却(康强电子14:11→14:12)
+    assert t.cooling("000001", "surge", base + 1799, 1800) is True  # 差1秒未到
+    assert t.cooling("000001", "surge", base + 1800, 1800) is False # 满30min放行
+
+
+def test_throttle_cooling_per_rule_and_resets_on_day_roll():
+    t = GuardThrottle()
+    t.mark("000001", "surge", "2026-06-16", ts=1000.0)
+    assert t.cooling("000001", "surge", 1100.0, 1800) is True
+    assert t.cooling("000001", "plunge", 1100.0, 1800) is False  # 冷却按 (code,rule) 隔离
+    # 跨日重置: 计数与冷却时间戳一并清空
+    t.mark("000001", "surge", "2026-06-17", ts=2000.0)
+    assert t.count("000001", "surge", "2026-06-17") == 1         # 不累加昨日
+
+
 # ---------- 文案含关键字段 ----------
 
 def test_limit_up_msg_fields():
