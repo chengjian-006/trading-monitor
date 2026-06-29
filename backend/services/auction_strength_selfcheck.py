@@ -45,24 +45,24 @@ async def run_auction_strength_selfcheck():
     # 2. 竞价采集 + 竞价额≥5000万
     snaps = await repository.get_auction_snapshots(today)
     big = await repository.get_auction_snapshots(today, min_amount=5e7)
-    lines.append(f"竞价采集: 今日{len(snaps)}只, 竞价额≥5000万={len(big)}只")
+    lines.append(f"竞价采集: 今日{len(snaps)}只, 竞价额≥0.5亿={len(big)}只")
     if big:
-        top = " / ".join(f"{r.get('name', '')}{(r.get('auction_amount') or 0) / 1e4:.0f}万" for r in big[:8])
-        lines.append(f"  ≥5000万: {top}")
+        top = " / ".join(f"{r.get('name', '')}{(r.get('auction_amount') or 0) / 1e8:.2f}亿" for r in big[:8])
+        lines.append(f"  ≥0.5亿: {top}")
 
     # 卡片: 情绪 + 竞价采集摘要(文字) → 后接 ≥5000万 候选表(多行多列用原生表格)
     elements.append(lark_notifier.md_element(
         f"**情绪门控**　{lines[1].split(': ', 1)[-1]}\n"
-        f"**竞价采集**　今日 {len(snaps)} 只 ／ 竞价额≥5000万 {len(big)} 只"))
+        f"**竞价采集**　今日 {len(snaps)} 只 ／ 竞价额≥0.5亿 {len(big)} 只"))
     if big:
         cols = [
             {"name": "name", "display_name": "名称", "data_type": "text", "width": "62%"},
-            {"name": "amt", "display_name": "竞价额", "data_type": "text",
+            {"name": "amt", "display_name": "竞价额(亿元)", "data_type": "text",
              "width": "38%", "horizontal_align": "right"},
         ]
         big_rows = [{"name": r.get("name", "") or r.get("code", ""),
-                     "amt": f"{(r.get('auction_amount') or 0) / 1e4:.0f}万"} for r in big[:10]]
-        elements.append(lark_notifier.md_element(f"**竞价额≥5000万（{len(big)}只）**"))
+                     "amt": f"{(r.get('auction_amount') or 0) / 1e8:.2f}亿"} for r in big[:10]]
+        elements.append(lark_notifier.md_element(f"**竞价额≥0.5亿（{len(big)}只）**"))
         elements.append(lark_notifier.table_element(cols, big_rows, page_size=10))
 
     # 3. 买点是否触发
