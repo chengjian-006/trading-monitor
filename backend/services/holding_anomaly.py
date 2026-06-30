@@ -121,17 +121,32 @@ def _holding_tag() -> str:
     return "（你的持仓）"
 
 
+def _bar(fill: float, width: int = 8) -> str:
+    """0~1 比例 → █░ 进度条(宽 width)。渠道通用(飞书/微信/PushPlus 文本均能渲染)。"""
+    fill = max(0.0, min(1.0, fill))
+    n = int(round(fill * width))
+    return "█" * n + "░" * (width - n)
+
+
 def build_limit_up_msg(name, code, price, pct, seal_amt, vol_ratio, amount) -> str:
-    line2 = f"现价 ¥{price:.2f}　{pct:+.2f}%{_holding_tag()}"
-    parts = []
+    lines = [f"🔥 {name}({code}) 涨停",
+             f"现价 ¥{price:.2f}　{pct:+.2f}%{_holding_tag()}"]
     if seal_amt:
-        parts.append(f"封单 ¥{fmt_amount(seal_amt)}")
+        seal_line = f"封单 ¥{fmt_amount(seal_amt)}"
+        if amount and amount > 0:                          # 封板强度=封单占成交额(≥5%厚/1~5%中/<1%薄)
+            r = seal_amt / amount
+            tag = "厚" if r >= 0.05 else ("中" if r >= 0.01 else "薄")
+            seal_line += f"　封板 {_bar(min(1.0, r / 0.05))} {tag}"
+        lines.append(seal_line)
+    sub = []
     if vol_ratio:
-        parts.append(f"量比 {vol_ratio:.1f}")
+        sub.append(f"量比 {vol_ratio:.1f} {_bar(min(1.0, vol_ratio / 3))}")
     if amount:
-        parts.append(f"成交额 {fmt_amount(amount)}")
-    line3 = ("　".join(parts) + "\n") if parts else ""
-    return f"🔥 {name}({code}) 涨停\n{line2}\n{line3}留意封板强度 / 炸板风险"
+        sub.append(f"成交额 {fmt_amount(amount)}")
+    if sub:
+        lines.append("　".join(sub))
+    lines.append("留意封板强度 / 炸板风险")
+    return "\n".join(lines)
 
 
 def build_limit_down_msg(name, code, price, pct, seal_amt, amount) -> str:
@@ -177,7 +192,8 @@ def build_board_anomaly_msg(name, code, side, peak_amt=None, cur_amt=None, surge
     lines = [f"⚠️ {name}({code}) {board_anomaly_reason(weaken, surge)}"]
     if weaken:
         drop = (1 - cur_amt / peak_amt) * 100
-        lines.append(f"封单 ¥{fmt_amount(peak_amt)} → ¥{fmt_amount(cur_amt)}（−{drop:.0f}%），仍封{seal_word}")
+        bar = _bar(cur_amt / peak_amt if peak_amt > 0 else 0)   # 剩余封单占峰值, 越空=松动越狠
+        lines.append(f"封单 ¥{fmt_amount(peak_amt)} {bar} ¥{fmt_amount(cur_amt)}（−{drop:.0f}%），仍封{seal_word}")
     if surge:
         lines.append(f"板上放量约{surge_ratio:.1f}倍于封板前，博弈加剧")
     lines.append("留意炸板风险 / 是否落袋")

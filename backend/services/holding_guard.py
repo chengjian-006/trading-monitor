@@ -114,18 +114,31 @@ def model_advisory(entry_model) -> str:
 
 # ══════════════ 文案构建(纯函数) ══════════════
 
+def _bar(fill: float, width: int = 10) -> str:
+    """0~1 比例 → █░ 进度条(宽 width)。渠道通用(飞书/微信/PushPlus 文本均能渲染)。"""
+    fill = max(0.0, min(1.0, fill))
+    n = int(round(fill * width))
+    return "█" * n + "░" * (width - n)
+
+
 def build_near_high_msg(name: str, code: str, price: float, ph: float, ph_date: str) -> str:
-    dist = price / ph - 1
+    dist = price / ph - 1                       # 负=低于前高
+    fill = 1 - min(1.0, abs(dist) / NEAR_HIGH_TOL) if NEAR_HIGH_TOL > 0 else 0   # 越贴前高越满
     return (f"📈 {name}({code}) 接近前高\n"
-            f"现价 ¥{price:.2f}，距近{WINDOW_HIGH}日波段高 ¥{ph:.2f}({ph_date[5:]})仅 {dist*100:+.1f}%\n"
-            f"留意：放量站上=突破确认，滞涨/长上影=阻力压制")
+            f"距前高 {dist*100:+.1f}%　现├{_bar(fill)}┤前高\n"
+            f"现 ¥{price:.2f} → 近{WINDOW_HIGH}日高 ¥{ph:.2f}({ph_date[5:]})\n"
+            f"放量站上=突破确认，滞涨/长上影=阻力压制")
 
 
 def build_profit_protect_msg(name: str, code: str, peak_gain: float, cur_gain: float,
                              cost: float, advisory: str = "", model_name: str = "") -> str:
+    # 回吐标尺: 成本(空)──→峰值(满), 现价位置 = 仍保留的浮盈占峰值比例; 已回吐% = 回吐多少
+    giveback = (peak_gain - cur_gain) / peak_gain * 100 if peak_gain > 0 else 0
+    fill = cur_gain / peak_gain if peak_gain > 0 else 0
     lines = [f"🛡️ {name}({code}) 盈利保护",
-             f"最高赚过 {peak_gain*100:+.1f}%，现仅 {cur_gain*100:+.1f}%(成本 ¥{cost:.2f})，逼近成本线",
-             "别让这笔赚过的交易做成亏损，考虑保本/锁利离场"]
+             f"峰值 {peak_gain*100:+.1f}% → 现 {cur_gain*100:+.1f}%（已回吐 {giveback:.0f}%）",
+             f"成本├{_bar(fill)}┤峰值　成本 ¥{cost:.2f}",
+             "别让赚过的交易做成亏损，考虑保本/锁利离场"]
     if advisory:
         lines.append(advisory)
     if model_name:
