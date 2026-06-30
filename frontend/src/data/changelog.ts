@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.537',
+    date: '2026-06-30',
+    title: '临近买点·贴线/条件两行顶到卡片底部对齐',
+    changes: [
+      { text: '改进:「临近买点」卡片的「贴线」「条件」两行从紧贴 chips 改为顶到卡片底部(gap-viz margin-top:auto), 同一行各卡的这两行横向对齐, 扫一排更整齐好比较。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.536',
     date: '2026-06-30',
     title: '临近买点·差距改可视化——贴线进度条+条件圆点, 一眼看出多接近',

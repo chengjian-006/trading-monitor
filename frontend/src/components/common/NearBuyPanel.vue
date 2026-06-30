@@ -160,7 +160,7 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 
 /* PC 多列网格用上横向空间; 窄屏自动回落单列。grid-auto-rows:1fr 让所有行等高, 卡片大小统一 */
 .list { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: 1fr; gap: 6px; }
-.row { border: 1px solid #efeff5; border-radius: 7px; padding: 6px 9px; cursor: pointer; touch-action: manipulation; transition: all 0.15s; height: 100%; }
+.row { border: 1px solid #efeff5; border-radius: 7px; padding: 6px 9px; cursor: pointer; touch-action: manipulation; transition: all 0.15s; height: 100%; display: flex; flex-direction: column; }
 .row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #ddd; }
 .row.is-trig { background: rgba(208,48,80,0.04); border-color: rgba(208,48,80,0.25); }
 .row.is-near { background: rgba(240,160,32,0.04); }
@@ -175,13 +175,14 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* 多买点: 顶部一行 chips 列全部命中, 下面只展开主点(优先触发)一行说明 */
-.hits { margin-top: 5px; display: flex; flex-direction: column; gap: 4px; }
+.hits { margin-top: 5px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { font-size: 10.5px; font-weight: 600; color: #fff; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
 .chip.c-trig { background: #d03050; }
 .chip.c-near { background: #f0a020; }
 /* 差距可视化: 贴线度进度条 + 条件圆点(v1.7.536), 一眼看出多接近/差几项, 文字退到 hover */
-.gap-viz { display: flex; flex-direction: column; gap: 3px; }
+/* margin-top:auto 把贴线/条件两行顶到卡片底部, 同一行各卡这两行横向对齐(v1.7.537) */
+.gap-viz { display: flex; flex-direction: column; gap: 3px; margin-top: auto; padding-top: 4px; }
 .viz-row { display: flex; align-items: center; gap: 6px; font-size: 11px; min-width: 0; }
 .viz-tag { color: #999; flex-shrink: 0; width: 24px; }
 .bar-track { position: relative; flex: 1; height: 7px; min-width: 40px; background: #eef0f3; border-radius: 4px; overflow: hidden; }
