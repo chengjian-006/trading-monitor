@@ -135,12 +135,16 @@ def build_limit_up_msg(name, code, price, pct, seal_amt, vol_ratio, amount) -> s
         seal_line = f"封单 ¥{fmt_amount(seal_amt)}"
         if amount and amount > 0:                          # 封板强度=封单占成交额(≥5%厚/1~5%中/<1%薄)
             r = seal_amt / amount
-            tag = "厚" if r >= 0.05 else ("中" if r >= 0.01 else "薄")
-            seal_line += f"　封板 {_bar(min(1.0, r / 0.05))} {tag}"
+            # 文案自带结论(占比+封得多结实), 进度条只作辅助, 满格=占成交额5%(铁板)
+            word = "封得厚实" if r >= 0.05 else ("中等结实" if r >= 0.01 else "偏薄易炸")
+            seal_line += f"（占成交额{r * 100:.1f}%·{word}）{_bar(min(1.0, r / 0.05))}"
         lines.append(seal_line)
     sub = []
     if vol_ratio:
-        sub.append(f"量比 {vol_ratio:.1f} {_bar(min(1.0, vol_ratio / 3))}")
+        # 文案自带结论(几倍+放量程度), 进度条满格=量比3倍(异动级放量)
+        vword = ("放量很猛" if vol_ratio >= 2.5 else "放量明显" if vol_ratio >= 1.5
+                 else "略放量" if vol_ratio >= 1.0 else "缩量")
+        sub.append(f"量比 {vol_ratio:.1f}倍（{vword}）{_bar(min(1.0, vol_ratio / 3))}")
     if amount:
         sub.append(f"成交额 {fmt_amount(amount)}")
     if sub:
