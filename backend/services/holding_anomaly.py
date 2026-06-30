@@ -133,18 +133,18 @@ def build_limit_up_msg(name, code, price, pct, seal_amt, vol_ratio, amount) -> s
              f"现价 ¥{price:.2f}　{pct:+.2f}%{_holding_tag()}"]
     if seal_amt:
         seal_line = f"封单 ¥{fmt_amount(seal_amt)}"
-        if amount and amount > 0:                          # 封板强度=封单占成交额(≥5%厚/1~5%中/<1%薄)
+        if amount and amount > 0:                          # 封板强度=封单/成交额, 进度条满格=5%(铁板)
             r = seal_amt / amount
-            # 文案自带结论(占比+封得多结实), 进度条只作辅助, 满格=占成交额5%(铁板)
-            word = "封得厚实" if r >= 0.05 else ("中等结实" if r >= 0.01 else "偏薄易炸")
-            seal_line += f"（占成交额{r * 100:.1f}%·{word}）{_bar(min(1.0, r / 0.05))}"
+            # 分子分母都写明: 封单占成交额R%(分子) / 满格5%(分母=满格基准), 不让人猜进度条在比啥
+            word = "铁板" if r >= 0.05 else ("中等" if r >= 0.01 else "偏薄")
+            seal_line += f"｜封板强度 {r * 100:.1f}% {_bar(min(1.0, r / 0.05))} 满格5%·{word}"
         lines.append(seal_line)
     sub = []
     if vol_ratio:
-        # 文案自带结论(几倍+放量程度), 进度条满格=量比3倍(异动级放量)
-        vword = ("放量很猛" if vol_ratio >= 2.5 else "放量明显" if vol_ratio >= 1.5
-                 else "略放量" if vol_ratio >= 1.0 else "缩量")
-        sub.append(f"量比 {vol_ratio:.1f}倍（{vword}）{_bar(min(1.0, vol_ratio / 3))}")
+        # 分子分母都写明: 量比X倍(分子) / 满格3倍(分母=满格基准, 异动级放量)
+        vword = ("很猛" if vol_ratio >= 2.5 else "明显" if vol_ratio >= 1.5
+                 else "温和" if vol_ratio >= 1.0 else "缩量")
+        sub.append(f"量比 {vol_ratio:.1f}倍 {_bar(min(1.0, vol_ratio / 3))} 满格3倍·{vword}")
     if amount:
         sub.append(f"成交额 {fmt_amount(amount)}")
     if sub:
