@@ -122,6 +122,16 @@ def risk_score(flags: list[dict]) -> int:
     return min(100, s)
 
 
+# 告警级别(替代裸风险分对外展示): 高危≥70 / 中危50-69 / 关注<50。内部仍用 score 排序/去重。
+def risk_level(score: int) -> tuple[str, str]:
+    """风险分 → (级别, emoji)。"""
+    if score >= 70:
+        return "高危", "🔴"
+    if score >= 50:
+        return "中危", "🟠"
+    return "关注", "🟡"
+
+
 def push_key(flags: list[dict]) -> str:
     """达到推送门槛(任一强 或 ≥2中)时返回触发组合键, 否则空串。"""
     strong = [f for f in flags if f["strength"] == "strong"]
@@ -161,33 +171,36 @@ def _flag_disp(f: dict) -> str:
 
 
 def fin_section_text(hits: list[dict]) -> str:
-    """财务红旗区域文本(微信版): 按风险分分档(高危≥50/中危30-49), 一只一行, 标签接极简数字。
+    """财务红旗区域文本(微信版): 按告警级别分档(🔴高危≥70/🟠中危50-69/🟡关注<50), 一只一行。
     不含顶层标题, 供合并推送拼区域用。"""
     lines: list[str] = []
-    for bucket_name, lo, hi in (("高危 ≥50分", 50, 999), ("中危 30-49分", 0, 50)):
+    for emoji, label, lo, hi in (("🔴", "高危", 70, 999), ("🟠", "中危", 50, 70), ("🟡", "关注", 0, 50)):
         grp = [h for h in hits if lo <= h["score"] < hi]
         if not grp:
             continue
-        lines.append(f"【{bucket_name}】")
+        lines.append(f"【{emoji} {label}】")
         for h in grp:
             fl = "·".join(_flag_disp(f) for f in h["flags"])
-            lines.append(f"{h['score']} {h['name']}({h['code']})　{fl}")
+            lines.append(f"{h['name']}({h['code']})　{fl}")
     return "\n".join(lines)
 
 
 def fin_table(hits: list[dict]) -> dict:
-    """财务红旗飞书表格元素: 股票/风险分/财务红旗(标签+数字)。"""
+    """财务红旗飞书表格元素: 股票/告警级别/财务红旗(标签+数字)。"""
     from backend.services import lark_notifier
     columns = [
         {"name": "stock", "display_name": "股票", "data_type": "text",
          "width": "24%", "horizontal_align": "left"},
-        {"name": "score", "display_name": "风险分", "data_type": "text",
-         "width": "14%", "horizontal_align": "left"},
+        {"name": "level", "display_name": "告警级别", "data_type": "text",
+         "width": "16%", "horizontal_align": "left"},
         {"name": "flags", "display_name": "财务红旗", "data_type": "text",
-         "width": "62%", "horizontal_align": "left"},
+         "width": "60%", "horizontal_align": "left"},
     ]
-    rows = [{"stock": f"{h['name']}\n{h['code']}", "score": str(h["score"]),
-             "flags": "·".join(_flag_disp(f) for f in h["flags"])} for h in hits]
+    rows = []
+    for h in hits:
+        label, emoji = risk_level(h["score"])
+        rows.append({"stock": f"{h['name']}\n{h['code']}", "level": f"{emoji}{label}",
+                     "flags": "·".join(_flag_disp(f) for f in h["flags"])})
     return lark_notifier.table_element(columns, rows, page_size=10)
 
 

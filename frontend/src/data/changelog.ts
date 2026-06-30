@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.541',
+    date: '2026-06-30',
+    title: '黑天鹅预警·财务红旗「风险分」改「告警级别」',
+    changes: [
+      { text: '改进:「自选股黑天鹅预警」财务红旗表格不再给裸风险分(如70), 改给告警级别——🔴高危(≥70)/🟠中危(50-69)/🟡关注(<50), 一眼知道严重程度。微信文本版同步按级别分档, 飞书预览页同步。内部仍用分值排序/去重。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.540',
     date: '2026-06-30',
     title: '新增·问财候选榜(同花顺 iwencai 自然语言选股)',
