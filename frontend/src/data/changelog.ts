@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.532',
+    date: '2026-06-30',
+    title: '监控看板·人气列「100名外」不再折行',
+    changes: [
+      { text: '修复:监控看板表格「人气」列的「100名外」因列宽过窄(50px)折成「100名/外」两行。列宽放宽到54px并给文字加 nowrap, 单行显示。', tag: 'fix' },
+    ],
+  },
+  {
     version: 'v1.7.531',
     date: '2026-06-29',
     title: '竞价高开弱转强·首日自检卡:竞价额单位改亿元',

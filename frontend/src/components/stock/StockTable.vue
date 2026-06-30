@@ -681,14 +681,14 @@ const allColumns = computed(() => [
   {
     title: '人气',
     key: 'popularity_rank',
-    width: 50,
+    width: 54,
     align: 'center' as const,
     sorter: numSorter('popularity_rank'),
     sortOrder: sortOrder('popularity_rank'),
     render: (row: Stock) => {
       const rank = row.popularity_rank
       if (rank == null) return '-'
-      if (rank > 100) return h('span', { style: { color: 'var(--text3)', fontSize: '12px' } }, '100名外')
+      if (rank > 100) return h('span', { style: { color: 'var(--text3)', fontSize: '12px', whiteSpace: 'nowrap' } }, '100名外')
       const color = rank <= 20 ? 'var(--red)' : rank <= 50 ? '#f59e0b' : 'var(--text2)'
       const fontWeight = rank <= 20 ? 700 : 'normal'
       return h('span', { style: { color, fontWeight } }, `${rank}`)
