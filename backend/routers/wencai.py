@@ -22,9 +22,11 @@ from backend.services.quote_refresher import refresh_quotes_for_codes
 
 router = APIRouter(prefix="/api/wencai", tags=["wencai"])
 
-# 即时搜索 per-user 节流: 逆向接口高频会招同花顺风控, 限每用户最短间隔
+# 即时搜索 / 手工全榜刷新 per-user 节流: 逆向接口高频会招同花顺风控, 限每用户最短间隔
 _SEARCH_MIN_INTERVAL = 3.0
 _last_search: dict[int, float] = {}
+_SCAN_MIN_INTERVAL = 8.0
+_last_scan: dict[int, float] = {}
 
 
 def _result_limit() -> int:
@@ -84,6 +86,38 @@ async def search_wencai(req: SearchRequest, user: Annotated[dict, Depends(get_cu
     except WencaiFetchError as e:
         raise HTTPException(status_code=502, detail=f"问财查询失败: {e}")
     return {"query": q, "stock_count": len(items), "items": items}
+
+
+@router.post("/scan")
+async def manual_scan(user: Annotated[dict, Depends(get_current_user)]):
+    """手工触发: 立刻跑「预置榜 + 当前用户启用的自定义榜」全部语句, 刷新候选(串行防并发撞反爬)。
+
+    问财候选榜已改为手工触发(原定时任务下线): 同花顺问财逆向接口易被反爬, 按需点才跑。
+    """
+    now = time.monotonic()
+    if now - _last_scan.get(user["id"], 0.0) < _SCAN_MIN_INTERVAL:
+        raise HTTPException(status_code=429, detail="刚刷新过, 请稍候再点")
+    _last_scan[user["id"]] = now
+
+    cfg = load_config().get("wencai_screening", {})
+    work: list[tuple] = []   # (strategy_id, user_id, name, query)
+    for q in (cfg.get("queries") or []):
+        if q.get("enabled", True) and q.get("query"):
+            sid = q.get("id") or q.get("name") or ""
+            work.append((sid, 0, q.get("name") or sid, q.get("query")))
+    for uq in await repository.list_user_queries(user["id"]):
+        if uq.get("enabled", 1) and uq.get("query_text"):
+            sid = repository.pool_strategy_id(user["id"], uq["id"])
+            work.append((sid, user["id"], uq.get("name") or sid, uq["query_text"]))
+
+    succeeded, failed = 0, []
+    for sid, uid, name, query in work:
+        r = await _run_into_pool(sid, uid, name, query)
+        if r["ok"]:
+            succeeded += 1
+        else:
+            failed.append(name)
+    return {"ok": True, "total": len(work), "succeeded": succeeded, "failed": failed}
 
 
 class AddToPoolRequest(BaseModel):

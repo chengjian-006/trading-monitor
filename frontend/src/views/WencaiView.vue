@@ -4,9 +4,9 @@
 // 下方: 预置榜(全局) + 我的自定义榜(可改/删), 勾选一键加自选, 点股弹K线。
 import { ref, onMounted } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NTag, NInput, NModal, NCard, NPopconfirm } from 'naive-ui'
-import { RefreshOutline, SearchOutline, WarningOutline, CreateOutline, TrashOutline, BookmarkOutline } from '@vicons/ionicons5'
+import { RefreshOutline, SearchOutline, WarningOutline, CreateOutline, TrashOutline, BookmarkOutline, PlayOutline } from '@vicons/ionicons5'
 import {
-  fetchWencai, addWencaiToPool, searchWencai, createWencaiQuery, updateWencaiQuery, deleteWencaiQuery,
+  fetchWencai, addWencaiToPool, searchWencai, scanWencai, createWencaiQuery, updateWencaiQuery, deleteWencaiQuery,
   type WencaiStrategy, type WencaiItem,
 } from '../api/wencai'
 import WencaiStockList from '../components/common/WencaiStockList.vue'
@@ -20,6 +20,7 @@ const strategies = ref<WencaiStrategy[]>([])
 const loading = ref(false)
 const adding = ref(false)
 const loaded = ref(false)
+const scanning = ref(false)
 
 // 即时搜索
 const searchInput = ref('')
@@ -50,6 +51,20 @@ async function load() {
   } finally {
     loading.value = false
     loaded.value = true
+  }
+}
+
+async function runScan() {
+  scanning.value = true
+  try {
+    const r = await scanWencai()
+    if (r.failed.length) message.warning(`已刷新 ${r.succeeded}/${r.total} 条，失败：${r.failed.join('、')}`)
+    else message.success(`已跑问财刷新全部 ${r.total} 条榜`)
+    await load()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '刷新失败（问财接口可能暂时不可用）')
+  } finally {
+    scanning.value = false
   }
 }
 
@@ -141,13 +156,20 @@ onMounted(load)
         <NIcon :component="SearchOutline" :size="20" />
         <h2>问财候选榜</h2>
       </div>
-      <NButton size="small" :loading="loading" @click="load">
-        <template #icon><NIcon :component="RefreshOutline" /></template>
-        刷新
-      </NButton>
+      <div class="head-ops">
+        <NButton size="small" :loading="loading" @click="load">
+          <template #icon><NIcon :component="RefreshOutline" /></template>
+          刷新页面
+        </NButton>
+        <NButton size="small" type="primary" :loading="scanning" @click="runScan">
+          <template #icon><NIcon :component="PlayOutline" /></template>
+          立即跑问财
+        </NButton>
+      </div>
     </div>
     <p class="page-desc">
-      同花顺问财(iwencai)自然语言选股。下方输入条件可即时搜索;看中的条件「存为常驻榜」后会每交易日盘中自动出榜(仅你自己可见)。
+      同花顺问财(iwencai)自然语言选股。已改「手工触发」——点「立即跑问财」才会去同花顺重新选股刷新全部榜(不再定时自动跑)。
+      下方输入条件可即时搜索;看中的条件「存为常驻榜」(仅你自己可见)。
     </p>
 
     <!-- 输入条件 -->
@@ -254,6 +276,7 @@ onMounted(load)
 .page-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .title { display: flex; align-items: center; gap: 8px; }
 .title h2 { margin: 0; font-size: 18px; }
+.head-ops { display: flex; gap: 8px; flex-shrink: 0; }
 .page-desc { color: #888; font-size: 13px; line-height: 1.6; margin: 8px 0 0; }
 
 .search-box { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }

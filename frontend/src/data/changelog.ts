@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.547',
+    date: '2026-07-01',
+    title: '问财候选榜·定时任务下线改手工触发',
+    changes: [
+      { text: '改进:问财候选榜由「定时自动出榜」改为「手工触发」——页面顶部「立即跑问财」按钮点一下才去同花顺重新选股刷新全部榜。原 wencai_scan 定时任务已停。', tag: 'improve' },
+      { text: '原因:同花顺问财是逆向接口、易被反爬限制(6-30 晚就出现过 token 失效),定时空转徒增风控风险且无意义,改成按需触发更稳、也省外部调用。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.546',
     date: '2026-06-30',
     title: '问财候选榜·支持自己输入条件(即时搜索+存为常驻榜)',

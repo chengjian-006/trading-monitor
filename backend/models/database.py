@@ -1090,6 +1090,15 @@ async def _run_migrations(conn):
             )
         except Exception:
             pass
+        # v1.7.547: 问财候选榜改手工触发 — 同花顺问财逆向接口易被反爬, 定时空转徒增风控,
+        # 停掉 wencai_scan 定时任务(改 POST /api/wencai/scan 用户按需触发); scan_wencai handler 保留备用
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s",
+                ("wencai_scan",),
+            )
+        except Exception:
+            pass
 
         # v1.7.345: 弱势极限下午快照 15:00→14:45(盘中可决策, 不再只并入15:05收盘汇总)
         # 存量库删旧 15:00 行(新 weak_extreme_1445 行由上方 seed INSERT IGNORE 补)
@@ -1363,11 +1372,9 @@ async def _seed_scheduled_tasks(conn):
             ("theme_heat_refresh", "题材热度快照",
              "交易日每5分钟聚合涨停池(同花顺涨停题材首标签)各题材涨停家数, 写 cfzy_sys_theme_heat, 供监控看板市场情绪温度表(日期×题材矩阵)", "interval",
              {"seconds": 300}, "refresh_theme_heat"),
-            # v1.7.540: 问财候选榜 — 交易日盘中每15分钟跑配置里启用的问财选股语句(pywencai), 各成一榜写 cfzy_sys_wencai_pool。
-            # interval 300s 注册, 内部自节流(盘中9:30-15:00约15分一轮/盘后一轮/非交易日跳过)。默认 config.wencai_screening.enabled=False 时早返回不跑。
-            ("wencai_scan", "问财候选榜扫描",
-             "交易日盘中约每15分钟跑同花顺问财(pywencai)自然语言选股语句, 各语句独立成榜写 cfzy_sys_wencai_pool, 供问财候选榜页查看+一键加自选; 默认关(需部署机装Node+pywencai并开config再生效)", "interval",
-             {"seconds": 300}, "scan_wencai"),
+            # v1.7.547: 问财候选榜改「手工触发」(原 wencai_scan 定时任务下线) — 同花顺问财逆向接口反爬易失效,
+            # 定时空转徒增风控, 改为用户在问财候选榜页点「立即跑问财」按需触发(POST /api/wencai/scan)。
+            # 存量库的 wencai_scan 任务行由下方迁移块置 enabled=0; scan_wencai handler 保留(避免孤儿告警, 备将来重启用)。
             ("sector_strength_refresh", "持仓板块内强弱",
              "交易日每60秒刷持仓最热题材板块的全成分股涨幅名单(内存缓存), 供 quote_refresher 每3s用实时涨幅插值算板块内名次, 写 cfzy_biz_stock_pool.board_rank", "interval",
              {"seconds": 60}, "refresh_sector_strength"),

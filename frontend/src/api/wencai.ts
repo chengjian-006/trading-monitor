@@ -57,6 +57,12 @@ export async function searchWencai(query: string): Promise<{ query: string; stoc
   return data
 }
 
+// 手工触发: 跑预置+本人启用的全部语句刷新候选(串行, 给足超时)
+export async function scanWencai(): Promise<{ ok: boolean; total: number; succeeded: number; failed: string[] }> {
+  const { data } = await client.post('/api/wencai/scan', {}, { timeout: 120000 })
+  return data
+}
+
 export async function listWencaiQueries(): Promise<{ queries: WencaiQuery[] }> {
   const { data } = await client.get('/api/wencai/queries')
   return data
