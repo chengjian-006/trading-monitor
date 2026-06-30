@@ -11,3 +11,4 @@ python-multipart>=0.0.6
 openpyxl>=3.1.0
 chinese-calendar>=1.10.0
 PyMuPDF>=1.24.0
+pywencai>=0.13.1

@@ -110,6 +110,9 @@ from backend.models.repo.fin_risk import (  # noqa: F401
 from backend.models.repo.theme_heat import (  # noqa: F401
     save_theme_heat, get_theme_heat,
 )
+from backend.models.repo.wencai_pool import (  # noqa: F401
+    upsert_wencai_strategy, set_wencai_error, list_wencai_pool,
+)
 from backend.models.repo.sector_rotation import (  # noqa: F401
     upsert_sector_rotation, upsert_sector_prediction, get_sector_rotation,
 )

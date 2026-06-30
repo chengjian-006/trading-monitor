@@ -34,6 +34,7 @@ from backend.services.holding_guard import holding_guard_tick
 from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday, market_risk_realtime
 from backend.services.data_cross_checker import run_cross_check
 from backend.services.blogger_post_scanner import scan_blogger_posts
+from backend.services.wencai_scanner import scan_wencai
 from backend.services.near_buy_refresher import refresh_near_buy_snapshot
 from backend.services.theme_heat_refresher import refresh_theme_heat
 from backend.services.sector_strength_scanner import refresh_sector_strength
@@ -107,6 +108,7 @@ TASK_HANDLERS: dict[str, object] = {
     "market_risk_realtime": market_risk_realtime,
     "run_cross_check": run_cross_check,
     "scan_blogger_posts": scan_blogger_posts,
+    "scan_wencai": scan_wencai,
     "refresh_near_buy_snapshot": refresh_near_buy_snapshot,
     "refresh_theme_heat": refresh_theme_heat,
     "refresh_sector_strength": refresh_sector_strength,

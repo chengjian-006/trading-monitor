@@ -35,5 +35,16 @@
     "user_code": "<博主 user_code>",
     "cookie": "",
     "hexin_v": ""
+  },
+
+  "_wencai_说明": "问财候选榜。enabled 改 true 前, 部署机须装 Node(算 token) + pip install pywencai。queries 每条独立成榜, 仅 enabled=true 的执行。",
+  "wencai_screening": {
+    "enabled": false,
+    "queries": [
+      { "id": "breakout", "name": "量价突破型", "query": "换手率大于5% 且 创60日新高 且 成交额大于2亿 且 非ST", "enabled": true },
+      { "id": "pullback", "name": "缩量回踩型", "query": "回踩10日均线 且 缩量 且 近一月涨幅大于15% 且 非ST", "enabled": true },
+      { "id": "theme", "name": "题材强势型", "query": "涨幅大于5% 且 属于热门概念 且 流通市值小于100亿 且 非ST", "enabled": true }
+    ],
+    "result_limit": 50
   }
 }

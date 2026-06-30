@@ -480,6 +480,21 @@ SCHEMA_STATEMENTS = [
         items       JSON
     )
     """,
+    # 问财候选榜 (v1.7.540) — 每条选股语句一行, items JSON 存该策略当前选出的候选股清单。
+    # 由 scan_wencai 定时跑 pywencai 选股后整行 UPSERT(全局共享一份, 非按用户), 前端 WencaiView 读此展示+一键加自选。
+    # last_error 非空表示该策略最近一次拉取失败(供前端提示), items 保留上一次成功结果。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_wencai_pool (
+        strategy_id   VARCHAR(40) NOT NULL PRIMARY KEY,
+        strategy_name VARCHAR(40) NOT NULL DEFAULT '',
+        query_text    VARCHAR(255) NOT NULL DEFAULT '',
+        trade_date    VARCHAR(10) NOT NULL DEFAULT '',
+        stock_count   INT NOT NULL DEFAULT 0,
+        items         JSON,
+        last_error    VARCHAR(255) NOT NULL DEFAULT '',
+        computed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """,
     # 市场情绪温度表 (v1.7.x) — 按 日期×题材 记当日各涨停题材的涨停家数(热度),
     # 由 refresh_theme_heat 收盘前后定时聚合涨停池(同花顺 reason_type 首标签)写入, 前端 ThemeHeatPanel 矩阵展示主线演变.
     """
@@ -1328,6 +1343,11 @@ async def _seed_scheduled_tasks(conn):
             ("theme_heat_refresh", "题材热度快照",
              "交易日每5分钟聚合涨停池(同花顺涨停题材首标签)各题材涨停家数, 写 cfzy_sys_theme_heat, 供监控看板市场情绪温度表(日期×题材矩阵)", "interval",
              {"seconds": 300}, "refresh_theme_heat"),
+            # v1.7.540: 问财候选榜 — 交易日盘中每15分钟跑配置里启用的问财选股语句(pywencai), 各成一榜写 cfzy_sys_wencai_pool。
+            # interval 300s 注册, 内部自节流(盘中9:30-15:00约15分一轮/盘后一轮/非交易日跳过)。默认 config.wencai_screening.enabled=False 时早返回不跑。
+            ("wencai_scan", "问财候选榜扫描",
+             "交易日盘中约每15分钟跑同花顺问财(pywencai)自然语言选股语句, 各语句独立成榜写 cfzy_sys_wencai_pool, 供问财候选榜页查看+一键加自选; 默认关(需部署机装Node+pywencai并开config再生效)", "interval",
+             {"seconds": 300}, "scan_wencai"),
             ("sector_strength_refresh", "持仓板块内强弱",
              "交易日每60秒刷持仓最热题材板块的全成分股涨幅名单(内存缓存), 供 quote_refresher 每3s用实时涨幅插值算板块内名次, 写 cfzy_biz_stock_pool.board_rank", "interval",
              {"seconds": 60}, "refresh_sector_strength"),

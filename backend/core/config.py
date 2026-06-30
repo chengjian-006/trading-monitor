@@ -38,6 +38,22 @@ DEFAULT_CONFIG = {
         "request": {},           # {url, method, params, headers, body}
         "field_map": {},         # {list, post_id, time, content, url}
     },
+    # 同花顺问财(iwencai)自然语言选股 → 问财候选榜。
+    # enabled=False 占位: 需在部署机装 Node(算 hexin-v token)+ pip install pywencai 后再开,
+    # 否则 wencai_scanner 早返回不跑(不会报错刷告警)。queries 每条独立成榜, 仅 enabled=True 的执行。
+    # 完整接入说明见 backend/fetcher/wencai_screener.py 顶部 docstring。
+    "wencai_screening": {
+        "enabled": False,
+        "queries": [
+            {"id": "breakout", "name": "量价突破型",
+             "query": "换手率大于5% 且 创60日新高 且 成交额大于2亿 且 非ST", "enabled": True},
+            {"id": "pullback", "name": "缩量回踩型",
+             "query": "回踩10日均线 且 缩量 且 近一月涨幅大于15% 且 非ST", "enabled": True},
+            {"id": "theme", "name": "题材强势型",
+             "query": "涨幅大于5% 且 属于热门概念 且 流通市值小于100亿 且 非ST", "enabled": True},
+        ],
+        "result_limit": 50,      # 每条语句最多落库前 N 只(问财默认按其相关度排序)
+    },
 }
 
 
