@@ -481,18 +481,34 @@ SCHEMA_STATEMENTS = [
     )
     """,
     # 问财候选榜 (v1.7.540) — 每条选股语句一行, items JSON 存该策略当前选出的候选股清单。
-    # 由 scan_wencai 定时跑 pywencai 选股后整行 UPSERT(全局共享一份, 非按用户), 前端 WencaiView 读此展示+一键加自选。
-    # last_error 非空表示该策略最近一次拉取失败(供前端提示), items 保留上一次成功结果。
+    # 由 scan_wencai 定时跑 pywencai 选股后整行 UPSERT, 前端 WencaiView 读此展示+一键加自选。
+    # strategy_id 全局唯一: 预置榜=breakout/pullback/theme(user_id=0 全局共享); 用户自定义榜=u{uid}_q{qid}(user_id=该用户)。
+    # user_id (v1.7.546) 区分预置(0)与各用户自定义, 列表按 user_id IN (0, 当前用户) 取。last_error 非空=最近一次拉取失败, items 保留上次成功结果。
     """
     CREATE TABLE IF NOT EXISTS cfzy_sys_wencai_pool (
         strategy_id   VARCHAR(40) NOT NULL PRIMARY KEY,
+        user_id       INT NOT NULL DEFAULT 0,
         strategy_name VARCHAR(40) NOT NULL DEFAULT '',
         query_text    VARCHAR(255) NOT NULL DEFAULT '',
         trade_date    VARCHAR(10) NOT NULL DEFAULT '',
         stock_count   INT NOT NULL DEFAULT 0,
         items         JSON,
         last_error    VARCHAR(255) NOT NULL DEFAULT '',
-        computed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        computed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id)
+    )
+    """,
+    # 用户自定义问财选股语句 (v1.7.546) — 每用户可增删改自己的常驻榜语句, 由 scan_wencai 定时跑、存进 cfzy_sys_wencai_pool(strategy_id=u{uid}_q{id})。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_wencai_query (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL,
+        name        VARCHAR(40) NOT NULL DEFAULT '',
+        query_text  VARCHAR(255) NOT NULL,
+        enabled     TINYINT NOT NULL DEFAULT 1,
+        sort_order  INT NOT NULL DEFAULT 0,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id)
     )
     """,
     # 市场情绪温度表 (v1.7.x) — 按 日期×题材 记当日各涨停题材的涨停家数(热度),
@@ -912,6 +928,10 @@ MIGRATION_STATEMENTS = [
     #   WHERE trade_date >= %s (不带 code) 查 → 主键用不上, 601万行全表扫描~2.6s且占着连接。
     #   补 trade_date 单列索引, 窄日期范围查询从全表扫降到索引范围扫。
     "ALTER TABLE cfzy_sys_kline_cache ADD INDEX idx_kc_trade_date (trade_date)",
+    # v1.7.546: 问财候选榜支持用户自定义语句 — 给已部署的 cfzy_sys_wencai_pool 补 user_id 列
+    #   (预置榜=0 全局共享, 用户自定义榜=该用户id; strategy_id 全局唯一靠 u{uid}_q{qid} 命名)
+    "ALTER TABLE cfzy_sys_wencai_pool ADD COLUMN user_id INT NOT NULL DEFAULT 0",
+    "ALTER TABLE cfzy_sys_wencai_pool ADD INDEX idx_user (user_id)",
 ]
 
 

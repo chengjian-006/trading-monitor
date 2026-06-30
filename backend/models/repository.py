@@ -111,7 +111,12 @@ from backend.models.repo.theme_heat import (  # noqa: F401
     save_theme_heat, get_theme_heat,
 )
 from backend.models.repo.wencai_pool import (  # noqa: F401
-    upsert_wencai_strategy, set_wencai_error, list_wencai_pool,
+    upsert_wencai_strategy, set_wencai_error, list_wencai_pool, delete_wencai_pool_row,
+)
+from backend.models.repo.wencai_query import (  # noqa: F401
+    pool_strategy_id, list_user_queries, get_query as get_wencai_query,
+    add_query as add_wencai_query, update_query as update_wencai_query,
+    delete_query as delete_wencai_query, list_all_enabled_queries,
 )
 from backend.models.repo.sector_rotation import (  # noqa: F401
     upsert_sector_rotation, upsert_sector_prediction, get_sector_rotation,

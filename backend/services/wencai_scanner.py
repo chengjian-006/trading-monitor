@@ -57,10 +57,23 @@ async def scan_wencai():
     if not cfg.get("enabled", False):
         return
 
-    queries = [q for q in (cfg.get("queries") or []) if q.get("enabled", True) and q.get("query")]
-    if not queries:
-        return
     limit = int(cfg.get("result_limit", 50))
+    # 工作清单 = 预置榜(user_id=0 全局共享) + 各用户启用的自定义语句(user_id=该用户)
+    # 每项: (strategy_id, user_id, name, query_text)
+    work: list[tuple] = []
+    for q in (cfg.get("queries") or []):
+        if q.get("enabled", True) and q.get("query"):
+            sid = q.get("id") or q.get("name") or ""
+            work.append((sid, 0, q.get("name") or sid, q.get("query")))
+    try:
+        for uq in await repository.list_all_enabled_queries():
+            if uq.get("query_text"):
+                sid = repository.pool_strategy_id(uq["user_id"], uq["id"])
+                work.append((sid, uq["user_id"], uq.get("name") or sid, uq["query_text"]))
+    except Exception as e:
+        logger.warning(f"[wencai] 取用户自定义语句失败: {e}")
+    if not work:
+        return
 
     global _last_scan, _fail_count, _fail_alerted, _last_fail_alert_at, _backoff_until
     interval = _get_interval_seconds()
@@ -79,13 +92,10 @@ async def scan_wencai():
     ok_count = 0
     total_stocks = 0
     last_err = ""
-    for q in queries:
-        sid = q.get("id") or q.get("name") or ""
-        sname = q.get("name") or sid
-        qtext = q.get("query") or ""
+    for sid, uid, sname, qtext in work:
         try:
             items = await fetch_wencai(qtext, limit=limit)
-            await repository.upsert_wencai_strategy(sid, sname, qtext, trade_date, items)
+            await repository.upsert_wencai_strategy(sid, uid, sname, qtext, trade_date, items)
             ok_count += 1
             total_stocks += len(items)
         except WencaiFetchError as e:
@@ -121,4 +131,4 @@ async def scan_wencai():
     _fail_alerted = False
     _backoff_until = 0.0
 
-    logger.info(f"[wencai] 本轮 {ok_count}/{len(queries)} 条语句成功, 共 {total_stocks} 只候选")
+    logger.info(f"[wencai] 本轮 {ok_count}/{len(work)} 条语句成功, 共 {total_stocks} 只候选")

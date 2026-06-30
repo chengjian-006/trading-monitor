@@ -27,7 +27,18 @@ export interface WencaiStrategy {
   computed_at: string | null
   stock_count: number
   last_error: string
+  is_custom: boolean
+  query_id: number | null
   items: WencaiItem[]
+}
+
+export interface WencaiQuery {
+  id: number
+  user_id: number
+  name: string
+  query_text: string
+  enabled: number
+  sort_order: number
 }
 
 export async function fetchWencai(): Promise<{ strategies: WencaiStrategy[] }> {
@@ -37,5 +48,32 @@ export async function fetchWencai(): Promise<{ strategies: WencaiStrategy[] }> {
 
 export async function addWencaiToPool(stocks: { code: string; name: string }[]): Promise<{ ok: boolean; added: number; total: number }> {
   const { data } = await client.post('/api/wencai/add-to-pool', { stocks }, { timeout: 60000 })
+  return data
+}
+
+// 即时搜索(不保存), 后端会跑 pywencai, 给足超时
+export async function searchWencai(query: string): Promise<{ query: string; stock_count: number; items: WencaiItem[] }> {
+  const { data } = await client.post('/api/wencai/search', { query }, { timeout: 40000 })
+  return data
+}
+
+export async function listWencaiQueries(): Promise<{ queries: WencaiQuery[] }> {
+  const { data } = await client.get('/api/wencai/queries')
+  return data
+}
+
+// 新增常驻语句(后端会立即跑一次出榜, 给足超时)
+export async function createWencaiQuery(name: string, query: string): Promise<{ ok: boolean; id: number; run: { ok: boolean; stock_count: number; error: string } }> {
+  const { data } = await client.post('/api/wencai/queries', { name, query }, { timeout: 40000 })
+  return data
+}
+
+export async function updateWencaiQuery(id: number, params: { name?: string; query?: string; enabled?: number }): Promise<{ ok: boolean }> {
+  const { data } = await client.put(`/api/wencai/queries/${id}`, params, { timeout: 40000 })
+  return data
+}
+
+export async function deleteWencaiQuery(id: number): Promise<{ ok: boolean }> {
+  const { data } = await client.delete(`/api/wencai/queries/${id}`)
   return data
 }
