@@ -41,6 +41,17 @@ onMounted(async () => {
 
 const cardWidth = computed(() => viewMode.value === 'mobile' ? '360px' : '100%')
 const cardFontSize = computed(() => viewMode.value === 'mobile' ? '13px' : '14px')
+
+// 折叠面板(collapsible_panel)展开状态: 按 模版id:元素序号 记, 切模版不串状态
+const panelOpen = ref<Record<string, boolean>>({})
+function isPanelOpen(ei: number, def?: boolean): boolean {
+  const k = `${selectedId.value}:${ei}`
+  return k in panelOpen.value ? panelOpen.value[k] : !!def
+}
+function togglePanel(ei: number, def?: boolean) {
+  const k = `${selectedId.value}:${ei}`
+  panelOpen.value = { ...panelOpen.value, [k]: !isPanelOpen(ei, def) }
+}
 </script>
 
 <template>
@@ -122,6 +133,16 @@ const cardFontSize = computed(() => viewMode.value === 'mobile' ? '13px' : '14px
                     </tr>
                   </tbody>
                 </table>
+              </div>
+              <div v-else-if="el.tag === 'collapsible_panel'" class="el-collapsible">
+                <div class="el-collapse-head" @click="togglePanel(ei, el.expanded)">
+                  <span class="el-collapse-title" v-html="renderMd(el.header?.title?.content || '')" />
+                  <span class="el-collapse-icon" :class="{ open: isPanelOpen(ei, el.expanded) }">▾</span>
+                </div>
+                <div v-if="isPanelOpen(ei, el.expanded)" class="el-collapse-body">
+                  <div v-for="(ce, ci) in (el.elements || [])" :key="ci"
+                       class="el-markdown" v-html="renderMd(ce.content)" />
+                </div>
               </div>
             </template>
           </div>
@@ -240,6 +261,17 @@ function renderMd(content: string): string {
 .el-markdown :deep(font) { font-size: 12px; }
 
 /* Table */
+/* 折叠面板预览: 头部常显(第一句)+点击展开正文, 与飞书 collapsible_panel 一致 */
+.el-collapsible { margin: 8px 0; border: 1px solid #ebedf0; border-radius: 6px; overflow: hidden; }
+.el-collapse-head { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; cursor: pointer; background: #fafbfc; user-select: none; }
+.el-collapse-head:hover { background: #f2f4f7; }
+.el-collapse-title { flex: 1; min-width: 0; font-size: 13px; color: #333; line-height: 1.5; }
+.el-collapse-title :deep(strong) { color: #1f1f1f; font-weight: 600; }
+.el-collapse-icon { flex-shrink: 0; color: #999; font-size: 12px; transition: transform 0.2s; }
+.el-collapse-icon.open { transform: rotate(180deg); }
+.el-collapse-body { padding: 8px 10px; border-top: 1px solid #ebedf0; font-size: 13px; color: #555; line-height: 1.6; }
+
 .el-table-wrap { margin: 10px 0; }
 .el-table {
   width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px;

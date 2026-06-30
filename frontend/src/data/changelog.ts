@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.544',
+    date: '2026-06-30',
+    title: '飞书模版预览·支持折叠面板+同步信号卡新格式',
+    changes: [
+      { text: '改进:飞书推送模版预览页支持渲染「折叠面板」(collapsible_panel)——头部常显第一句、点击展开看全文, 与真实飞书卡片一致。', tag: 'improve' },
+      { text: '改进:同步买入/卖出信号卡预览到新格式(v1.7.543)——关键数字前置(买入💰成交额·🎯胜率排名 / 卖出📊成本→当前·浮亏%)+「我的策略」折叠展示。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.543',
     date: '2026-06-30',
     title: '推送直观化(二)·个股买卖信号卡关键数字前置+策略折叠',
