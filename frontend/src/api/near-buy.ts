@@ -6,6 +6,11 @@ export interface NearBuyHit {
   buy_name: string
   note: string
   miss: string[]
+  // 可视化差距(v1.7.536): 贴线度 = 1 - dist_pct/band_pct; 条件满足 = met/total
+  dist_pct?: number   // 距均线/上沿 %(越小越贴)
+  band_pct?: number   // 贴线带阈值 %(归一化用)
+  met?: number        // 已满足条件数
+  total?: number      // 总条件数
 }
 
 export interface NearBuyItem {

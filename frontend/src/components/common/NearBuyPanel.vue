@@ -5,7 +5,7 @@
 import { ref, computed } from 'vue'
 import { NSkeleton, NButton, NIcon, NTooltip } from 'naive-ui'
 import { RefreshOutline, LocateOutline } from '@vicons/ionicons5'
-import { fetchNearBuy, type NearBuySnapshot, type NearBuyItem } from '../../api/near-buy'
+import { fetchNearBuy, type NearBuySnapshot, type NearBuyItem, type NearBuyHit } from '../../api/near-buy'
 import { useUiStore } from '../../stores/ui'
 import { useVisiblePolling } from '../../composables/useVisiblePolling'
 
@@ -27,6 +27,26 @@ function openChart(it: NearBuyItem) {
 // 多买点时展开"主点": 优先触发, 否则第一条
 function primaryHit(it: NearBuyItem) {
   return it.hits?.find(h => h.kind === '触发') ?? it.hits?.[0]
+}
+// ── 差距可视化(v1.7.536): 贴线度进度条 + 条件圆点, 替掉一排文字 ──
+// 贴线度 0~1: 越贴近均线/上沿越满(触发=满格); = 1 - 距线/贴线带
+function lineFill(h?: NearBuyHit): number {
+  if (!h) return 0
+  if (h.kind === '触发') return 1
+  if (h.dist_pct == null || h.band_pct == null || h.band_pct <= 0) return 0
+  return Math.max(0, Math.min(1, 1 - h.dist_pct / h.band_pct))
+}
+function distLabel(h?: NearBuyHit): string {
+  if (!h) return ''
+  if (h.kind === '触发') return '已越线'
+  return h.dist_pct != null ? `距线${h.dist_pct.toFixed(1)}%` : ''
+}
+// 条件文案: 全满足 / 还差N项(短名), 完整含阈值见 hover
+function condLabel(h?: NearBuyHit): string {
+  const m = h?.miss ?? []
+  if (!m.length) return '条件全满足'
+  const names = m.map(s => s.split('(')[0]).join('·')
+  return `还差${m.length}项: ${names}`
 }
 async function load() {
   loading.value = true
@@ -90,13 +110,26 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
                 {{ h.kind }}·{{ h.buy_name }}
               </span>
             </div>
-            <div v-if="primaryHit(it)" class="hit-detail">
-              <span class="hd-bp">{{ primaryHit(it)?.buy_name }}:</span>
-              <span class="hd-txt" :title="primaryHit(it)?.note">{{ primaryHit(it)?.note }}</span>
-              <span v-if="primaryHit(it)?.miss?.length" class="miss"
-                    :title="'还差: ' + primaryHit(it)?.miss?.join('、')">
-                还差: {{ primaryHit(it)?.miss?.join('、') }}
-              </span>
+            <div v-if="primaryHit(it)" class="gap-viz">
+              <!-- 贴线度: 越满=越贴近均线/上沿(触发=满格) -->
+              <div class="viz-row" :title="primaryHit(it)?.note">
+                <span class="viz-tag">贴线</span>
+                <span class="bar-track">
+                  <span class="bar-fill" :class="primaryHit(it)?.kind === '触发' ? 'f-trig' : 'f-near'"
+                        :style="{ width: (lineFill(primaryHit(it)) * 100).toFixed(0) + '%' }" />
+                </span>
+                <span class="viz-val">{{ distLabel(primaryHit(it)) }}</span>
+              </div>
+              <!-- 条件圆点: 绿=已满足, 灰=还差 -->
+              <div v-if="(primaryHit(it)?.total ?? 0) > 0" class="viz-row"
+                   :title="condLabel(primaryHit(it))">
+                <span class="viz-tag">条件</span>
+                <span class="dots">
+                  <i v-for="n in (primaryHit(it)?.total ?? 0)" :key="n"
+                     class="dot" :class="n <= (primaryHit(it)?.met ?? 0) ? 'on' : 'off'" />
+                </span>
+                <span class="viz-val miss-val">{{ condLabel(primaryHit(it)) }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -147,11 +180,20 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .chip { font-size: 10.5px; font-weight: 600; color: #fff; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
 .chip.c-trig { background: #d03050; }
 .chip.c-near { background: #f0a020; }
-.hit-detail { font-size: 11px; color: #888; line-height: 1.45; display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; }
-.hit-detail .hd-bp { color: #555; font-weight: 600; flex-shrink: 0; }
-.hit-detail .hd-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 还差项: 平铺整行显示具体缺哪个条件(不再只靠 hover), 自动换行不截断, 完整含阈值参数见 title */
-.hit-detail .miss { flex-basis: 100%; color: #f0884a; font-weight: 600; white-space: normal; }
+/* 差距可视化: 贴线度进度条 + 条件圆点(v1.7.536), 一眼看出多接近/差几项, 文字退到 hover */
+.gap-viz { display: flex; flex-direction: column; gap: 3px; }
+.viz-row { display: flex; align-items: center; gap: 6px; font-size: 11px; min-width: 0; }
+.viz-tag { color: #999; flex-shrink: 0; width: 24px; }
+.bar-track { position: relative; flex: 1; height: 7px; min-width: 40px; background: #eef0f3; border-radius: 4px; overflow: hidden; }
+.bar-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; transition: width 0.3s; }
+.bar-fill.f-near { background: linear-gradient(90deg, #f7c873, #f0a020); }
+.bar-fill.f-trig { background: linear-gradient(90deg, #f0708d, #d03050); }
+.viz-val { flex-shrink: 0; color: #888; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.viz-val.miss-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #f0884a; font-weight: 600; }
+.dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.dot.on { background: #18a058; }
+.dot.off { background: #d6d9de; }
 
 .foot-hint { margin-top: 10px; font-size: 11px; color: #999; line-height: 1.6; background: rgba(0,0,0,0.02); padding: 7px 10px; border-radius: 6px; }
 .empty { margin-top: 16px; text-align: center; color: #999; font-size: 13px; padding: 16px; line-height: 1.6; }
@@ -167,8 +209,8 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
   .list { grid-template-columns: 1fr; gap: 6px; }
   .row { padding: 6px 8px; }
   .hits { margin-top: 3px; }
-  /* 窄屏: 贴线说明不再省略号截断, 换行显示全 */
-  .hit-detail .hd-txt { white-space: normal; }
+  /* 窄屏: 条件文案不省略号截断, 换行显示全 */
+  .viz-val.miss-val { white-space: normal; }
   .foot-hint { margin-top: 7px; padding: 6px 9px; }
 }
 </style>

@@ -280,8 +280,13 @@ def evaluate(df: pd.DataFrame, rt: dict | None, cfg: dict) -> dict | None:
         if buy_id in triggered:
             ev = evals.get(buy_id)
             d_anchor = ev["anchor_dist"] if ev else 0.0
+            total = len(ev["checks"]) if ev and ev.get("checks") else 0
+            band = float(ev["near_pct"]) if ev else 0.0
+            # 触发 = 已到/越线且条件全满足: 贴线度满格(dist_pct=0)、条件全绿(met=total)
             hits.append({"kind": "触发", "buy_id": buy_id, "buy_name": name,
-                         "note": triggered[buy_id], "miss": []})
+                         "note": triggered[buy_id], "miss": [],
+                         "dist_pct": 0.0, "band_pct": round(band, 2),
+                         "met": total, "total": total})
             dist = min(dist, d_anchor)
 
     if not hits:  # 没有任何触发, 再看接近(避免触发票被接近档重复标注)
@@ -292,8 +297,12 @@ def evaluate(df: pd.DataFrame, rt: dict | None, cfg: dict) -> dict | None:
                     and ev["anchor_dist"] <= ev["near_pct"])
             if near:
                 miss = [_fmt_miss(c) for c in ev["checks"] if not c["ok"]]
+                # 可视化数值: 贴线度(dist_pct/band_pct)+条件满足(met/total), 供前端画进度条+圆点
                 hits.append({"kind": "接近", "buy_id": buy_id, "buy_name": BUY_NAMES[buy_id],
-                             "note": ev["note"], "miss": miss})
+                             "note": ev["note"], "miss": miss,
+                             "dist_pct": round(float(ev["anchor_dist"]), 2),
+                             "band_pct": round(float(ev["near_pct"]), 2),
+                             "met": int(ev["score"]), "total": len(ev["checks"])})
                 dist = min(dist, ev["anchor_dist"])
 
     if not hits:
