@@ -387,7 +387,8 @@ async def gather_holdings_payload(user_id: int = 1) -> list[dict]:
                 profit_protect = hg.profit_protect_triggered(cost, peak, price)
 
             board = compute_board_rank(code, q.get("pct_change"))
-            profit_pct = round((price / cost - 1) * 100, 1) if (price and cost) else 0.0
+            # cost>0 才算浮盈%; 摊薄成本 ≤0(超额落袋)极罕见, 回退0防 None 格式化崩 & 假亏损显示
+            profit_pct = round((price / cost - 1) * 100, 1) if (price and cost and cost > 0) else 0.0
 
             payloads.append({
                 "code": code,

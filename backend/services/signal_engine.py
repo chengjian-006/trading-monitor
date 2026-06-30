@@ -181,10 +181,13 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
 
     weak_exit = entry_model == "BUY_WEAK_EXTREME"
 
-    # 护栏(v1.7.x): 持仓成本与现价偏离 >5 倍视为脏数据(如交割单列错位把成交金额写进成本,
+    # 护栏(v1.7.x): 持仓成本远高于现价(>5倍)视为脏数据(如交割单列错位把成交金额写进成本,
     # 11332 vs 现价 225 → 假浮亏 -98%), 跳过成本类卖点(止盈/浮亏止损); MA 破位等非成本卖点不受影响。
+    # v1.7.535: 成本口径改摊薄后, "成本远低于现价"(高抛低吸落袋利润压低剩余成本, 甚至 ≤0)是正常,
+    # 不再当脏数据 → 去掉旧的 entry_cost < close/5 下界; 仅保留上界。成本 ≤0(超额落袋)由 >0 判定挡下,
+    # 使全部成本类卖点跳过(已落袋利润不该被当亏损/止盈基准)。
     cost_valid = (entry_cost is not None and entry_cost > 0
-                  and not (close > 0 and (entry_cost > close * 5 or entry_cost < close / 5)))
+                  and not (close > 0 and entry_cost > close * 5))
     if entry_cost is not None and entry_cost > 0 and not cost_valid:
         logger.warning(
             f"[sell] 持仓成本与现价偏离过大, 疑似脏数据, 跳过成本类卖点: cost={entry_cost} close={close}")
@@ -443,7 +446,9 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
             ))
 
     # v1.7.x 主动止盈/止损 — 3 个新信号, 仅持仓票生效, 默认关闭(配置页开)
-    if is_holding and not weak_exit:
+    # v1.7.535: 加 cost_valid 闸 — 摊薄成本 ≤0(超额落袋)时这三个都按成本算阈值会失真
+    # (如盈亏比锁利 close≥负成本×… 恒成立乱报), 成本无效则整段跳过。
+    if is_holding and not weak_exit and cost_valid:
         # 1) 追踪止盈: 浮盈达到 min_gain_pct 后, 持仓期最高价回撤 drawdown_pct → 减仓
         sc = cfg.get("SELL_TRAIL_STOP", {})
         if sc.get("enabled", False) and entry_date:
@@ -523,7 +528,9 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
             # v1.7.422: 上涨日不报 — 现价 ≥ 昨收(当日上涨/平盘)不发止损催卖 (同 SELL_LOSS_10 口径)
             up_day = float(latest.get("pct_change", 0) or 0) >= 0
             skip_up = bool(sc.get("skip_on_up_day", True))
-            if close <= entry_cost * (1 - stop_pct / 100) and not (skip_up and up_day):
+            # v1.7.535: cost_valid 闸 — 摊薄成本 ≤0 时止损线为负, 现价永不 ≤, 本不会触发;
+            # 显式跳过避免负成本下浮亏%计算失真。
+            if cost_valid and close <= entry_cost * (1 - stop_pct / 100) and not (skip_up and up_day):
                 loss = (entry_cost - close) / entry_cost * 100
                 signals.append(Signal(
                     signal_id="SELL_WEAK_STOP",
@@ -543,14 +550,19 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
             history_after = d[d["date"] >= entry_date]
             hold_days = max(0, len(history_after) - 1)   # 入仓日记为 T0, 故 T+n = bars-after-entry
             if hold_days >= hold_cap:
-                gain_pct = (close - entry_cost) / entry_cost * 100
+                # 纯时间触发(到封顶日清仓), 不受成本影响照常发; 仅浮动%显示防摊薄成本≤0 失真。
+                if entry_cost and entry_cost > 0:
+                    gain_pct = (close - entry_cost) / entry_cost * 100
+                    pl_txt = f"成本{entry_cost:.2f} 当前{close:.2f} 浮动{gain_pct:+.1f}%"
+                else:
+                    pl_txt = f"当前{close:.2f}(成本已摊薄归零/为负, 超额落袋)"
                 signals.append(Signal(
                     signal_id="SELL_WEAK_TIME",
                     signal_name=f"弱势极限 持有满{hold_cap}日 清仓",
                     direction="sell",
                     detail=(
                         f"弱势极限建仓(左侧出场) | 持有{hold_days}个交易日(封顶T+{hold_cap}) "
-                        f"成本{entry_cost:.2f} 当前{close:.2f} 浮动{gain_pct:+.1f}% | 到封顶日, 清仓"
+                        f"{pl_txt} | 到封顶日, 清仓"
                     ),
                     strength=3,
                     used_indicators=("close",),
