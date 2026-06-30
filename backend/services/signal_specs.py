@@ -65,6 +65,50 @@ def group_of(signal_id: str) -> str:
     return SIGNAL_GROUP_MAP.get(signal_id, "")
 
 
+# 卖出信号归类(报告"卖出"段三分组用): profit 主动止盈 / loss 被动止损 / discipline 纪律清仓
+_SELL_PROFIT_IDS = {"SELL_TAKE_PROFIT", "SELL_RR_TARGET", "SELL_TRAIL_STOP",
+                    "SELL_RALLY_MA20_HALF", "SELL_RALLY_MA10_HALF"}
+_SELL_DISCIPLINE_IDS = {"SELL_WEAK_TIME", "SELL_TIME_STOP"}   # 时间到/持满清仓(SELL_TIME_STOP名含"止损"但是纪律)
+_SELL_LOSS_IDS = {"SELL_LOSS_5", "SELL_LOSS_8", "SELL_LOSS_10", "SELL_WEAK_STOP",
+                  "SELL_BREAK_MA5", "SELL_BREAK_MA10", "SELL_BREAK_MA20"}
+
+SELL_CATEGORY_LABEL = {"profit": "主动止盈", "loss": "被动止损", "discipline": "纪律清仓"}
+SELL_CATEGORY_EMOJI = {"profit": "🟢", "loss": "🔴", "discipline": "⏳"}
+
+
+def sell_category(signal_id: str | None, signal_name: str = "") -> str:
+    """卖出信号归类 → 'profit'(主动止盈) / 'loss'(被动止损) / 'discipline'(纪律清仓)。
+
+    已登记 id 直判; 回踩MA派生卖点(SELL_RALLY_MA20/MA10, 名称随触发原因变)与未登记的按名称关键词。
+    """
+    sid = (signal_id or "").upper()
+    if sid in _SELL_PROFIT_IDS:
+        return "profit"
+    if sid in _SELL_DISCIPLINE_IDS:
+        return "discipline"
+    if sid in _SELL_LOSS_IDS:
+        return "loss"
+    nm = signal_name or ""
+    if any(k in nm for k in ("止盈", "锁利", "减半")):
+        return "profit"
+    if any(k in nm for k in ("持有满", "持满", "时间")):
+        return "discipline"
+    if any(k in nm for k in ("止损", "跌破", "破位", "警戒")):
+        return "loss"
+    return "loss"   # 兜底偏保守: 卖出默认当风控处理
+
+
+def sell_group_category(signals: list[tuple]) -> str:
+    """一只票多个卖出信号时的归类: 被动止损 > 纪律清仓 > 主动止盈 (先暴露风险)。
+    signals: [(signal_id, signal_name), ...]。"""
+    cats = {sell_category(sid, nm) for sid, nm in signals}
+    if "loss" in cats:
+        return "loss"
+    if "discipline" in cats:
+        return "discipline"
+    return "profit"
+
+
 # 推送优先级覆盖 (1=仅 DB / 2=DB+前端 / 3=DB+前端+企微).
 # 不在表里的信号走 Signal.strength.
 PRIORITY_OVERRIDES: dict[str, int] = {

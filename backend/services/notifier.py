@@ -681,11 +681,19 @@ def _signals_tables(context: dict | None) -> list:
         elements.append(lark_notifier.md_element(f"**🟢 个股信号（{len(stocks)}）**"))
         elements.append(lark_notifier.table_element(cols, rows))
     if sell_groups:
+        from backend.services.signal_specs import SELL_CATEGORY_LABEL, SELL_CATEGORY_EMOJI
         cols = [{"name": "name", "display_name": "名称", "data_type": "text", "width": "42%"},
                 {"name": "sig", "display_name": "信号", "data_type": "text", "width": "58%"}]
-        rows = [{"name": f"{g['name']}({g['code']})", "sig": " / ".join(g["signals"])} for g in sell_groups]
         elements.append(lark_notifier.md_element(f"**🔴 卖出（{len(sell_groups)}）**"))
-        elements.append(lark_notifier.table_element(cols, rows))
+        # 三组: 主动止盈 / 被动止损 / 纪律清仓, 各起一张小表(空组跳过)
+        for cat in ("profit", "loss", "discipline"):
+            cat_groups = [g for g in sell_groups if g.get("category", "loss") == cat]
+            if not cat_groups:
+                continue
+            rows = [{"name": f"{g['name']}({g['code']})", "sig": " / ".join(g["signals"])} for g in cat_groups]
+            elements.append(lark_notifier.md_element(
+                f"{SELL_CATEGORY_EMOJI[cat]} {SELL_CATEGORY_LABEL[cat]}（{len(cat_groups)}）"))
+            elements.append(lark_notifier.table_element(cols, rows))
     return elements
 
 
@@ -873,15 +881,19 @@ def _build_report_text(slot_name: str, context: dict | None, *,
                 for d in signals["buy_details"]:
                     lines.append(f"    {d}")
 
-        # 卖出: 按个股聚合, 同股多信号合并
+        # 卖出: 按个股聚合, 同股多信号合并, 三组(主动止盈/被动止损/纪律清仓)
         if signals["sell"] > 0:
             lines.append(f"  🔴 卖出({signals['sell']})")
             groups = signals.get("sell_groups") or []
             if groups:
-                for g in groups:
-                    count = len(g["signals"])
-                    lines.append(f"    {g['name']}({g['code']}) {count}条")
-                    lines.append(f"      {' / '.join(g['signals'])}")
+                from backend.services.signal_specs import SELL_CATEGORY_LABEL, SELL_CATEGORY_EMOJI
+                for cat in ("profit", "loss", "discipline"):
+                    cat_groups = [g for g in groups if g.get("category", "loss") == cat]
+                    if not cat_groups:
+                        continue
+                    lines.append(f"    {SELL_CATEGORY_EMOJI[cat]} {SELL_CATEGORY_LABEL[cat]}({len(cat_groups)})")
+                    for g in cat_groups:
+                        lines.append(f"      {g['name']}({g['code']}) {' / '.join(g['signals'])}")
             elif signals.get("sell_details"):
                 for d in signals["sell_details"]:
                     lines.append(f"    {d}")

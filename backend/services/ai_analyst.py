@@ -1159,14 +1159,19 @@ async def gather_market_context(time_slot: str) -> dict:
         buy_sectors = [s for s in buy_list if str(s["code"]).startswith("BK")]
         buy_stocks = [s for s in buy_list if not str(s["code"]).startswith("BK")]
 
-        # 卖出: 按个股聚合, 同股多信号合并(保持触发顺序)
+        # 卖出: 按个股聚合, 同股多信号合并(保持触发顺序), 并按"主动止盈/被动止损/纪律清仓"归类
         from collections import OrderedDict
+        from backend.services.signal_specs import sell_group_category
         sell_by_code: "OrderedDict[str, dict]" = OrderedDict()
         for s in sell_list:
             key = s["code"]
             if key not in sell_by_code:
-                sell_by_code[key] = {"code": s["code"], "name": s["name"], "signals": []}
+                sell_by_code[key] = {"code": s["code"], "name": s["name"],
+                                     "signals": [], "_sig_ids": []}
             sell_by_code[key]["signals"].append(s["signal_name"])
+            sell_by_code[key]["_sig_ids"].append((s.get("signal_id"), s.get("signal_name")))
+        for g in sell_by_code.values():
+            g["category"] = sell_group_category(g.pop("_sig_ids"))
 
         # 午盘(1400)/收盘(1500)报告: 给每个买点附历史胜率
         # (近90天真实 outcome, 成功=买入后5个交易日收盘 ≥+5%; 样本不足则不显示)
