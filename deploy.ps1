@@ -50,7 +50,9 @@ Write-Host "  Done" -ForegroundColor Green
 
 Write-Host "[3/4] Building on server..." -ForegroundColor Yellow
 # 注: 清理归档用绝对路径 $REMOTE_DIR/...; 不用裸文件名 rm trading-deploy.tar.gz —— 后者会被本地命令安全扫描误判成删除根目录 /trading-deploy.tar.gz 而拦截整条命令
-& ssh -i $KEY "${USER}@${SERVER}" "cd $REMOTE_DIR && tar -xzf trading-deploy.tar.gz && rm -f $REMOTE_DIR/trading-deploy.tar.gz && pip install -q --break-system-packages -r requirements.txt 2>&1 | tail -3 && cd frontend && npm install --silent 2>&1 | tail -1 && npx vite build 2>&1 | tail -3"
+# 依赖装进服务实际运行的 venv(systemd 跑 $REMOTE_DIR/venv/bin/uvicorn), 不要用系统 pip --break-system-packages
+# ——后者装到系统 python, venv 看不到, 新依赖会哑火(2026-06-30 pywencai 中招根因)。venv pip 无需 --break-system-packages。
+& ssh -i $KEY "${USER}@${SERVER}" "cd $REMOTE_DIR && tar -xzf trading-deploy.tar.gz && rm -f $REMOTE_DIR/trading-deploy.tar.gz && $REMOTE_DIR/venv/bin/pip install -q -r requirements.txt 2>&1 | tail -3 && cd frontend && npm install --silent 2>&1 | tail -1 && npx vite build 2>&1 | tail -3"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Build failed!" -ForegroundColor Red
     Read-Host "Press Enter to exit"

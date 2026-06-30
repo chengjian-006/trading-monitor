@@ -204,6 +204,33 @@ def _kpi_line(price: float, pct_change: float, direction: str, ms: dict | None =
     return f"现价{b(f'{price:.2f}')}{tail}"
 
 
+def _first_sentence(text: str, maxlen: int = 36) -> str:
+    """取策略第一句(供折叠 header 常显): 先按句末标点切, 否则按长度截断。"""
+    t = " ".join(x.strip() for x in (text or "").strip().split("\n") if x.strip())
+    for d in ("；", ";", "。"):
+        i = t.find(d)
+        if 0 <= i <= maxlen + 12:
+            return t[:i + 1]
+    return t[:maxlen] + ("…" if len(t) > maxlen else "")
+
+
+def _headline(direction: str, amount: str | None, ms: dict | None,
+              conds: list | None, *, bold: bool) -> str:
+    """关键数字前置行: 买入=成交额+近3月胜率排名; 卖出/减仓=浮盈/成本。无则空串。"""
+    b = (lambda s: f"**{s}**") if bold else (lambda s: str(s))
+    if direction == "buy":
+        parts = []
+        if amount:
+            parts.append(f"💰 {_bold_nums(amount) if bold else amount}")
+        if ms and ms.get("rank_3m"):
+            wr = _ms_wr(ms, "3m")
+            parts.append(f"🎯 近3月胜率{b(wr)}·第{b(ms['rank_3m'])}名" if wr != "—"
+                         else f"🎯 全模型第{b(ms['rank_3m'])}名")
+        return "　".join(parts)
+    cc = next((c for c in (conds or []) if ("成本" in c or "浮" in c)), "")
+    return (f"📊 {_bold_nums(cc) if bold else cc}") if cc else ""
+
+
 def _basics_line(basics: dict | None, *, bold: bool) -> str:
     """预警时点基础信息行: 市场人气排名 / 成交额排名(100名内)。无则空串。"""
     if not basics:
@@ -265,22 +292,35 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
         header += f"\n{_bl}"
     els = [lark_notifier.md_element(header)]
 
+    conds, plan, reso, amount = _split_detail_sections(detail)
+
+    # 🔑 关键数字前置 — 买入:成交额+胜率排名 / 卖出:浮盈·成本, 紧跟现价让一眼看到
+    _hl = _headline(direction, amount, model_stats, conds, bold=True)
+    if _hl:
+        els.append(lark_notifier.md_element(_hl))
+
     # 📊 所属板块最近情况 — 题材是否在风口/退潮
     _sl = _sector_line(sector, bold=True)
     if _sl:
         els.append(lark_notifier.md_element(_sl))
 
-    # 📌 我的策略 — 用户第一时间看到自己定制的规则
+    # 📌 我的策略 — 长文默认折叠只显第一句, 点开看全(减少卡片堆叠)
     if strategy and strategy.strip():
         s_one = " · ".join(x.strip() for x in strategy.strip().split("\n") if x.strip())
-        els.append(lark_notifier.md_element(f"📌 **我的策略**　{s_one}"))
+        first = _first_sentence(s_one)
+        if len(s_one) > len(first) + 2:
+            els.append(lark_notifier.collapsible_element(
+                f"📌 **我的策略**　{first}", s_one))
+        else:
+            els.append(lark_notifier.md_element(f"📌 **我的策略**　{s_one}"))
 
     # 🎯 触发条件 / 💰 成交额 / 📋 计划 / 🔗 共振 — 各占一行
-    conds, plan, reso, amount = _split_detail_sections(detail)
+    # 卖出已把"成本/浮盈"前置到 headline, body 里去掉该段防重复
+    body_conds = conds if direction == "buy" else [c for c in conds if not ("成本" in c or "浮" in c)]
     body = []
-    if conds:
-        body.append("🎯 个股实情：" + " · ".join(_bold_nums(c) for c in conds))
-    if amount:
+    if body_conds:
+        body.append("🎯 个股实情：" + " · ".join(_bold_nums(c) for c in body_conds))
+    if amount and direction != "buy":     # 买入成交额已前置到 headline, body 不重复
         body.append(f"💰 {_bold_nums(amount)}")
     rule = MODEL_RULES.get(signal_name, "")
     if rule:
@@ -331,6 +371,11 @@ def _build_text(code: str, name: str, signal_name: str,
         f"📌 {name}  {code}",
         f"   {_kpi_line(price, pct_change, direction, model_stats, bold=False)}",
     ]
+    conds, plan, reso, amount = _split_detail_sections(detail)
+    # 🔑 关键数字前置(同卡片): 买入成交额+胜率排名 / 卖出浮盈·成本
+    _hl = _headline(direction, amount, model_stats, conds, bold=False)
+    if _hl:
+        lines.append(f"   {_hl}")
     _bl = _basics_line(basics, bold=False)
     if _bl:
         lines.append(f"   {_bl}")
@@ -341,18 +386,19 @@ def _build_text(code: str, name: str, signal_name: str,
     if direction == "buy":
         lines.extend(_build_model_stats_block(model_stats))
 
-    # 我的策略(用户预设) — 紧凑一行
+    # 我的策略(用户预设) — 文本渠道不可展开, 截首句保持简洁
     if strategy and strategy.strip():
         s_one = " · ".join(x.strip() for x in strategy.strip().split("\n") if x.strip())
+        s_show = _first_sentence(s_one)
         lines.append(sep)
-        lines.append(f"📌 我的策略  {s_one}")
+        lines.append(f"📌 我的策略  {s_show}")
 
     # 触发条件(合并一行) / 交易计划(一行) / 共振+成交(一行)
-    conds, plan, reso, amount = _split_detail_sections(detail)
+    body_conds = conds if direction == "buy" else [c for c in conds if not ("成本" in c or "浮" in c)]
     body = []
-    if conds:
-        body.append(f"🎯 个股实情：{' · '.join(conds)}")
-    if amount:
+    if body_conds:
+        body.append(f"🎯 个股实情：{' · '.join(body_conds)}")
+    if amount and direction != "buy":
         body.append(f"💰 {amount}")
     rule = MODEL_RULES.get(signal_name, "")
     if rule:

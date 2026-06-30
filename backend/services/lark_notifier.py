@@ -113,6 +113,24 @@ def md_element(content: str) -> dict:
     return {"tag": "markdown", "content": (content or "")[:4000]}
 
 
+def collapsible_element(summary_md: str, detail_md: str, expanded: bool = False) -> dict:
+    """折叠面板(schema2.0 collapsible_panel): header(summary) 常显, 点开展开 detail。
+    用于长文(如"我的策略")默认收起只显第一句, 减少卡片堆叠。飞书不支持时整卡回退纯文本。"""
+    return {
+        "tag": "collapsible_panel",
+        "expanded": bool(expanded),
+        "header": {
+            "title": {"tag": "markdown", "content": (summary_md or "")[:2000]},
+            "vertical_align": "center",
+            "icon": {"tag": "standard_icon", "token": "down-small-ccm_outlined",
+                     "color": "grey", "size": "12px 12px"},
+            "icon_position": "right",
+            "icon_expanded_angle": -180,
+        },
+        "elements": [{"tag": "markdown", "content": (detail_md or "")[:4000]}],
+    }
+
+
 def table_element(columns: list, rows: list, page_size: int = 10) -> dict:
     """原生表格元素。columns: [{name,display_name,data_type,width,horizontal_align}]; rows: [{col_name: value}]。
     data_type='options' 的单元格取 [{"text":..,"color":..}] 做彩色标签(红涨绿跌)。"""
