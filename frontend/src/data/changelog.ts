@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.533',
+    date: '2026-06-30',
+    title: '监控看板·操作列按钮不再折行(删除键不掉第二行)',
+    changes: [
+      { text: '修复:监控看板表格「操作」列6个图标按钮(预警/置顶/置底/关注/持仓/删除)因列宽不足(172px)被 NSpace 默认换行, 删除键折到第二行。改 NSpace wrap:false 强制单行, 列宽放宽到200px防裁切。', tag: 'fix' },
+    ],
+  },
+  {
     version: 'v1.7.532',
     date: '2026-06-30',
     title: '监控看板·人气列「100名外」不再折行',

@@ -906,9 +906,9 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    width: 172,
+    width: 200,
     fixed: 'right' as const,
-    render: (row: Stock) => h(NSpace, { size: 4 }, () => [
+    render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
       (() => {
         const sm = summaryFor(row.code)
         const hasTriggered = !!sm && sm.triggered > 0
