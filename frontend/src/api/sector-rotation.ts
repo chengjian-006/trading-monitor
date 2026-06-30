@@ -5,6 +5,7 @@ export interface SectorRotationItem {
   theme: string
   state: string // "启动" | "升温" | "高潮" | "退潮" | "冷"
   limit_up: number
+  yest?: number // 昨日(上一交易日)该题材涨停家数, 日基准口径
   slope: number
   max_height: number
   broken: number
@@ -18,6 +19,7 @@ export interface SectorTransition {
   direction: string    // "weak_to_strong" 弱转强 | "strong_to_weak" 强转弱
   theme: string
   limit_up: number
+  yest?: number        // 昨日该题材涨停家数(日基准口径: 昨X→今Y)
   slope: number
   max_height: number
   broken: number

@@ -108,3 +108,35 @@ def test_predict_weak_continue():
 
 def test_predict_empty():
     assert sr.predict_next_day([])["direction"] == "中性"
+
+
+# ── 日基准 classify_daily (带昨日基准的按日口径) ──
+
+def test_daily_weak_to_strong_user_example():
+    # 用户例: 昨3家→今盘中10家 → 启动(弱转强)
+    assert sr.classify_daily(yest=3, cur=10) == "启动"
+
+
+def test_daily_weak_to_strong_boundary():
+    # 昨3→今6(=昨+3, ≥4家) → 启动
+    assert sr.classify_daily(yest=3, cur=6) == "启动"
+    # 昨3→今5(仅+2, 未达+3) → 非启动; 今5≥4归高潮, 不触发弱转强推送
+    assert sr.classify_daily(yest=3, cur=5) == "高潮"
+    # 昨4(已热)→今10: 昨非冷, 不算弱转强, 归高潮(延续)
+    assert sr.classify_daily(yest=4, cur=10) == "高潮"
+
+
+def test_daily_strong_to_weak_afternoon_only():
+    # 昨8家→今3家(≤8×0.5): 下午判 退潮; 早盘不判(防未封满)
+    assert sr.classify_daily(yest=8, cur=3, is_afternoon=True) == "退潮"
+    assert sr.classify_daily(yest=8, cur=3, is_afternoon=False) != "退潮"
+
+
+def test_daily_strong_to_weak_needs_halve():
+    # 昨8→今5(>8×0.5) 下午 → 未腰斩, 不算退潮(今5仍≥4归高潮)
+    assert sr.classify_daily(yest=8, cur=5, is_afternoon=True) == "高潮"
+
+
+def test_daily_cold():
+    assert sr.classify_daily(yest=1, cur=1) == "冷"
+    assert sr.classify_daily(yest=0, cur=0) == "冷"

@@ -41,10 +41,11 @@ const s2wCount = computed(() => transitions.value.filter(t => t.direction === 's
 const flowShown = computed(() =>
   flowExpanded.value ? transitions.value : transitions.value.slice(0, FLOW_LIMIT))
 const isW2S = (t: SectorTransition) => t.direction === 'weak_to_strong'
-// 转强: 涨停N家 +slope; 转弱: 降至N家 · 炸M
+// 日基准口径: 昨X→今Y家; 转弱再带 · 炸M
 function flowStat(t: SectorTransition): string {
-  if (isW2S(t)) return `涨停${t.limit_up}家${t.slope > 0 ? ` +${t.slope}` : ''}`
-  return `降至${t.limit_up}家${t.broken > 0 ? ` · 炸${t.broken}` : ''}`
+  const yest = t.yest ?? 0
+  if (isW2S(t)) return `昨${yest}→今${t.limit_up}家`
+  return `昨${yest}→今${t.limit_up}家${t.broken > 0 ? ` · 炸${t.broken}` : ''}`
 }
 function samples3(arr: string[] | undefined): string[] {
   return (arr ?? []).slice(0, 3)
@@ -118,7 +119,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
     <template v-else>
       <!-- ── ① 今日转换流水 (头条) ── -->
       <div class="block">
-        <div class="block-title">今日转换流水<span class="bt-meta">谁从弱变强 / 从强转弱 · 时间倒序</span></div>
+        <div class="block-title">今日转换流水<span class="bt-meta">按日比昨(昨→今) · 时间倒序</span></div>
         <div v-if="transitions.length" class="flow">
           <div v-for="(t, i) in flowShown" :key="i" class="flow-row" :class="isW2S(t) ? 'w2s' : 's2w'">
             <span class="fl-time">{{ t.at }}</span>

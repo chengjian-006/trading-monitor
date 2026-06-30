@@ -103,6 +103,33 @@ def classify_intraday(series: list[int], texture: dict | None = None) -> str:
     return "升温" if slope > 0 else "高潮" if cur >= HOT_LIMIT_UP else "冷"
 
 
+# ── 日基准(带昨日基准的按日口径)阈值 v1.7.x ──
+COLD_BASE = 3            # 昨日涨停 ≤ 此值 = 昨日冷/温(弱转强前提; 含用户例"昨3→今10")
+DAILY_JUMP = 3          # 今日 ≥ 昨日 + 此值 = 较昨明显抬升
+DAILY_EBB_RATIO = 0.5   # 今日 ≤ 昨日 × 此值 = 较昨腰斩(强转弱)
+
+
+def classify_daily(yest: int, cur: int, texture: dict | None = None,
+                   is_afternoon: bool = False) -> str:
+    """日基准题材状态: 以昨日涨停家数 yest 为基准比今日盘中 cur(用户口径: 按日比, 非日内自比)。
+
+    yest: 昨日(上一交易日)该题材最终涨停家数; cur: 今日盘中当前涨停家数。
+    is_afternoon: 是否已过 13:00(强转弱仅下午判, 防早盘涨停未封满误报退潮)。
+    返回 '启动'/'退潮'/'高潮'/'升温'/'冷'。启动/退潮 触发弱转强/强转弱推送。
+    """
+    # 弱转强(启动): 昨冷今热 — 昨≤2家 且 今≥4家 且 今≥昨+3, 全天可判(今天真起来就报)
+    if yest <= COLD_BASE and cur >= HOT_LIMIT_UP and cur >= yest + DAILY_JUMP:
+        return "启动"
+    # 强转弱(退潮): 昨热今腰斩 — 昨≥4家 且 今≤昨×0.5, 仅下午判(早盘今日涨停尚未形成)
+    if is_afternoon and yest >= HOT_LIMIT_UP and cur <= yest * DAILY_EBB_RATIO:
+        return "退潮"
+    if cur >= HOT_LIMIT_UP:
+        return "高潮"          # 今日仍高位(非"昨冷今热"则归延续高潮)
+    if cur > COLD_LIMIT_UP and cur > yest:
+        return "升温"          # 今比昨多但没到热门门槛
+    return "冷"
+
+
 def detect_transition(prev_state: str | None, cur_state: str) -> str | None:
     """状态跃迁 → 推送类型。返回 'weak_to_strong' / 'strong_to_weak' / None。
 
