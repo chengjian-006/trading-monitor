@@ -42,8 +42,9 @@ async def _push(text: str, title: str, check_name: str) -> None:
         return
     _alerted_today[check_name] = today
     try:
-        from backend.services import notifier
-        await notifier.send_dual(text, lark_title=title, template="orange")
+        # v1.7.557 批次E: 不再实时独推, 登记进「系统健康·盘后汇总」当日合并成一条
+        from backend.services.system_health import report_issue
+        report_issue("数据源交叉校验", f"{title}: {text}")
     except Exception as e:
         logger.warning(f"[cross_check] 推送失败: {e}")
 

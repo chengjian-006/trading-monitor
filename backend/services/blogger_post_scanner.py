@@ -102,19 +102,16 @@ async def scan_blogger_posts():
             _last_fail_alert_at = time.time()
             _fail_alerted = True
             name = cfg.get("blogger_name", "博主")
-            await notifier.send_dual(
-                f"⚠️ 「{name}」发帖推送中断\n\n"
-                f"连续 {_fetch_fail_count} 次拉取失败: {e}\n\n"
-                f"多为同花顺 cookie / hexin-v 已过期。恢复办法:\n"
-                f"登录态打开博主主页 → F12 Network 抓 get_by_uid 请求 → Copy as cURL 发给助手重配。",
-                lark_title="⚠️ 博主推送中断(cookie 可能过期)", template="red")
+            # v1.7.557 批次E: 不再实时独推, 登记进「系统健康·盘后汇总」当日合并
+            from backend.services.system_health import report_issue
+            report_issue("博主发帖", f"「{name}」连续{_fetch_fail_count}次拉取失败: {e}"
+                                     f"(多为同花顺 cookie/hexin-v 过期, 需重抓 get_by_uid)")
         return
 
-    # 拉取成功: 重置失败计数; 若此前告过警, 补一条恢复通知闭环
+    # 拉取成功: 重置失败计数; 若此前告过警, 补一条恢复登记(并入盘后汇总闭环)
     if _fail_alerted:
-        await notifier.send_dual(
-            f"✅ 「{cfg.get('blogger_name', '博主')}」发帖推送已恢复",
-            lark_title="✅ 博主推送已恢复", template="green")
+        from backend.services.system_health import report_issue
+        report_issue("博主发帖", f"「{cfg.get('blogger_name', '博主')}」拉取已恢复")
     _fetch_fail_count = 0
     _fail_alerted = False
     _backoff_until = 0.0   # 成功即清退避
