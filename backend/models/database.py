@@ -972,6 +972,10 @@ async def _run_migrations(conn):
             except Exception as e:
                 logger.warning(f"[migration] 未知异常被跳过: stmt={stmt[:100]!r} err={e}")
         migration_tasks = [
+            # v1.7.554: 推送降噪·批次B③ — 尾盘三卡(真假强势14:30/次日板块14:30/弱势极限14:45)合并成14:40一张
+            ("tail_decision_1440", "尾盘决策·14:40(强势评分+次日板块+弱势极限合并)",
+             "14:40 一张合并卡: 真假强势评分 + 次日板块预测 + 弱势极限尾盘候选; 原三条 14:30~14:45 独立推送合并",
+             "cron", _json.dumps({"hour": 14, "minute": 40}), "run_tail_decision_1440"),
             ("auction_sector_strength_0926", "竞价分析·09:26",
              "9:25集合竞价撮合后推板块强弱硬数据卡: 行业最强/最弱+概念top10(涨家比/领涨股标红自选)+昨日热点承接度+持仓板块名次; 与AI开盘共性卡互补不走AI",
              "cron", _json.dumps({"hour": 9, "minute": 26}), "run_auction_sector_strength"),
@@ -1134,6 +1138,14 @@ async def _run_migrations(conn):
                 ("auction_sector_strength_0926",))
         except Exception:
             pass
+        # v1.7.554: 推送降噪·批次B③ — 尾盘三卡合并成 14:40 tail_decision_1440(上方 migration_tasks 已 seed),
+        # 下线原三条独立任务(计算并入合并卡)。
+        for _jid in ("strength_quality_1430", "sector_next_day_predict", "weak_extreme_1445"):
+            try:
+                await cur.execute(
+                    "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s", (_jid,))
+            except Exception:
+                pass
 
         # v1.7.345: 弱势极限下午快照 15:00→14:45(盘中可决策, 不再只并入15:05收盘汇总)
         # 存量库删旧 15:00 行(新 weak_extreme_1445 行由上方 seed INSERT IGNORE 补)

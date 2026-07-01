@@ -261,7 +261,8 @@ alert_throttle.register("SECTOR_STRONG_TO_WEAK", _merge_strong_to_weak,
 
 
 # ── 14:30 收盘前次日预测 ──
-async def predict_sector_next_day() -> None:
+async def predict_sector_next_day(return_only: bool = False):
+    """收盘前次日板块预测。return_only=True 只返回 (文本, elements) 不推送(供 14:40 尾盘决策合并卡)。"""
     now = datetime.now()
     if not is_workday(now):
         return
@@ -309,6 +310,8 @@ async def predict_sector_next_day() -> None:
     except Exception as e:
         logger.warning(f"[sector_predict] 写预测失败: {e}")
 
+    if return_only:
+        return await _push_prediction(groups, return_only=True)
     await _push_prediction(groups)
     logger.info(f"[sector_predict] {date} 次日预测已出: "
                 + " ".join(f"{k}{len(v)}" for k, v in groups.items() if v))
@@ -321,7 +324,7 @@ _TABLE_CAP = {"弱转强候选": 10, "强转弱候选": 10, "强势延续": 8}  
 _ENDED_EXAMPLES = 6  # 疑似终结只举几个例子, 不堆全量
 
 
-async def _push_prediction(groups: dict[str, list[dict]]) -> None:
+async def _push_prediction(groups: dict[str, list[dict]], return_only: bool = False):
     n = {k: len(groups.get(k) or []) for k in _PRED_ICON}
     # ── 顶部计数概览(一眼看清四类各多少) ──
     overview = "　·　".join(f"{_PRED_ICON[k]}{k.replace('候选', '')} {n[k]}" for k in _PRED_ICON)
@@ -359,6 +362,8 @@ async def _push_prediction(groups: dict[str, list[dict]]) -> None:
         text_lines.append("")
         text_lines.append(line)
         elements.append(md_element(line))
+    if return_only:
+        return "\n".join(text_lines), elements
     try:
         from backend.services import notifier
         await notifier.send_dual_card("\n".join(text_lines),

@@ -55,6 +55,7 @@ from backend.services.financial_risk_scanner import scan_financial_risk
 from backend.services.blackswan_alerts import scan_blackswan_alerts
 from backend.services.stock_names_refresher import refresh_stock_names
 from backend.services.holding_brief import refresh_holding_state_fwd, run_holding_evening_report
+from backend.services.tail_decision import run_tail_decision_1440
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,7 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_stock_names": refresh_stock_names,
     "refresh_holding_state_fwd": refresh_holding_state_fwd,
     "run_holding_evening_report": run_holding_evening_report,
+    "run_tail_decision_1440": run_tail_decision_1440,
 }
 
 

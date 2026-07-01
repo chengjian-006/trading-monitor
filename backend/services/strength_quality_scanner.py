@@ -77,8 +77,12 @@ def _count_outperform(stock_df, market_pcts: list[float], days: int = 5) -> int:
     return cnt
 
 
-async def scan_strength_quality_snapshot():
-    """定时入口:扫股票池 → 评分 → 企微推送汇总。"""
+async def scan_strength_quality_snapshot(return_only: bool = False):
+    """定时入口:扫股票池 → 评分 → 企微推送汇总。
+
+    return_only=True 时只返回 (企微文本, 飞书elements) 不推送(供 14:40 尾盘决策合并卡复用);
+    无数据/跳过时返回 None。
+    """
     if not _is_workday():
         logger.info("[strength_quality] 非工作日,跳过")
         return
@@ -288,6 +292,8 @@ async def scan_strength_quality_snapshot():
         lines.append(GUIDE)
         text = "\n".join(lines)
 
+    if return_only:
+        return text, elements
     sent = await notifier.send_dual_card(text, lark_title="📊 真假强势评分快照", elements=elements)
     logger.info(
         f"[strength_quality] 评分 {len(results)} 只 / 真强势 {len(real_strong)} / 观望 {len(observe)} / 推送结果={sent}"
