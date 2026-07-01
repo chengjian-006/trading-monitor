@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.555',
+    date: '2026-07-01',
+    title: '推送降噪·批次C 持仓异动同tick合并+每股每日封顶',
+    changes: [
+      { text: '改进:持仓异动(涨停/跌停/急涨/急跌/封单松动/板上放量/开板)原来同一只票剧烈波动时一天能刷 5-8 条。现在同一时刻(tick)命中的多项异动(如涨停+封板放量)合并成一张卡,不再逐条推。', tag: 'improve' },
+      { text: '改进:每只票每日持仓异动卡封顶 3 张,超出当日抑制(仍保留每规则去重),避免单股霸屏。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.554',
     date: '2026-07-01',
     title: '推送降噪·批次B③ 尾盘三卡合并成一张尾盘决策卡',

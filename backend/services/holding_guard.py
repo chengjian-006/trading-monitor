@@ -40,6 +40,9 @@ SURGE_COOLDOWN_SEC = 1800  # 急涨急跌两条之间最小冷却(30分钟): 防
 # 板上放量(封板期间分钟成交额放量): 当前窗口分钟速率 ÷ 封板前基线速率 ≥ 阈值 → 报
 BOARD_VOL_WIN = 60      # 板上放量速率窗口(秒)
 BOARD_VOL_X = 2.0       # 板上放量倍数阈值
+# 持仓异动·每股每日推送总量上限(v1.7.555 批次C): 同 tick 多项异动合并成一张卡, 且全天封顶
+# ANOMALY_MAX_DAILY 张, 防单股剧烈波动(涨停→封单松动→开板→急跌…)一天刷 5-8 条屏。
+ANOMALY_MAX_DAILY = 3
 
 # 动量突破类: 回踩多为健康洗盘再加速, 机械保本会砍在洗盘底(bt_profit_protect 全样 Δ−1.12%),
 # 故文案附"留意而非急走"提醒。后续若中继平台突破也证实同性可加入。
@@ -219,6 +222,9 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
     has_l1 = "ask1_vol" in q   # 仅新浪源有五档
     win_min = SURGE_WIN_SEC // 60
 
+    # 本 tick 命中的异动先收集, 末尾合并成一张卡发送(每股每日封顶 ANOMALY_MAX_DAILY 张)
+    hits: list[tuple[str, str]] = []   # [(title, msg)]
+
     # ① 急涨 / 急跌(速率)
     _pct_hist.push(code, now_ts, pct)
     if amount:
@@ -229,12 +235,12 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         #   跨相邻 tick(60s)把配额背靠背烧光 → 第2条只在距上一条 ≥30min 时才放行(独立的另一波)。
         if (delta >= SURGE_PP and not _throttle.throttled(code, "surge", today, limit=SURGE_MAX_DAILY)
                 and not _throttle.cooling(code, "surge", now_ts, SURGE_COOLDOWN_SEC)):
-            await _send(ha.build_surge_msg(name, code, delta, win_min, price, pct), "⚡ 持仓异动·急速拉升")
+            hits.append(("⚡ 持仓异动·急速拉升", ha.build_surge_msg(name, code, delta, win_min, price, pct)))
             _throttle.mark(code, "surge", today, ts=now_ts)
         elif (delta <= -SURGE_PP and not _throttle.throttled(code, "plunge", today, limit=SURGE_MAX_DAILY)
                 and not _throttle.cooling(code, "plunge", now_ts, SURGE_COOLDOWN_SEC)):
             if not await _sell_signal_today(code):   # 与卖点去重
-                await _send(ha.build_plunge_msg(name, code, delta, win_min, price, pct), "🪨 持仓异动·急速跳水")
+                hits.append(("🪨 持仓异动·急速跳水", ha.build_plunge_msg(name, code, delta, win_min, price, pct)))
                 _throttle.mark(code, "plunge", today, ts=now_ts)
 
     # ② 涨停 / 跌停 + 封单松动 + 开板
@@ -247,12 +253,12 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         rule = f"limit_{side}"
         if not _throttle.throttled(code, rule, today):
             if side == "up":
-                await _send(ha.build_limit_up_msg(name, code, price, pct, amt, vol_ratio, amount),
-                            "🔥 持仓异动·涨停")
+                hits.append(("🔥 持仓异动·涨停",
+                             ha.build_limit_up_msg(name, code, price, pct, amt, vol_ratio, amount)))
                 _throttle.mark(code, rule, today)
             elif not await _sell_signal_today(code):   # 跌停与卖点去重
-                await _send(ha.build_limit_down_msg(name, code, price, pct, amt, amount),
-                            "🧊 持仓异动·跌停")
+                hits.append(("🧊 持仓异动·跌停",
+                             ha.build_limit_down_msg(name, code, price, pct, amt, amount)))
                 _throttle.mark(code, rule, today)
             else:
                 _throttle.mark(code, rule, today)      # 被去重抑制也记一次, 当日不再试
@@ -280,7 +286,7 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
                     cur_amt=amt if weaken_hit else None,
                     surge_ratio=surge_ratio if vol_hit else None,
                 )
-                await _send(msg, title)
+                hits.append((title, msg))
                 if weaken_hit:
                     _throttle.mark(code, f"seal_weaken_{int(tier * 100)}", today)
                 if vol_hit:
@@ -288,11 +294,27 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         _seal_state[code] = side
     elif prev:   # 曾封死, 现未封死 → 开板
         if not _throttle.throttled(code, "board_open", today):
-            await _send(ha.build_board_open_msg(name, code, price, pct, prev), "💥 持仓异动·开板")
+            hits.append(("💥 持仓异动·开板", ha.build_board_open_msg(name, code, price, pct, prev)))
             _throttle.mark(code, "board_open", today)
         _seal_peak.clear(code, prev)
         _seal_base.clear(code, prev)
         _seal_state.pop(code, None)
+
+    # ── 合并发送: 本 tick 多项异动并成一张卡; 每股每日封顶 ANOMALY_MAX_DAILY 张(防刷屏) ──
+    if not hits:
+        return
+    if _throttle.throttled(code, "anomaly_card", today, limit=ANOMALY_MAX_DAILY):
+        logger.info(f"[holding_guard] {name}({code}) 当日异动卡已达上限 {ANOMALY_MAX_DAILY}, "
+                    f"抑制本 tick {len(hits)} 项异动")
+        return
+    if len(hits) == 1:
+        title, msg = hits[0]
+        await _send(msg, title)
+    else:   # 同 tick 多项异动(如涨停+封板放量) → 一张合并卡, 不再逐条刷屏
+        combined = f"📣 {name}({code}) 多重异动（{len(hits)} 项）\n\n" + \
+            "\n\n──────────\n\n".join(f"{t}\n{m}" for t, m in hits)
+        await _send(combined, f"📣 持仓异动·{name}（{len(hits)}项）")
+    _throttle.mark(code, "anomaly_card", today)
 
 
 # ══════════════ 任务编排(盘中 tick) ══════════════
