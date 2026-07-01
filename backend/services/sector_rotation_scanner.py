@@ -36,17 +36,28 @@ _yest_baseline: dict[str, dict[str, int]] = {}
 
 
 async def _load_yest_baseline(today: str) -> dict[str, int]:
-    """取上一交易日各题材最终涨停家数(theme_heat 中最近一个 < today 的交易日)。按日缓存。"""
+    """取上一交易日各题材最终涨停家数(theme_heat 中最近一个 < today 的交易日)。按日缓存。
+
+    theme_heat.trade_date 存紧凑格式(如 '20260630'), 而 today 传的是带连字符的
+    '2026-07-01'。直接字符串比会因 '-'(0x2D) 小于数字而把紧凑日恒判为「大于」today,
+    导致 prior 全空 → 昨日基准恒为 0 → 全题材误显示「昨0→今X」误报弱转强。
+    故比较前统一去连字符归一(与 auction_sector_strength._yesterday_top_themes 同款)。
+    """
     if today in _yest_baseline:
         return _yest_baseline[today]
     base: dict[str, int] = {}
+
+    def _d(v) -> str:
+        return str(v).replace("-", "")
+
     try:
         rows = await repository.get_theme_heat(8)
-        prior = sorted({str(r["trade_date"]) for r in (rows or []) if str(r["trade_date"]) < today})
+        today_c = _d(today)
+        prior = sorted({_d(r["trade_date"]) for r in (rows or []) if _d(r["trade_date"]) < today_c})
         if prior:
             yd = prior[-1]
             for r in rows:
-                if str(r["trade_date"]) == yd:
+                if _d(r["trade_date"]) == yd:
                     base[r["theme"]] = int(r.get("limit_up_count") or 0)
     except Exception as e:
         logger.warning(f"[sector_rotation] 昨日基准取数失败: {e}")

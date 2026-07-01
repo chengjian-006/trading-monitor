@@ -140,3 +140,36 @@ def test_daily_strong_to_weak_needs_halve():
 def test_daily_cold():
     assert sr.classify_daily(yest=1, cur=1) == "冷"
     assert sr.classify_daily(yest=0, cur=0) == "冷"
+
+
+# ── 回归: 昨日基准的日期格式归一(theme_heat 存紧凑 YYYYMMDD, today 传带连字符) ──
+def test_yest_baseline_date_format_normalize():
+    """曾因 '20260630' < '2026-07-01' 恒 False → 昨日基准全空 → 全题材误显示昨0。
+
+    theme_heat.trade_date 是紧凑格式, today 是带连字符; _load_yest_baseline 必须去连字符后比。
+    """
+    import asyncio
+    from backend.services import sector_rotation_scanner as scn
+
+    fake_rows = [
+        {"trade_date": "20260630", "theme": "机器人", "limit_up_count": 8},
+        {"trade_date": "20260630", "theme": "人形机器人", "limit_up_count": 11},
+        {"trade_date": "20260629", "theme": "机器人", "limit_up_count": 5},
+        {"trade_date": "20260701", "theme": "机器人", "limit_up_count": 6},  # 今日, 不应入基准
+    ]
+
+    async def _fake_get_theme_heat(days=8):
+        return fake_rows
+
+    orig = scn.repository.get_theme_heat
+    scn.repository.get_theme_heat = _fake_get_theme_heat
+    scn._yest_baseline.clear()
+    try:
+        base = asyncio.run(scn._load_yest_baseline("2026-07-01"))
+    finally:
+        scn.repository.get_theme_heat = orig
+        scn._yest_baseline.clear()
+
+    # 昨日=20260630, 机器人应为 8(非 0)、人形机器人 11; 今日 20260701 的 6 不能混进来
+    assert base.get("机器人") == 8
+    assert base.get("人形机器人") == 11
