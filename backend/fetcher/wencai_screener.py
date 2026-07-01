@@ -125,6 +125,14 @@ async def fetch_wencai(query: str, limit: int = 50) -> list[dict]:
 
     try:
         df = await asyncio.to_thread(_run)
+    except AttributeError as e:
+        # pywencai 内部签名: 初始 get-robot-data 请求重试 10 次全失败后 get_robot_data 返回 None,
+        # 紧接着 `None.get('data')` 抛 "'NoneType' object has no attribute 'get'"。
+        # 真实含义=接口被同花顺风控/网络波动挡住, 会自愈; 把这条天书翻译成人话给用户/榜。
+        msg = str(e)
+        if "NoneType" in msg and "get" in msg:
+            raise WencaiFetchError("问财接口暂无响应(触发同花顺风控或网络波动, 内部已重试10次), 请稍后再试")
+        raise WencaiFetchError(f"问财查询异常: {type(e).__name__}: {e}")
     except Exception as e:
         raise WencaiFetchError(f"问财查询异常: {type(e).__name__}: {e}")
 

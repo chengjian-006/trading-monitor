@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.548',
+    date: '2026-07-01',
+    title: '问财报错·风控天书翻译成人话',
+    changes: [
+      { text: '修复:问财查询失败时不再回显「AttributeError: NoneType object has no attribute get」这类天书。这是 pywencai 内部签名——初始请求被同花顺风控/网络挡住、重试10次全废后返回 None 导致的崩,会自愈。', tag: 'fix' },
+      { text: '改进:现在统一提示「问财接口暂无响应(触发同花顺风控或网络波动,内部已重试10次),请稍后再试」,即时搜索/手工刷新/榜内错误标记都用这句;不加自动重试(风控时再猛敲更糟,手工路径已有节流,过会儿再点即可)。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.547',
     date: '2026-07-01',
     title: '问财候选榜·定时任务下线改手工触发',
