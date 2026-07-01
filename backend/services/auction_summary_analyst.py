@@ -217,11 +217,15 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int, elapsed:
     return "\n".join(tlines), elements
 
 
-async def run_auction_summary():
-    """09:26 集合竞价后开盘共性 AI 推送入口。"""
+async def build_auction_summary_part() -> tuple[list[str], list] | None:
+    """计算集合竞价开盘共性 → (企微文本行, 飞书elements); 未就绪/LLM无返回→None。
+
+    供 run_auction_0926 合并卡 与 run_auction_summary 独立推送 共用(v1.7.553 抽出)。
+    JSON 解析失败时返回 (纯文本行, []) —— 文本仍出, 只是无飞书表格。
+    """
     if not _is_trading_day():
         logger.info("[auction_summary] 非交易日, 跳过")
-        return
+        return None
 
     t0 = _time.time()
     # get_market_indices 在 ai_analyst 里, 是同步函数, 包到线程里
@@ -249,7 +253,7 @@ async def run_auction_summary():
             break
         if datetime.now().strftime("%H:%M:%S") >= DEADLINE:
             logger.warning(f"[auction_summary] 到{DEADLINE}高开榜仍为空(第{attempt}次), 放弃本日推送")
-            return
+            return None
         logger.info(f"[auction_summary] 第{attempt}次高开榜为空, 25s后重试 (竞价数据源延迟)")
         await asyncio.sleep(25)
 
@@ -267,22 +271,78 @@ async def run_auction_summary():
     analysis = _call_llm(system_prompt, user_content)
     if not analysis:
         logger.warning("[auction_summary] LLM 无返回, 跳过推送")
-        return
+        return None
 
     elapsed = _time.time() - t0
     parsed = _parse_llm_json(analysis)
     if parsed and (parsed.get("headline") or parsed.get("vibe") or parsed.get("mainlines")):
         text, elements = _build_auction_card(parsed, near_lu_count, strong_count, elapsed)
-        sent = await notifier.send_dual_card(text, lark_title="📊 盘面播报", elements=elements)
-    else:
-        # JSON 解析失败 → 回退纯文本(不丢推送)
-        logger.warning("[auction_summary] JSON 解析失败, 回退纯文本推送")
-        text = (
-            f"【集合竞价后开盘共性】\n\n"
-            f"{analysis.strip()}\n\n"
-            f"——基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度 · 用时 {elapsed:.1f}s"
-        )
-        sent = await notifier.send_wechat_text(text)
-    logger.info(
-        f"[auction_summary] 推送结果={sent}, 高开≥9.5%={near_lu_count} 高开≥5%={strong_count}, 耗时{elapsed:.1f}s"
+        return text.split("\n"), elements
+    # JSON 解析失败 → 纯文本行(无 elements, 不丢推送)
+    logger.warning("[auction_summary] JSON 解析失败, 回退纯文本")
+    text = (
+        f"【集合竞价后开盘共性】\n\n"
+        f"{analysis.strip()}\n\n"
+        f"——基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度 · 用时 {elapsed:.1f}s"
     )
+    return text.split("\n"), []
+
+
+async def run_auction_summary():
+    """09:26 集合竞价开盘共性 AI 独立推送(现默认走合并卡 run_auction_0926, 本函数保留备用)。"""
+    built = await build_auction_summary_part()
+    if not built:
+        return
+    tlines, elements = built
+    if elements:
+        sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 盘面播报", elements=elements)
+    else:
+        sent = await notifier.send_wechat_text("\n".join(tlines))
+    logger.info(f"[auction_summary] 独立推送结果={sent}")
+
+
+async def run_auction_0926():
+    """09:26 合并竞价卡 = AI开盘共性 + 竞价板块强弱, 一张卡(原两条推送合并, v1.7.553)。
+
+    两部分独立取数, 任一失败仍发另一半; 全失败则不发。取代原 auction_summary_0926 +
+    auction_sector_strength_0926 两个 09:26 任务(后者已 enabled=0)。
+    """
+    if not _is_trading_day():
+        return
+    from backend.services import lark_notifier
+    from backend.services.auction_sector_strength import build_auction_sector_part
+
+    summary, sector = await asyncio.gather(
+        build_auction_summary_part(),
+        build_auction_sector_part(),
+        return_exceptions=True,
+    )
+    if isinstance(summary, Exception):
+        logger.warning(f"[auction_0926] 开盘共性部分异常: {summary}")
+        summary = None
+    if isinstance(sector, Exception):
+        logger.warning(f"[auction_0926] 板块强弱部分异常: {sector}")
+        sector = None
+
+    tlines: list[str] = []
+    elements: list = []
+    if summary:
+        tlines += summary[0]
+        elements += summary[1]
+    if sector:
+        if elements:
+            elements.append(lark_notifier.md_element(
+                "<font color='grey'>━━━━━━ 竞价板块强弱 ━━━━━━</font>"))
+            tlines += ["", "──────────"]
+        tlines += sector[0]
+        elements += sector[1]
+
+    if not tlines and not elements:
+        logger.warning("[auction_0926] 两部分都无内容, 跳过")
+        return
+    if elements:
+        sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 竞价播报", elements=elements)
+    else:
+        sent = await notifier.send_wechat_text("\n".join(tlines))
+    logger.info(f"[auction_0926] 合并竞价卡推送={sent} "
+                f"(共性={'✓' if summary else '✗'} 板块={'✓' if sector else '✗'})")

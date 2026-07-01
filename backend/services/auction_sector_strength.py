@@ -245,11 +245,14 @@ def _board_row(b: dict, my_codes: set[str]) -> dict:
     }
 
 
-async def run_auction_sector_strength():
-    """09:26 竞价板块强弱推送入口。"""
+async def build_auction_sector_part() -> tuple[list[str], list] | None:
+    """计算竞价板块强弱 → (企微文本行, 飞书elements); 非交易日/榜未就绪→None。
+
+    供 run_auction_0926 合并卡 与 run_auction_sector_strength 独立推送 共用(v1.7.553 抽出)。
+    """
     if not _is_trading_day():
         logger.info("[auction_sector] 非交易日, 跳过")
-        return
+        return None
 
     t0 = _time.time()
     today = datetime.now().strftime("%Y-%m-%d")
@@ -267,7 +270,7 @@ async def run_auction_sector_strength():
             break
         if datetime.now().strftime("%H:%M:%S") >= DEADLINE:
             logger.warning(f"[auction_sector] 到{DEADLINE}板块榜仍未就绪(第{attempt}次), 放弃本日推送")
-            return
+            return None
         logger.info(f"[auction_sector] 第{attempt}次板块榜未就绪, 20s后重试 (竞价数据延迟)")
         await asyncio.sleep(20)
 
@@ -393,7 +396,16 @@ async def run_auction_sector_strength():
         tlines += ["", "💼 持仓所在板块"]
         tlines += [f"  {r['name']} → {r['board']} {r['pct']:+.1f}%" for r in hold_rows]
 
-    sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 竞价分析",
-                                         elements=elements)
-    logger.info(f"[auction_sector] 推送结果={sent}, 行业{len(hy)} 概念{len(gn_clean)}, "
+    logger.info(f"[auction_sector] 板块强弱计算完成, 行业{len(hy)} 概念{len(gn_clean)}, "
                 f"承接{len(relay_rows)}条 持仓{len(hold_rows)}条, 耗时{elapsed:.1f}s")
+    return tlines, elements
+
+
+async def run_auction_sector_strength():
+    """09:26 竞价板块强弱独立推送(现默认走合并卡 run_auction_0926, 本函数保留备用)。"""
+    built = await build_auction_sector_part()
+    if not built:
+        return
+    tlines, elements = built
+    sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 竞价分析", elements=elements)
+    logger.info(f"[auction_sector] 独立推送结果={sent}")

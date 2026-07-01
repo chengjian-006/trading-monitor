@@ -18,7 +18,7 @@ from backend.services.sparkline_prefetcher import prefetch_intraday_sparklines
 from backend.services.post_close_summary import run_post_close_summary
 from backend.services.api_health import check_all_api_health
 from backend.services.attack_direction_analyst import run_attack_direction_analysis
-from backend.services.auction_summary_analyst import run_auction_summary
+from backend.services.auction_summary_analyst import run_auction_summary, run_auction_0926
 from backend.services.auction_sector_strength import run_auction_sector_strength
 from backend.services.market_overview_refresher import refresh_market_overview
 from backend.services.alert_throttle import flush_all as flush_alert_throttle
@@ -90,6 +90,7 @@ TASK_HANDLERS: dict[str, object] = {
     "check_all_api_health": check_all_api_health,
     "run_attack_direction_analysis": run_attack_direction_analysis,
     "run_auction_summary": run_auction_summary,
+    "run_auction_0926": run_auction_0926,
     "run_auction_sector_strength": run_auction_sector_strength,
     "refresh_market_overview": refresh_market_overview,
     "flush_alert_throttle": flush_alert_throttle,

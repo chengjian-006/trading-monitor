@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.553',
+    date: '2026-07-01',
+    title: '推送降噪·批次B① 09:26两张竞价卡合并成一张',
+    changes: [
+      { text: '改进:原 09:26 同时推「竞价分析(板块强弱)」+「集合竞价开盘共性AI」两张卡,现合并成一张「竞价播报」——上半 AI 开盘共性,下半竞价板块强弱,一次推送。', tag: 'improve' },
+      { text: '两部分独立取数,任一失败仍发另一半;全失败才不发。原两个 09:26 任务收敛为一个 run_auction_0926。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.552',
     date: '2026-07-01',
     title: '推送降噪·批次A(下线/降频三处冗余提醒)',

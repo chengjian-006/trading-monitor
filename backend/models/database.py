@@ -1119,6 +1119,21 @@ async def _run_migrations(conn):
                  "popularity_ai_hourly"))
         except Exception:
             pass
+        # v1.7.553: 推送降噪·批次B-① — 09:26 两张竞价卡合并成一张
+        #   auction_summary_0926 改跑合并 handler run_auction_0926(AI开盘共性+板块强弱一张卡),
+        #   auction_sector_strength_0926 下线(其计算并入合并卡)。
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET handler = %s, name = %s, description = %s "
+                "WHERE job_id = %s",
+                ("run_auction_0926", "竞价播报·09:26(开盘共性+板块强弱合并)",
+                 "9:26 一张合并卡: AI 开盘共性(指数+高开低开榜+强势密度) + 竞价板块强弱(行业/概念最强+持仓关联+昨日承接); 原两条推送合并",
+                 "auction_summary_0926"))
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s",
+                ("auction_sector_strength_0926",))
+        except Exception:
+            pass
 
         # v1.7.345: 弱势极限下午快照 15:00→14:45(盘中可决策, 不再只并入15:05收盘汇总)
         # 存量库删旧 15:00 行(新 weak_extreme_1445 行由上方 seed INSERT IGNORE 补)
@@ -1175,9 +1190,9 @@ async def _run_migrations(conn):
                 "INSERT IGNORE INTO cfzy_sys_scheduled_tasks "
                 "(job_id, name, description, schedule_type, schedule_config, handler) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
-                ("auction_summary_0926", "集合竞价开盘共性·09:26 AI 分析",
-                 "9:25 集合竞价撮合完成后, 拉指数+高开榜top30+低开榜top20+强势密度, AI 提炼共性, 企微推送",
-                 "cron", _json.dumps({"hour": 9, "minute": 26}), "run_auction_summary"),
+                ("auction_summary_0926", "竞价播报·09:26(开盘共性+板块强弱合并)",
+                 "9:26 一张合并卡: AI 开盘共性(指数+高开低开榜+强势密度) + 竞价板块强弱(行业/概念最强+持仓关联+昨日承接); 原两条推送合并",
+                 "cron", _json.dumps({"hour": 9, "minute": 26}), "run_auction_0926"),
             )
         except Exception:
             pass
