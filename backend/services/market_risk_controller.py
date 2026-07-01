@@ -305,6 +305,51 @@ async def _push(text: str, title: str, template: str) -> None:
         logger.warning(f"[market_risk] 推送失败({title}): {e}")
 
 
+# ── 退潮类维度统一发卡闸(v1.7.556 批次D 六合一) ──
+# 退潮(涨停骤降)/溢价转负 不再各自独推, 累积成一张「大盘风控·退潮提示」卡, 卡里带当前风险
+# 状态 + 当日已触发的各维度, 按维度集合去重(新增维度才再推)。急跌(plunge)保留即时独推、
+# 状态机 RED/YELLOW/GREEN 卡仍各自推(未动回测背书的 proven 引擎)。
+_ebb_emit: dict = {}
+
+
+async def emit_risk_dimension(key: str, text: str) -> None:
+    """退潮/溢价等风控维度统一入口: 合并成一张状态化「大盘风控」卡, 当日按维度集合去重。"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    st = _ebb_emit.get("st")
+    if not st or st["date"] != today:
+        st = {"date": today, "dims": {}, "sig": None}
+        _ebb_emit["st"] = st
+    st["dims"][key] = text
+    sig = tuple(sorted(st["dims"].keys()))
+    if sig == st["sig"]:
+        return   # 无新增维度 → 不重复推
+    st["sig"] = sig
+
+    try:
+        state = await _current_state()
+    except Exception:
+        state = GREEN
+    tmpl = {"RED": "red", "YELLOW": "yellow"}.get(state, "red")
+    state_line = {
+        "RED": "当前大盘风控: 🔴 RED（空仓预警）",
+        "YELLOW": "当前大盘风控: 🟡 YELLOW（谨慎）",
+        "GREEN": "当前大盘风控: 🟢 GREEN（正常）",
+    }.get(state, "")
+    order = {"退潮": 0, "溢价": 1}
+    keys = sorted(st["dims"], key=lambda k: order.get(k, 9))
+    n = len(keys)
+    header = "📛 大盘风控·退潮提示" + (f"（{n}项）" if n > 1 else "")
+    body = header + "\n\n" + state_line + "\n\n" + "\n\n──────────\n\n".join(st["dims"][k] for k in keys)
+    await _push(body, header, tmpl)
+
+
+async def _current_state() -> str:
+    """当前大盘风控状态(读今日 cfzy_biz_market_risk 行, 无则 GREEN)。复用 _active_cache。"""
+    today = datetime.now().strftime("%Y-%m-%d")
+    row = await _get_row(today)
+    return row["state"] if row else GREEN
+
+
 # ── 定时入口 ──
 
 async def _gather_metrics() -> tuple[list[dict], dict, float | None] | None:

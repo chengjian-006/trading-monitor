@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.556',
+    date: '2026-07-01',
+    title: '推送降噪·批次D 大盘退潮/溢价并入统一风控卡',
+    changes: [
+      { text: '改进:大盘退潮(涨停骤降)与强势退潮(溢价转负)两个信号不再各自独推,合并成一张「📛 大盘风控·退潮提示」卡——卡里带当前风险状态(RED/YELLOW/GREEN)+当日已触发的各维度,按维度集合去重(新增维度才再推),同一天最多合并一张。', tag: 'improve' },
+      { text: '说明:大盘急跌(plunge)按你的选择保留即时独推(时效强);回测背书的风险状态机(RED/YELLOW空仓预警)保持不动,只把两个退潮维度并入统一风控卡,安全为先。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.555',
     date: '2026-07-01',
     title: '推送降噪·批次C 持仓异动同tick合并+每股每日封顶',

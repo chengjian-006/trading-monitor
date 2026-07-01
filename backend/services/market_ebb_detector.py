@@ -80,9 +80,10 @@ async def detect_market_ebb():
         return
 
     try:
-        from backend.services import notifier
-        await notifier.send_dual(text, lark_title="🌊 大盘退潮·减仓提示", template="red")
-        logger.warning(f"[market_ebb] 退潮减仓提示已推送: 涨停 {prev_lu}->{today_lu} (↓{drop_pct}%)")
+        # v1.7.556 批次D: 退潮不再独推, 并入统一「大盘风控」卡(与溢价转负/当前风险状态合并去重)
+        from backend.services import market_risk_controller
+        await market_risk_controller.emit_risk_dimension("退潮", text)
+        logger.warning(f"[market_ebb] 退潮减仓提示已并入大盘风控卡: 涨停 {prev_lu}->{today_lu} (↓{drop_pct}%)")
     except Exception as e:
         logger.warning(f"[market_ebb] 推送失败: {e}")
 
@@ -120,8 +121,9 @@ async def detect_strength_ebb():
         f"短线赚钱效应退潮 — 对手中强势/高位股谨慎,控制仓位与开新仓节奏。"
     )
     try:
-        from backend.services import notifier
-        await notifier.send_dual(text, lark_title="🌊 强势退潮·赚钱效应消失", template="red")
-        logger.warning(f"[strength_ebb] 退潮提示已推送: 昨涨停今溢价 {prem:.2f}%")
+        # v1.7.556 批次D: 溢价转负不再独推, 并入统一「大盘风控」卡(与退潮/当前风险状态合并去重)
+        from backend.services import market_risk_controller
+        await market_risk_controller.emit_risk_dimension("溢价", text)
+        logger.warning(f"[strength_ebb] 退潮提示已并入大盘风控卡: 昨涨停今溢价 {prem:.2f}%")
     except Exception as e:
         logger.warning(f"[strength_ebb] 推送失败: {e}")
