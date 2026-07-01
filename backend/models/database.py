@@ -1019,9 +1019,9 @@ async def _run_migrations(conn):
              "每日 23:10 把捕获窗口内每个信号触发后 T+1..T+30 的当日最高/最低/收盘收益(相对触发价)写死进 cfzy_biz_signal_perf, 永不丢失; 顺带刷新有信号个股 K 线",
              "cron", _json.dumps({"hour": 23, "minute": 10}), "snapshot_signal_perf"),
             # v1.7.499: 人气榜 AI 解读定时全量重刷 — 9:00~22:00 每小时一次(替代原 16:00/19:00 两点)
-            ("popularity_ai_hourly", "人气榜 AI 解读·每小时重刷(9-22)",
+            ("popularity_ai_hourly", "人气榜 AI 解读·盘中+收盘两点(11:30/15:30)",
              "9:00~22:00 每小时给 TOP20 全量重新生成 AI 解读, 含盘前/盘中/盘后持续发酵的公告/新闻; 标注刷新时间显示在前端",
-             "cron", _json.dumps({"hour": "9-22", "minute": 0}), "refresh_popularity_full_ai"),
+             "cron", _json.dumps({"hour": "11,15", "minute": 30}), "refresh_popularity_full_ai"),
             # v1.7.x: 自选股每日人气排名存档 — 22:00拉全量自选人气排名写 cfzy_biz_popularity_daily, 供回测/复盘
             ("popularity_daily_2200", "人气排名·每日存档 22:00",
              "每晚22:00拉自选池全量个股人气排名写入 cfzy_biz_popularity_daily(code+日期+排名), 累积历史供回测/区间复盘/情绪分析",
@@ -1097,6 +1097,26 @@ async def _run_migrations(conn):
                 "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s",
                 ("wencai_scan",),
             )
+        except Exception:
+            pass
+        # v1.7.552: 推送降噪·批次A — 提醒太杂太乱, 下线/降频三处
+        #   1) auction_strength_selfcheck(09:31 竞价首日自检): 本就是临时验证任务(确认后可删), 已验完下线
+        #   2) report_1400(14:00 午后分析): 与 11:30 午盘 / 15:00 收盘信息重复度高, 下线减噪
+        #   3) popularity_ai_hourly(人气榜AI 9-22 每小时=14条/日过密): 改 11:30+15:30 两点(盘中+收盘各一)
+        for _jid in ("auction_strength_selfcheck", "report_1400"):
+            try:
+                await cur.execute(
+                    "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s", (_jid,))
+            except Exception:
+                pass
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET schedule_config = %s, name = %s, description = %s "
+                "WHERE job_id = %s",
+                (_json.dumps({"hour": "11,15", "minute": 30}),
+                 "人气榜 AI 解读·盘中+收盘两点(11:30/15:30)",
+                 "每日 11:30(盘中)与 15:30(收盘后)两点给 TOP20 全量重新生成 AI 解读, 含盘前/盘中/盘后持续发酵的公告/新闻; 标注刷新时间显示在前端",
+                 "popularity_ai_hourly"))
         except Exception:
             pass
 
@@ -1429,9 +1449,9 @@ async def _seed_scheduled_tasks(conn):
              "每60分钟抽检涨跌幅(新浪vs东财)/涨跌家数(新浪vs腾讯)/行情覆盖率, 超阈值飞书告警",
              "interval", {"seconds": 3600}, "run_cross_check"),
             # v1.7.499: 人气榜 AI 解读改每小时(9-22)全量重刷, 替代原 16:00/19:00 两点 (旧两行由下方 _run_migrations DELETE 清掉)
-            ("popularity_ai_hourly", "人气榜 AI 解读·每小时重刷(9-22)",
+            ("popularity_ai_hourly", "人气榜 AI 解读·盘中+收盘两点(11:30/15:30)",
              "9:00~22:00 每小时给 TOP20 全量重新生成 AI 解读, 含盘前/盘中/盘后持续发酵的公告/新闻; 标注刷新时间显示在前端", "cron",
-             {"hour": "9-22", "minute": 0}, "refresh_popularity_full_ai"),
+             {"hour": "11,15", "minute": 30}, "refresh_popularity_full_ai"),
             # 股票池自定义预警: 与股票池扫描同节奏(交易时段), 逐用户独立条件检测+推送
             ("custom_alert_scan", "自定义预警检测",
              "交易时段按股票池扫描同节奏检测用户自定义预警(价格/涨跌幅/接近均线/上穿跌破均线), 满足即逐用户推送并标记触发",
