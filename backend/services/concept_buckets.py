@@ -30,11 +30,18 @@ THEME_BUCKETS: list[tuple[str, list[str]]] = [
 
 _BUCKET_KEYWORDS: dict[str, list[str]] = {name: kws for name, kws in THEME_BUCKETS}
 
+# 子串误命中护栏: 含桶关键词却语义不属该桶的细分概念, 强制归「其他」不进桶。
+# 例: "虚拟机器人"(同花顺等 AI 软件/智能投顾概念)含"机器人"子串, 但它是软件概念、
+#     非硬件机器人板块, 不该被吸进机器人桶去蹭人形机器人板块的涨停热度(300033 同花顺曾误标)。
+_MISCLASSIFY_GUARD: set[str] = {"虚拟机器人"}
+
 
 def classify(theme: str) -> str:
     """细题材字符串 → 大类桶名; 无命中 → '其他'。"""
     t = (theme or "").strip()
     if not t:
+        return OTHER
+    if t in _MISCLASSIFY_GUARD:
         return OTHER
     for name, kws in THEME_BUCKETS:
         if any(k in t for k in kws):
