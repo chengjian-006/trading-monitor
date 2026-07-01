@@ -43,8 +43,11 @@ async def run_auction_strength_selfcheck():
         lines.append("情绪: 无快照(门控无法放行)")
 
     # 2. 竞价采集 + 竞价额≥5000万
-    snaps = await repository.get_auction_snapshots(today)
-    big = await repository.get_auction_snapshots(today, min_amount=5e7)
+    #    读侧兜底: 剔历史残留的板块/指数码(如 399366 能源金属), 本提醒只面向个股。
+    #    与 auction_pool_refresher._is_stock 同源(采集侧已从源头拦, 这里再兜一道防旧数据)。
+    _is_stock = lambda c: str(c or "")[:2] in ("00", "30", "60", "68")
+    snaps = [r for r in await repository.get_auction_snapshots(today) if _is_stock(r.get("code"))]
+    big = [r for r in await repository.get_auction_snapshots(today, min_amount=5e7) if _is_stock(r.get("code"))]
     lines.append(f"竞价采集: 今日{len(snaps)}只, 竞价额≥0.5亿={len(big)}只")
     if big:
         top = " / ".join(f"{r.get('name', '')}{(r.get('auction_amount') or 0) / 1e8:.2f}亿" for r in big[:8])

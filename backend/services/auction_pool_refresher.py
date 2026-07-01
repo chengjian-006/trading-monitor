@@ -13,6 +13,16 @@ from backend.models import repository
 
 logger = logging.getLogger(__name__)
 
+# 仅真 A 股个股(沪深主板/中小/创业/科创)参与竞价采集; 自选池里误加的板块/概念指数
+# (88x/881xxx)、国证指数(399xxx)、期货主连(lc*)等非个股一律剔除——它们报的是指数点位/
+# 板块聚合成交额, 混进"竞价额≥0.5亿"个股榜会误标(如 399366 能源金属曾登顶该榜)。
+# 口径与 model_winrate_refresher._is_stock / holding_brief._is_stock 同源。
+_STOCK_PREFIX = ("00", "30", "60", "68")
+
+
+def _is_stock(code: str) -> bool:
+    return str(code)[:2] in _STOCK_PREFIX
+
 
 def _is_trading_day(now: datetime | None = None) -> bool:
     now = now or datetime.now()
@@ -26,7 +36,8 @@ async def record_auction_pool_snapshot():
         return
 
     stocks = await repository.list_all_stocks()
-    name_map = {s["code"]: s.get("name", "") for s in stocks if s.get("code")}
+    name_map = {s["code"]: s.get("name", "") for s in stocks
+                if s.get("code") and _is_stock(s["code"])}   # 剔板块/指数/主连, 仅真个股
     codes = sorted(name_map.keys())
     if not codes:
         logger.info("[auction_pool] 自选股为空, 跳过")
