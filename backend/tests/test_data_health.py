@@ -19,10 +19,22 @@ class TestReportAndDrain:
         assert data_health.drain_alerts(today="2026-06-12") == []
 
     def test_threshold_reached_alerts_once(self):
-        data_health.report("index_trends_frozen", detail="科创指数末点10:00",
+        data_health.report("index_trends_frozen", detail="科创指数行情停在10:00",
                            today="2026-06-12", now_hhmm="10:31")
         lines = data_health.drain_alerts(today="2026-06-12")
-        assert len(lines) == 1 and "指数分时冻结回放" in lines[0] and "科创指数末点10:00" in lines[0]
+        assert len(lines) == 1 and "大盘分时行情" in lines[0] and "科创指数行情停在10:00" in lines[0]
+
+    def test_recovered_status_in_message(self):
+        # 末次异常 10:31, flush 时已 10:35(超3分钟没再犯) → 文案带"已恢复正常"
+        data_health.report("index_trends_frozen", today="2026-06-12", now_hhmm="10:31")
+        lines = data_health.drain_alerts(today="2026-06-12", now_hhmm="10:35")
+        assert len(lines) == 1 and "已恢复正常" in lines[0]
+
+    def test_not_recovered_status_in_message(self):
+        # 末次异常就在1分钟前 → 还不能说恢复
+        data_health.report("index_trends_frozen", today="2026-06-12", now_hhmm="10:34")
+        lines = data_health.drain_alerts(today="2026-06-12", now_hhmm="10:35")
+        assert len(lines) == 1 and "还没恢复" in lines[0]
 
     def test_same_day_no_repeat(self):
         data_health.report("market_stats_empty", today="2026-06-12", now_hhmm="09:35")
@@ -61,17 +73,17 @@ class TestReportAndDrain:
     def test_open_rollover_frozen_suppressed(self):
         # 冻结全部落在 09:32 之前(开盘头一分多钟源 rollover 残留昨日末点), 过了开盘就新鲜 → 静默不推
         for hhmm in ("09:30", "09:30", "09:31"):
-            data_health.report("index_trends_frozen", detail="深证成指末点停在15:00",
+            data_health.report("index_trends_frozen", detail="深证成指行情停在15:00",
                                today="2026-06-23", now_hhmm=hhmm)
         assert data_health.drain_alerts(today="2026-06-23") == []
 
     def test_frozen_past_open_grace_alerts(self):
         # 过了 09:32 仍在冻 = 真降级, 照常预警(末次冻结越过宽限)
         for hhmm in ("09:30", "09:31", "09:35"):
-            data_health.report("index_trends_frozen", detail="深证成指末点停在15:00",
+            data_health.report("index_trends_frozen", detail="深证成指行情停在15:00",
                                today="2026-06-23", now_hhmm=hhmm)
         lines = data_health.drain_alerts(today="2026-06-23")
-        assert len(lines) == 1 and "指数分时冻结回放" in lines[0]
+        assert len(lines) == 1 and "大盘分时行情" in lines[0]
 
     def test_open_grace_only_applies_to_index_trends(self):
         # 全市场快照无数据不吃开盘宽限: 09:31 出现即推(阈值1, 非 rollover 类)

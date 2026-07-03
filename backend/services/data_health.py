@@ -19,14 +19,18 @@ from datetime import date, datetime
 
 logger = logging.getLogger(__name__)
 
-# kind -> (预警标签, 当日触发次数阈值)
+# kind -> (预警标签(推送文案用大白话, 别用"冻结回放"这类术语), 当日触发次数阈值)
 # 注: 曾有 kline_missing_today(盘中日K缺今日bar), 0612上线当天即证伪 —
 # 新浪日K盘中固有不含今日bar, "缺今日bar"是每轮每股常态非降级信号, 已改为下面的三源全败口径。
 KINDS = {
-    "index_trends_frozen": ("指数分时冻结回放", 1),
-    "market_stats_empty": ("全市场行情快照无数据", 1),
-    "kline_network_down": ("日K网络源全失败回退缓存", 5),
+    "index_trends_frozen": ("大盘分时行情卡了一阵没更新", 1),
+    "market_stats_empty": ("全市场涨跌家数一度拿不到数据", 1),
+    "kline_network_down": ("个股日K行情源不稳(已用缓存兜底)", 5),
 }
+
+# 恢复判定: 异常存续期间检测每轮(约30s)都会上报, 若最近一次上报距 flush 时刻
+# 已超过这个分钟数 = 后续几轮都没再犯 → 推送里直接写"现在已恢复正常"。
+_RECOVERED_GAP_MIN = 3
 
 # 开盘宽限: 东财/同花顺指数分时接口在刚开盘头一分多钟常残留昨日末点(15:00),
 # 几十秒后即切到今日盘中数据 — 这是每日固有 rollover 抖动, 非源故障。
@@ -66,9 +70,15 @@ def report(kind: str, detail: str = "", today: str | None = None,
             ev["detail"] = detail
 
 
-def drain_alerts(today: str | None = None) -> list[str]:
-    """取出今日达到阈值且尚未推送过的预警行, 并标记已推。"""
+def _hhmm_to_min(hhmm: str) -> int:
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def drain_alerts(today: str | None = None, now_hhmm: str | None = None) -> list[str]:
+    """取出今日达到阈值且尚未推送过的预警行(大白话文案), 并标记已推。"""
     today = today or date.today().isoformat()
+    now_hhmm = now_hhmm or datetime.now().strftime("%H:%M")
     lines = []
     with _lock:
         for kind, (label, threshold) in KINDS.items():
@@ -82,9 +92,14 @@ def drain_alerts(today: str | None = None) -> list[str]:
             if kind in _OPEN_GRACE_KINDS and ev["last"] < _OPEN_GRACE_HHMM:
                 continue
             _alerted[kind] = today
-            seg = f"{label}: 今日{ev['count']}次 ({ev['first']}~{ev['last']})"
+            seg = f"{label}: {ev['first']}~{ev['last']} 共{ev['count']}次"
             if ev["detail"]:
-                seg += f", 最近: {ev['detail']}"
+                seg += f" ({ev['detail']})"
+            try:
+                recovered = _hhmm_to_min(now_hhmm) - _hhmm_to_min(ev["last"]) >= _RECOVERED_GAP_MIN
+            except Exception:
+                recovered = False
+            seg += ", 现在已恢复正常" if recovered else ", 目前可能还没恢复(系统会继续自动跳过)"
             lines.append(seg)
     return lines
 
@@ -94,9 +109,9 @@ async def flush_data_health():
     lines = drain_alerts()
     if not lines:
         return
-    text = ("数据源健康预警\n\n" + "\n".join(f"- {x}" for x in lines) +
-            "\n\n相关下游(急跌检测/涨跌家数/个股信号)已自动跳过陈旧数据不会误报, "
-            "但该数据面今日不可用; 若持续整天请检查数据源。")
+    text = ("行情数据源刚才有点波动:\n\n" + "\n".join(f"- {x}" for x in lines) +
+            "\n\n波动期间系统已自动跳过异常数据, 不会因此误报, 一般无需处理; "
+            "若一整天反复出现再检查数据源。")
     try:
         from backend.services import notifier
         # 走红色告警模版(非默认蓝色"盘面播报"), 让真·源故障一眼可辨、不与日常播报混淆。

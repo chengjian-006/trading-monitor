@@ -710,7 +710,7 @@ def _sanitize_stale_index_trends(result: dict, now_hhmm: str) -> dict:
                 f"距now({now_hhmm})过远, 疑似源冻结回放, 该指数分时置空")
             from backend.services import data_health
             data_health.report("index_trends_frozen",
-                               detail=f"{d.get('name', code)}末点停在{last_t}")
+                               detail=f"{d.get('name', code)}行情停在{last_t}")
             d["trends"] = []
     return result
 
