@@ -101,14 +101,21 @@ FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__f
 if os.path.isdir(FRONTEND_DIST):
     app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIST, "assets")), name="assets")
 
+    _DIST_ROOT = os.path.normpath(FRONTEND_DIST)
+
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = os.path.join(FRONTEND_DIST, full_path)
-        if os.path.isfile(file_path):
+        # v1.7.568: 防路径穿越 — 归一化后必须仍在 dist 目录内才回该文件, 否则一律回 index.html。
+        #   原来直接 os.path.join+FileResponse, 构造 `../../config.json` 可读走生产凭证。
+        file_path = os.path.normpath(os.path.join(_DIST_ROOT, full_path))
+        in_dist = file_path == _DIST_ROOT or file_path.startswith(_DIST_ROOT + os.sep)
+        if in_dist and os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(FRONTEND_DIST, "index.html"))
+        return FileResponse(os.path.join(_DIST_ROOT, "index.html"))
 
 
 if __name__ == "__main__":
+    # v1.7.568: 绑 127.0.0.1 而非 0.0.0.0 — 生产由 systemd uvicorn(已 --host 127.0.0.1)+nginx 反代,
+    #   此直跑分支仅本地调试用, 不应对公网暴露。
     import uvicorn
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8888, reload=False)
+    uvicorn.run("backend.main:app", host="127.0.0.1", port=8888, reload=False)

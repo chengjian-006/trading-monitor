@@ -21,6 +21,9 @@ DEFAULT_CONFIG = {
     "anthropic_api_key": "",
     "ai_report_enabled": True,
     "sso_enabled": True,
+    # JWT 签名密钥 (v1.7.568): 留空则首次启动自动生成随机密钥并回写此文件, 之后稳定。
+    # 绝不硬编码进源码/提交仓库 — 该密钥能签发登录 token。
+    "jwt_secret": "",
     # 数据库连接的真实凭证放在 config.json(已 gitignore, 不入库); 这里只留空占位。
     # 本地/生产部署请复制 config.example.json 为 config.json 并填入真实值。
     "database": {

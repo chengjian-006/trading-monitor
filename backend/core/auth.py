@@ -1,5 +1,7 @@
 import hashlib
+import logging
 import os
+import secrets
 import time
 from typing import Annotated
 
@@ -7,7 +9,35 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-SECRET_KEY = "guxiaocha-jwt-secret-2026-trading-monitor"
+logger = logging.getLogger(__name__)
+
+
+def _resolve_secret_key() -> str:
+    """JWT 签名密钥来源 (v1.7.568): 优先读 config.json 的 jwt_secret;
+    缺失则生成随机密钥并回写 config.json 持久化 (单用户系统首次启动自愈, 之后稳定不变)。
+
+    Why: 原来密钥硬编码在源码里且随仓库进了 GitHub, 任何看到这行的人都能伪造 admin token
+    接管公网面板。改为运行期密钥后, 源码不再含任何可用密钥。首次生效时现有登录态失效需重登一次。
+    """
+    from backend.core.config import load_config, save_config
+    try:
+        cfg = load_config()
+    except Exception:
+        return secrets.token_urlsafe(48)   # 读不到配置: 本进程用随机密钥兜底(重启需重登, 仍比硬编码安全)
+    key = (cfg.get("jwt_secret") or "").strip()
+    if key:
+        return key
+    key = secrets.token_urlsafe(48)
+    try:
+        cfg["jwt_secret"] = key
+        save_config(cfg)
+        logger.warning("[auth] 未配置 jwt_secret, 已生成随机密钥并写入 config.json (现有登录态需重新登录一次)")
+    except Exception as e:
+        logger.warning(f"[auth] jwt_secret 回写 config.json 失败, 本进程用临时密钥(重启需重登): {e}")
+    return key
+
+
+SECRET_KEY = _resolve_secret_key()
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_SECONDS = 7 * 24 * 3600
 
