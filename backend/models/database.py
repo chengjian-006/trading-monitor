@@ -74,6 +74,17 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_guard_throttle (
+        trade_date  DATE NOT NULL,
+        code        VARCHAR(16) NOT NULL,
+        rule        VARCHAR(40) NOT NULL,
+        cnt         INT NOT NULL DEFAULT 0,
+        last_ts     DOUBLE DEFAULT NULL,
+        updated_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (trade_date, code, rule)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS cfzy_sys_kline_cache (
         code        VARCHAR(10) NOT NULL,
         trade_date  VARCHAR(10) NOT NULL,

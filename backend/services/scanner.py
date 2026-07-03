@@ -563,6 +563,28 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
                                user_id: int, price: float, stock_pct: float,
                                strategy: str, amount_suffix: str, now_str: str):
     """强档企微推送: 单信号走 send_wechat_signal, 多信号合并文本."""
+    # v1.7.569: 合并推送前套推送偏好闸(与单信号 send_wechat_signal 同口径) — 原来合并分支直接
+    #   走 send_wechat_text 绕过闸门, 用户静音的票/关掉的模型只要同tick撞上多个强档就照推。
+    #   逐信号过滤 snooze/model_off/ack; 全被抑制则不推; 今日免打扰(mute)只静音飞书。
+    mute_lark = False
+    try:
+        from backend.services import push_pref as _pref_svc
+        from backend.models.repo import push_pref as _pref_repo
+        _prefs = await _pref_repo.active_prefs(user_id or 1)
+        _kept = []
+        for _sig, _detail in strong_items:
+            _v = _pref_svc.decide(_prefs, code, _sig.signal_id)
+            if _v["suppress_all"]:
+                logger.info(f"[push_pref] 抑制(合并){_v['reason']}: {name}({code}) {_sig.signal_name}")
+                continue
+            mute_lark = mute_lark or _v["mute_lark"]
+            _kept.append((_sig, _detail))
+        strong_items = _kept
+    except Exception as e:
+        logger.warning(f"[push_pref] 合并推送闸门异常, 放行: {e}")
+    if not strong_items:
+        return
+
     if len(strong_items) == 1:
         sig, detail = strong_items[0]
         model_stats = None
@@ -589,6 +611,17 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
     label = "多信号触发" if has_sell else "多买点叠加"
     pct_str = f"+{stock_pct:.2f}%" if stock_pct >= 0 else f"{stock_pct:.2f}%"
     lines = [f"【{label}】{arrow} {name}({code})  {price:.2f} {pct_str}{amount_suffix}", ""]
+    # v1.7.569: 合并推送补 RED/YELLOW 市场风险标记(原来只有单信号 send_wechat_signal 有, 合并分支丢了)
+    if any(s.direction == "buy" for s, _ in strong_items):
+        try:
+            from backend.services.market_risk_controller import get_risk_state
+            _rs = await get_risk_state()
+            if _rs == "RED":
+                lines.insert(1, "⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓")
+            elif _rs == "YELLOW":
+                lines.insert(1, "⚡ 市场风险·谨慎(YELLOW): 轻度预警, 注意风控")
+        except Exception:
+            pass
     # 多买点合并推送也带上各买点历史胜率(与单条推送口径一致)
     stats_map = {}
     if any(s.direction == "buy" for s, _ in strong_items):
@@ -613,7 +646,7 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
         lines.append("")
     if strategy:
         lines.append(f"📋 操作策略: {strategy}")
-    await notifier.send_wechat_text("\n".join(lines).rstrip())
+    await notifier.send_wechat_text("\n".join(lines).rstrip(), mute_lark=mute_lark)
     logger.info(f"Signal: 合并推送 {name}({code}) {len(strong_items)}个强档信号 -> user {user_id}")
 
 

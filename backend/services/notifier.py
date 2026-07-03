@@ -603,8 +603,11 @@ async def send_wechat_markdown(content: str) -> bool:
     return lark_ok or pp_ok
 
 
-async def send_wechat_text(content: str) -> bool:
-    """通用文本推送(企业微信)。用于汇总报告类消息(如 S0 快照、自定义播报)。"""
+async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
+    """通用文本推送(企业微信)。用于汇总报告类消息(如 S0 快照、自定义播报)。
+
+    mute_lark=True: 今日免打扰命中 → 仅静音飞书, 其他渠道照常(v1.7.569, 供合并推送透传偏好闸)。
+    """
     if not await is_production():
         ip = await get_outbound_ip()
         logger.info(f"[wechat_text] 非生产环境 IP={ip}，跳过文本推送")
@@ -612,8 +615,10 @@ async def send_wechat_text(content: str) -> bool:
     cfg = load_config()
     body = _time_prefix() + content
 
-    lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False), body,
-                                 title="📊 盘面播报")
+    lark_ok = False
+    if not mute_lark:
+        lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False), body,
+                                     title="📊 盘面播报")
     pp_ok = await _fanout_pushplus("📊 盘面播报", body)
     return lark_ok or pp_ok
 

@@ -142,6 +142,22 @@ def test_throttle_resets_next_day():
     assert t.throttled("000001", "prior_high", "2026-06-17") is False
 
 
+def test_throttle_load_restores_counts_from_db_snapshot():
+    """v1.7.569: 重启后从 DB 快照恢复今日计数, 已推过的规则仍被挡(不重推)。"""
+    t = GuardThrottle()
+    rows = [
+        {"code": "000001", "rule": "prior_high", "cnt": 1, "last_ts": 1000.0},
+        {"code": "300750", "rule": "surge", "cnt": 2, "last_ts": 2000.0},
+    ]
+    t.load("2026-06-16", rows)
+    # 接近前高(limit=1)已推1次 → 挡; 急拉(limit=2)已2次 → 挡; 冷却时间戳也恢复
+    assert t.throttled("000001", "prior_high", "2026-06-16") is True
+    assert t.throttled("300750", "surge", "2026-06-16", limit=2) is True
+    assert t.cooling("300750", "surge", 2000.0 + 100, cooldown_sec=1800) is True
+    # 未记录的规则不受影响
+    assert t.throttled("000001", "profit_protect", "2026-06-16") is False
+
+
 # ---------- 文案: 关键事实出现 ----------
 
 def test_near_high_msg_contains_facts():

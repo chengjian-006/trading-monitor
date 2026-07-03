@@ -184,8 +184,44 @@ class GuardThrottle:
         if ts is not None:
             self._last_ts[(code, rule)] = ts
 
+    def load(self, today: str, rows: list[dict]):
+        """v1.7.569: 用 DB 今日快照重建内存计数(重启后恢复, 防重推)。rows: [{code,rule,cnt,last_ts}]。"""
+        self._day = today
+        self._counts = {}
+        self._last_ts = {}
+        for r in rows:
+            key = (r["code"], r["rule"])
+            self._counts[key] = int(r.get("cnt") or 0)
+            lt = r.get("last_ts")
+            if lt is not None:
+                self._last_ts[key] = float(lt)
+
 
 _throttle = GuardThrottle()
+
+
+async def _hydrate(today: str):
+    """v1.7.569: tick 开头从 DB 恢复今日节流计数 — 盘中重启后不再重推持续成立类提醒。
+    每天首个 tick(内存日切换)顺带清理 7 天前历史行。DB 失败则沿用内存态(降级不阻断)。"""
+    new_day = _throttle._day != today
+    try:
+        from backend.models.repo import guard_throttle as _gt
+        rows = await _gt.load_today(today)
+        _throttle.load(today, rows)
+        if new_day:
+            await _gt.prune(before_days=7)
+    except Exception as e:
+        logger.warning(f"[holding_guard] 节流状态从DB恢复失败, 用内存态: {e}")
+
+
+async def _mark(code: str, rule: str, today: str, ts: float | None = None):
+    """内存 mark + 落库(v1.7.569)。DB 失败只影响跨重启去重, 本进程内存态仍生效, 不阻断推送。"""
+    _throttle.mark(code, rule, today, ts=ts)
+    try:
+        from backend.models.repo import guard_throttle as _gt
+        await _gt.bump(today, code, rule, ts)
+    except Exception as e:
+        logger.warning(f"[holding_guard] 节流状态落库失败({code}/{rule}): {e}")
 
 # 持仓异动跟踪器(进程内, 重启清空可接受)
 _pct_hist = ha.PctHistory()
@@ -236,12 +272,12 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         if (delta >= SURGE_PP and not _throttle.throttled(code, "surge", today, limit=SURGE_MAX_DAILY)
                 and not _throttle.cooling(code, "surge", now_ts, SURGE_COOLDOWN_SEC)):
             hits.append(("⚡ 持仓异动·急速拉升", ha.build_surge_msg(name, code, delta, win_min, price, pct)))
-            _throttle.mark(code, "surge", today, ts=now_ts)
+            await _mark(code, "surge", today, ts=now_ts)
         elif (delta <= -SURGE_PP and not _throttle.throttled(code, "plunge", today, limit=SURGE_MAX_DAILY)
                 and not _throttle.cooling(code, "plunge", now_ts, SURGE_COOLDOWN_SEC)):
             if not await _sell_signal_today(code):   # 与卖点去重
                 hits.append(("🪨 持仓异动·急速跳水", ha.build_plunge_msg(name, code, delta, win_min, price, pct)))
-                _throttle.mark(code, "plunge", today, ts=now_ts)
+                await _mark(code, "plunge", today, ts=now_ts)
 
     # ② 涨停 / 跌停 + 封单松动 + 开板
     side = ha.at_limit_side(code, name, price, pre_close)
@@ -255,13 +291,13 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
             if side == "up":
                 hits.append(("🔥 持仓异动·涨停",
                              ha.build_limit_up_msg(name, code, price, pct, amt, vol_ratio, amount)))
-                _throttle.mark(code, rule, today)
+                await _mark(code, rule, today)
             elif not await _sell_signal_today(code):   # 跌停与卖点去重
                 hits.append(("🧊 持仓异动·跌停",
                              ha.build_limit_down_msg(name, code, price, pct, amt, amount)))
-                _throttle.mark(code, rule, today)
+                await _mark(code, rule, today)
             else:
-                _throttle.mark(code, rule, today)      # 被去重抑制也记一次, 当日不再试
+                await _mark(code, rule, today)      # 被去重抑制也记一次, 当日不再试
         # 封板异动: 封单松动 or 板上放量(任一命中即报, 文案注明原因; 均需五档)
         if has_l1:
             rate = _amt_hist.rate(code, now_ts, BOARD_VOL_WIN)
@@ -288,14 +324,14 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
                 )
                 hits.append((title, msg))
                 if weaken_hit:
-                    _throttle.mark(code, f"seal_weaken_{int(tier * 100)}", today)
+                    await _mark(code, f"seal_weaken_{int(tier * 100)}", today)
                 if vol_hit:
-                    _throttle.mark(code, "board_vol", today)
+                    await _mark(code, "board_vol", today)
         _seal_state[code] = side
     elif prev:   # 曾封死, 现未封死 → 开板
         if not _throttle.throttled(code, "board_open", today):
             hits.append(("💥 持仓异动·开板", ha.build_board_open_msg(name, code, price, pct, prev)))
-            _throttle.mark(code, "board_open", today)
+            await _mark(code, "board_open", today)
         _seal_peak.clear(code, prev)
         _seal_base.clear(code, prev)
         _seal_state.pop(code, None)
@@ -314,7 +350,7 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
         combined = f"📣 {name}({code}) 多重异动（{len(hits)} 项）\n\n" + \
             "\n\n──────────\n\n".join(f"{t}\n{m}" for t, m in hits)
         await _send(combined, f"📣 持仓异动·{name}（{len(hits)}项）")
-    _throttle.mark(code, "anomaly_card", today)
+    await _mark(code, "anomaly_card", today)
 
 
 # ══════════════ 任务编排(盘中 tick) ══════════════
@@ -335,6 +371,7 @@ async def holding_guard_tick():
     if not (WIN_START <= hm <= WIN_END):
         return
     today = date.today().isoformat()
+    await _hydrate(today)   # v1.7.569: 从 DB 恢复今日节流计数, 防盘中重启重推
 
     try:
         cost_map, date_map, model_map = await repository.get_holdings_full_info(1)
@@ -381,7 +418,7 @@ async def holding_guard_tick():
             try:
                 await notifier.send_dual(build_near_high_msg(name, code, price, ph, ph_date),
                                          lark_title="📈 持仓守护·接近前高")
-                _throttle.mark(code, "prior_high", today)
+                await _mark(code, "prior_high", today)
             except Exception as e:
                 logger.warning(f"[holding_guard] 接近前高推送失败({code}): {e}")
 
@@ -398,6 +435,6 @@ async def holding_guard_tick():
                     model_name=MODEL_NAMES.get(entry_model, ""))
                 try:
                     await notifier.send_dual(msg, lark_title="🛡️ 持仓守护·盈利保护")
-                    _throttle.mark(code, "profit_protect", today)
+                    await _mark(code, "profit_protect", today)
                 except Exception as e:
                     logger.warning(f"[holding_guard] 盈利保护推送失败({code}): {e}")

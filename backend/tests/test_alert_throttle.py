@@ -25,10 +25,13 @@ def reset_throttle_state():
 
 @pytest.fixture
 def mock_notifier(monkeypatch):
-    """替换 notifier 的 send 函数, 让 alert_throttle 内部 import 用 mock 版."""
+    """替换 notifier 的 send 函数, 让 alert_throttle 内部 import 用 mock 版.
+    并把 is_production mock 成 True(v1.7.569: _send 加了生产闸, 非生产会跳过发送)。"""
     import backend.services.notifier as notifier
+    import backend.core.config as config
     text_mock = AsyncMock(return_value=True)
     monkeypatch.setattr(notifier, "send_wechat_text", text_mock)
+    monkeypatch.setattr(config, "is_production", AsyncMock(return_value=True))
     return text_mock
 
 
@@ -116,6 +119,38 @@ class TestEmptyMergerSkipsPush:
         await at.enqueue("T1", {"x": 1})
 
         text_mock.assert_not_awaited()
+
+
+class TestRequeueOnPushFailure:
+    """v1.7.569: 全渠道推送失败 → 件放回缓冲队首 + last_push_at 回拨, 下轮重试, 不静默丢件。"""
+
+    async def test_failed_push_requeues_items(self, monkeypatch):
+        import backend.services.notifier as notifier
+        import backend.core.config as config
+        fail_mock = AsyncMock(return_value=False)   # 全渠道失败
+        monkeypatch.setattr(notifier, "send_wechat_text", fail_mock)
+        monkeypatch.setattr(config, "is_production", AsyncMock(return_value=True))
+
+        at.register("T1", lambda items: f"got {len(items)}", throttle_seconds=60)
+        await at.enqueue("T1", {"id": 1})
+
+        # 尝试推送但失败 → 件应放回缓冲, 时间戳回拨到立即可重试
+        assert fail_mock.await_count == 1
+        assert len(at._buffers["T1"].items) == 1
+        assert at._buffers["T1"].last_push_at is None
+
+        # 下一轮渠道恢复 → flush_all 应把放回的件重推成功
+        ok_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(notifier, "send_wechat_text", ok_mock)
+        await at.flush_all()
+        assert ok_mock.await_count == 1
+        assert len(at._buffers["T1"].items) == 0
+
+    async def test_partial_success_does_not_requeue(self, mock_notifier):
+        # send 返回 True(至少一个渠道成功) → 不重排, 缓冲清空
+        at.register("T1", lambda items: f"got {len(items)}", throttle_seconds=60)
+        await at.enqueue("T1", {"id": 1})
+        assert len(at._buffers["T1"].items) == 0
 
 
 class TestBufferStats:

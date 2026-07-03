@@ -66,22 +66,38 @@ def _take_if_due(alert_type: str) -> tuple[str, list[dict]] | None:
     return alert_type, items
 
 
-async def _send(alert_type: str, items: list[dict]) -> None:
+async def _requeue(alert_type: str, items: list[dict]) -> None:
+    """v1.7.569: 推送全渠道失败 → 把取走的 items 放回缓冲队首, 并回拨 last_push_at 使其立即到期,
+    下一轮 enqueue/flush_all 重试, 不再静默丢件。仅在"一条都没发出去"时调用(部分成功不重排, 免重复)。"""
+    async with _lock:
+        buf = _buffers[alert_type]
+        buf.items[:0] = items          # 放回队首, 保持时间顺序
+        buf.last_push_at = None         # 立即到期
+    logger.warning(f"[alert_throttle] {alert_type}: {len(items)} 条推送失败已放回缓冲, 下轮重试")
+
+
+async def _send(alert_type: str, items: list[dict]) -> bool:
+    """返回 True=已交付(至少一个渠道成功)或无需重试(无merger/空文本/非生产); False=全渠道失败需重排。"""
     merger = _mergers.get(alert_type)
     if not merger:
         logger.warning(f"[alert_throttle] {alert_type} 缺少 merger, 丢弃 {len(items)} 条")
-        return
+        return True                    # 永久性问题, 重排也没用
     try:
         text = merger(items)
     except Exception as e:
-        logger.warning(f"[alert_throttle] {alert_type} merger 抛错: {e}")
-        return
+        logger.warning(f"[alert_throttle] {alert_type} merger 抛错, 丢弃: {e}")
+        return True                    # 重排会再次抛错, 不重试
     if not text:
-        return
+        return True
     try:
+        from backend.core.config import is_production
+        if not await is_production():
+            logger.info(f"[alert_throttle] 非生产环境, 跳过 flush {alert_type}({len(items)}条)")
+            return True                # 有意跳过, 非失败, 不重排
         from backend.services import notifier
         # 注册了飞书表格卡构造器 → 飞书发原生表格卡(企微仍文本); 否则走纯文本双通道
         card_builder = _lark_card_builders.get(alert_type)
+        ok = False
         sent_via_card = False
         if card_builder:
             try:
@@ -91,14 +107,18 @@ async def _send(alert_type: str, items: list[dict]) -> None:
                 built = None
             if built:
                 title, elements = built
-                await notifier.send_dual_card(text, lark_title=title, elements=elements)
+                ok = await notifier.send_dual_card(text, lark_title=title, elements=elements)
                 sent_via_card = True
         if not sent_via_card:
-            await notifier.send_wechat_text(text)
-        logger.info(f"[alert_throttle] flush {alert_type}: 合并 {len(items)} 条已推送")
+            ok = await notifier.send_wechat_text(text)
+        if ok:
+            logger.info(f"[alert_throttle] flush {alert_type}: 合并 {len(items)} 条已推送")
+        else:
+            logger.warning(f"[alert_throttle] flush {alert_type}: {len(items)} 条全渠道未成功")
+        return bool(ok)
     except Exception as e:
-        logger.warning(f"[alert_throttle] {alert_type} 推送失败: {e}")
-        return
+        logger.warning(f"[alert_throttle] {alert_type} 推送异常: {e}")
+        return False
 
 
 async def enqueue(alert_type: str, payload: dict) -> None:
@@ -107,7 +127,8 @@ async def enqueue(alert_type: str, payload: dict) -> None:
         _buffers[alert_type].items.append(payload)
         pending = _take_if_due(alert_type)
     if pending:
-        await _send(*pending)
+        if not await _send(*pending):
+            await _requeue(*pending)
 
 
 async def flush_all() -> None:
@@ -119,7 +140,8 @@ async def flush_all() -> None:
             if p:
                 pending_list.append(p)
     for p in pending_list:
-        await _send(*p)
+        if not await _send(*p):
+            await _requeue(*p)
 
 
 def get_buffer_stats() -> dict[str, dict]:
