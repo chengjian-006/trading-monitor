@@ -625,7 +625,8 @@ async def send_dual(content: str, *, lark_title: str = "📊 盘面播报",
 
 
 async def send_dual_card(content: str, *, lark_title: str, elements: list,
-                         link_url: str = "", link_text: str = "") -> bool:
+                         link_url: str = "", link_text: str = "",
+                         template: str = "blue") -> bool:
     """企微纯文本 + 飞书原生表格卡(schema 2.0, post_lark_card_v2); 飞书表格卡失败回退纯文本卡。
     给「带表格的合并推送」用(如资金回流·板块预警的自选个股网格)。企微无原生表格, 始终发 content 文本兜底。"""
     if not await is_production():
@@ -641,11 +642,12 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
         if elements:
             from backend.services import lark_notifier
             lark_ok = await lark_notifier.post_lark_card_v2(
-                lark_webhook, lark_title, elements, link_url=link_url, link_text=link_text)
+                lark_webhook, lark_title, elements, template=template,
+                link_url=link_url, link_text=link_text)
             if not lark_ok:
                 logger.warning(f"[send_dual_card] 飞书表格卡失败, 回退纯文本卡: {lark_title}")
         if not lark_ok:
-            lark_ok = await _fanout_lark(lark_webhook, True, body, title=lark_title)
+            lark_ok = await _fanout_lark(lark_webhook, True, body, title=lark_title, template=template)
 
     pp_ok = await _fanout_pushplus(lark_title, body)
     return lark_ok or pp_ok
