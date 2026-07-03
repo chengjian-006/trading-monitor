@@ -17,6 +17,35 @@ logger = logging.getLogger(__name__)
 # v1.7.x: 空响应不入缓存(防污染), TTL 按 code 独立计算
 _batch_intraday_cache: dict = {}
 _BATCH_INTRADAY_TTL = 30
+# 非交易时段分时不再变化, 30s TTL 会让整晚每次打开页面都全量重拉上游 → 放长到1小时
+_BATCH_INTRADAY_TTL_CLOSED = 3600
+# 单次请求的上游拉取预算(秒): 到点先把拿到的返回, 没拉完的留后台继续焐缓存,
+# 前端 30s 轮询按 code 合并会自动补全 — 防止冷缓存时一次请求挂几分钟(0703实测140s)
+_BATCH_FETCH_BUDGET = 8.0
+
+# 飞行中拉取去重: 同一 code 的上游拉取全局只跑一份(3个分块请求并行+30s轮询会重复触发)
+_inflight: dict = {}
+# 全局上游并发闸(模块级, 懒建防跨事件循环): 原来每请求各开 Semaphore(5), 3个分块并行=15路
+_fetch_sem: asyncio.Semaphore | None = None
+_fetch_sem_loop = None
+
+
+def _get_fetch_sem() -> asyncio.Semaphore:
+    global _fetch_sem, _fetch_sem_loop
+    loop = asyncio.get_running_loop()
+    if _fetch_sem is None or _fetch_sem_loop is not loop:
+        _fetch_sem = asyncio.Semaphore(6)
+        _fetch_sem_loop = loop
+    return _fetch_sem
+
+
+def _batch_ttl() -> float:
+    """盘中 30s; 非交易时段分时冻结, 1小时。"""
+    try:
+        from backend.core.trading_calendar import is_trading_time
+        return _BATCH_INTRADAY_TTL if is_trading_time() else _BATCH_INTRADAY_TTL_CLOSED
+    except Exception:
+        return _BATCH_INTRADAY_TTL
 
 
 def _parse_jsonp(text: str) -> dict:
@@ -154,80 +183,95 @@ def get_cached_sparkline_speed(codes: list[str]) -> dict[str, float]:
     return out
 
 
-async def get_batch_intraday_sparkline(codes: list[str]) -> dict:
-    """批量当日分时走势 (mini sparkline 用). 缓存按 code 独立 TTL 30s; 空响应不入缓存防污染."""
-    now = _time.time()
-    result: dict = {}
-    miss_codes: list[str] = []
-    for c in codes:
-        entry = _batch_intraday_cache.get(c)
-        if entry and entry.get("trends") and (now - entry.get("_fetched_at", 0)) < _BATCH_INTRADAY_TTL:
-            result[c] = {"pre_close": entry["pre_close"], "trends": entry["trends"]}
-        else:
-            miss_codes.append(c)
-    if not miss_codes:
-        return result
+async def _fetch_one_sparkline(code: str) -> dict:
+    """单只票分时拉取: 同花顺主 → 东财兜底(1次, prod IP被封重试纯空耗). 成功即写缓存."""
+    async with _get_fetch_sem():
+        v = {"pre_close": 0, "trends": []}
+        # 主源: 同花顺 (拿真实昨收; 拿不到宁可置0, 前端隐藏昨收线+颜色随权威涨幅, 不拿开盘当昨收)
+        try:
+            ths_points, ths_pre = await _intraday_ths(code)
+            if ths_points:
+                v = {"pre_close": ths_pre,
+                     "trends": [{"time": p["time"], "price": p["price"],
+                                 "volume": p.get("volume", 0)} for p in ths_points]}
+        except Exception as e:
+            logger.warning(f"[batch_intraday] THS 主源失败({code}): {e}")
 
-    sem = asyncio.Semaphore(5)
-    client = _get_client()
-
-    async def _fetch_one(code: str):
-        """单只票分时拉取: 同花顺主 → 东财兜底."""
-        async with sem:
-            # 主源: 同花顺 (拿真实昨收; 拿不到宁可置0, 前端隐藏昨收线+颜色随权威涨幅, 不拿开盘当昨收)
-            try:
-                ths_points, ths_pre = await _intraday_ths(code)
-                if ths_points:
-                    trends = [
-                        {"time": p["time"], "price": p["price"], "volume": p.get("volume", 0)}
-                        for p in ths_points
-                    ]
-                    return code, {"pre_close": ths_pre, "trends": trends}
-            except Exception as e:
-                logger.warning(f"[batch_intraday] THS 主源失败({code}): {e}")
-
-            # 兜底: 东方财富 (2 次重试)
+        if not v["trends"]:
             secid = _code_to_em(code)
             url = (
                 f"https://push2his.eastmoney.com/api/qt/stock/trends2/get"
                 f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
                 f"&iscr=0&ndays=1"
             )
-            for attempt in range(1, 3):
-                try:
-                    resp = await client.get(url, headers=EM_HEADERS)
-                    data = resp.json()
-                    node = data.get("data") or {}
-                    pre_close = node.get("preClose", 0)
-                    trends_raw = node.get("trends", [])
-                    trends = []
-                    for t in trends_raw:
-                        parts = t.split(",")
-                        if len(parts) >= 3:
-                            pt = {"time": parts[0], "price": float(parts[2])}
-                            if len(parts) >= 6:
-                                try:
-                                    pt["volume"] = float(parts[5])
-                                except (ValueError, TypeError):
-                                    pass
-                            trends.append(pt)
-                    if trends:
-                        return code, {"pre_close": pre_close, "trends": trends}
-                    if attempt < 2:
-                        await asyncio.sleep(0.8)
-                except Exception as e:
-                    logger.warning(f"[batch_intraday] EM 兜底第{attempt}次失败({code}): {e}")
-                    if attempt < 2:
-                        await asyncio.sleep(0.8)
-            return code, {"pre_close": 0, "trends": []}
+            try:
+                resp = await _get_client().get(url, headers=EM_HEADERS)
+                data = resp.json()
+                node = data.get("data") or {}
+                pre_close = node.get("preClose", 0)
+                trends = []
+                for t in node.get("trends", []):
+                    parts = t.split(",")
+                    if len(parts) >= 3:
+                        pt = {"time": parts[0], "price": float(parts[2])}
+                        if len(parts) >= 6:
+                            try:
+                                pt["volume"] = float(parts[5])
+                            except (ValueError, TypeError):
+                                pass
+                        trends.append(pt)
+                if trends:
+                    v = {"pre_close": pre_close, "trends": trends}
+            except Exception as e:
+                logger.warning(f"[batch_intraday] EM 兜底失败({code}): {e}")
 
-    fetched = await asyncio.gather(*[_fetch_one(c) for c in miss_codes])
-    for code, v in fetched:
-        result[code] = v
-        if v and v.get("trends"):
+        if v.get("trends"):
             _batch_intraday_cache[code] = {
-                "pre_close": v["pre_close"],
-                "trends": v["trends"],
+                "pre_close": v["pre_close"], "trends": v["trends"],
                 "_fetched_at": _time.time(),
             }
+        return v
+
+
+async def get_batch_intraday_sparkline(codes: list[str]) -> dict:
+    """批量当日分时走势 (mini sparkline 用). 缓存按 code 独立 TTL(盘中30s/盘后1h);
+    空响应不入缓存防污染。单次请求上游拉取有预算(8s): 到点先返回已拿到的,
+    未完成的留后台继续写缓存, 前端 30s 轮询按 code 合并自动补全。"""
+    now = _time.time()
+    ttl = _batch_ttl()
+    result: dict = {}
+    miss_codes: list[str] = []
+    for c in codes:
+        entry = _batch_intraday_cache.get(c)
+        if entry and entry.get("trends") and (now - entry.get("_fetched_at", 0)) < ttl:
+            result[c] = {"pre_close": entry["pre_close"], "trends": entry["trends"]}
+        else:
+            miss_codes.append(c)
+    if not miss_codes:
+        return result
+
+    tasks: dict[str, asyncio.Task] = {}
+    for c in miss_codes:
+        t = _inflight.get(c)
+        if t is None or t.done():
+            t = asyncio.create_task(_fetch_one_sparkline(c))
+            _inflight[c] = t
+            t.add_done_callback(lambda _t, _c=c: _inflight.pop(_c, None) if _inflight.get(_c) is _t else None)
+        tasks[c] = t
+
+    await asyncio.wait(set(tasks.values()), timeout=_BATCH_FETCH_BUDGET)
+    pending_n = 0
+    for c, t in tasks.items():
+        if t.done():
+            try:
+                v = t.result()
+            except Exception:
+                v = None
+            if v is not None:
+                result[c] = v
+        else:
+            pending_n += 1
+    if pending_n:
+        logger.info(f"[batch_intraday] 预算{_BATCH_FETCH_BUDGET}s内 {pending_n}/{len(miss_codes)} 只未完成, "
+                    "留后台焐缓存待下轮轮询补全")
     return result
