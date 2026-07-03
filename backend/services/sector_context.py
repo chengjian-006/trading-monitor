@@ -31,23 +31,30 @@ def _classify_state(seq: list[int], peak: int) -> tuple[str, str]:
 
 
 async def get_sector_brief(code: str, user_id: int | None) -> dict | None:
-    """返回 {label, status, emoji, today, seq(近3日), trend} 或 None。"""
+    """返回 {industry, label, status, emoji, today, seq(近3日), trend} 或 None。
+
+    v1.7.561: 加 industry(所属行业, 主业口径) 与 label(关联热点=概念标签中当前最热题材) 分离。
+    此前只显示最热概念且叫"所属板块", 对主业与热点无关的票严重误导(如卫星化学主业化学原料,
+    因带"液冷概念"标签被显示成 AI算力·液冷)。热点缺位时退化为只含 industry 的 dict; 都无 → None。
+    """
     if not code:
         return None
     row = await _fetchone(
-        "SELECT concepts FROM cfzy_biz_stock_pool WHERE code=%s AND user_id=%s",
+        "SELECT concepts, industry FROM cfzy_biz_stock_pool WHERE code=%s AND user_id=%s",
         (code, user_id or 1))
+    industry = ((row or {}).get("industry") or "").strip()
+    base = {"industry": industry, "label": None} if industry else None
     concepts = (row or {}).get("concepts") or ""
     cs = [c.strip() for c in concepts.split(",") if c.strip() and c.strip() not in _NOISE]
     if not cs:
-        return None
+        return base
 
     rows = await heat_repo.get_theme_heat(days=5)
     if not rows:
-        return None
+        return base
     dates = sorted({str(r["trade_date"])[:10] for r in rows})
     if not dates:
-        return None
+        return base
     today = dates[-1]
 
     # 题材热度按「大类桶」与「细题材名」两套聚合(同日累加涨停家数)
@@ -77,13 +84,13 @@ async def get_sector_brief(code: str, user_id: int | None) -> dict | None:
             cands.append((c, theme_by_day[c]))
             seen.add(c)
     if not cands:
-        return None
+        return base
 
     # 选今日涨停最多的候选; 全 0 则选近5日累计最多
     cands.sort(key=lambda x: (x[1].get(today, 0), sum(x[1].values())), reverse=True)
     label, series = cands[0]
     if sum(series.values()) == 0:
-        return None
+        return base
 
     last3 = dates[-3:]
     seq = [series.get(d, 0) for d in last3]
@@ -92,5 +99,5 @@ async def get_sector_brief(code: str, user_id: int | None) -> dict | None:
     status, emoji = _classify_state(seq, peak)
     trend = "走强" if len(seq) >= 2 and seq[-1] > seq[0] else (
         "走弱" if len(seq) >= 2 and seq[-1] < seq[0] else "持平")
-    return {"label": label, "status": status, "emoji": emoji,
+    return {"industry": industry, "label": label, "status": status, "emoji": emoji,
             "today": tcnt, "seq": seq, "trend": trend}
