@@ -1,7 +1,8 @@
 // 决策快查卡上下文 - v1.7.x
 // 维护 大盘 regime + 信号真实胜率 + 板块实时强度 三份背景数据, 5min 刷新一次,
 // 暴露 computeDecision(stock, buySignals) 给 StockTable 名称色块 / 展开决策卡共用.
-import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, watch } from 'vue'
+import { useVisiblePolling } from './useVisiblePolling'
 import { fetchRegime, type RegimeData } from '../api/market-report'
 import { fetchSignalOutcomeStats, type SignalOutcomeStatsItem } from '../api/signals'
 import { fetchSectorStrengthBatch, type SectorStrength } from '../api/sector'
@@ -28,7 +29,6 @@ export function useDecisionContext() {
   const outcomeStatsMap = ref<Record<string, SignalOutcomeStatsItem>>({})
   const sectorStrengthMap = ref<Record<string, SectorStrength>>({})
   const stockStore = useStockStore()
-  let timer: ReturnType<typeof setInterval> | null = null
 
   async function refreshGlobal() {
     try {
@@ -54,20 +54,11 @@ export function useDecisionContext() {
     } catch { /* silent */ }
   }
 
-  onMounted(() => {
+  // v1.7.571: 切走标签页暂停(regime+胜率+板块强度三份 5min 背景数据), 切回补刷; 卸载自动清理。
+  useVisiblePolling(() => {
     refreshGlobal()
     refreshSectorStrength()
-    timer = setInterval(() => {
-      refreshGlobal()
-      refreshSectorStrength()
-    }, REFRESH_INTERVAL_MS)
-  })
-  onBeforeUnmount(() => {
-    if (timer) {
-      clearInterval(timer)
-      timer = null
-    }
-  })
+  }, REFRESH_INTERVAL_MS)
 
   // 股票池首次加载后立即拉一次板块强度 (避免等到 5min 后才有数据)
   let sectorSeeded = false

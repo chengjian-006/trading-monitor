@@ -115,7 +115,9 @@ const modelCols = [
         </NTag>
         <NTag v-if="isUnlimited" size="small" type="error" style="margin-left: 6px">无限子弹 · 可透支/可加仓</NTag>
       </template>
-      <NGrid v-if="store.summary" :cols="4" :x-gap="12" :y-gap="12" responsive="screen">
+      <!-- v1.7.571: responsive="screen" 只对响应式cols字符串生效, 原来写死 :cols="4" 等于没配,
+           手机上9个统计块挤成4列7位数字溢出; 改用断点式cols: 手机2列/小屏3列/中屏起4列 -->
+      <NGrid v-if="store.summary" cols="2 s:3 m:4" :x-gap="12" :y-gap="12" responsive="screen">
         <NGi><NStatistic label="总资产" :value="store.summary.total_equity" /></NGi>
         <NGi>
           <NStatistic label="当日盈亏">

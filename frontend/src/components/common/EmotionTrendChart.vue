@@ -99,7 +99,8 @@ async function render() {
 
 onMounted(() => {
   nextTick(render)
-  timer = window.setInterval(render, 60000)
+  // v1.7.571: 切走标签页时跳过重绘(原来后台每分钟拉情绪历史+整图销毁重建); 保留 onUnmounted 的 destroy 清理
+  timer = window.setInterval(() => { if (!document.hidden) render() }, 60000)
 })
 onUnmounted(() => { if (timer) window.clearInterval(timer); destroy() })
 </script>

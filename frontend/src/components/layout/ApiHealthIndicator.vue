@@ -88,7 +88,8 @@ async function recheck() {
 onMounted(() => {
   load()
   // 前端每 60s 拉取一次最新状态（后端 5min 探活，前端轮询频率高一点保证显示新鲜）
-  timer = window.setInterval(load, 60000)
+  // v1.7.571: 切走标签页时跳过(保留 stopPolling 在 401 时停轮询的能力, 故内联判断而非换 useVisiblePolling)
+  timer = window.setInterval(() => { if (!document.hidden) load() }, 60000)
 })
 
 onUnmounted(() => {

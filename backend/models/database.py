@@ -819,7 +819,10 @@ _RENAME_MAP = {
 
 MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN user_id INT NOT NULL DEFAULT 1",
-    "ALTER TABLE cfzy_biz_stock_pool DROP PRIMARY KEY, ADD PRIMARY KEY (code, user_id)",
+    # v1.7.571: 原来这里有一条 "ALTER ... DROP PRIMARY KEY, ADD PRIMARY KEY (code,user_id)",
+    #   它每次启动都"成功"执行(非幂等错误, 吞错机制拦不住)=每次重启对 stock_pool 全表重建+元数据锁,
+    #   与 3 秒一轮的行情写入锁等。已挪到 _run_migrations 里做条件迁移(见 _migrate_stock_pool_pk):
+    #   只在当前主键不是 (code,user_id) 时才改。建表本就定义 PK(code,user_id), 新库/已迁移库都直接跳过。
     "ALTER TABLE cfzy_biz_signals ADD COLUMN user_id INT NOT NULL DEFAULT 1",
     "ALTER TABLE cfzy_sys_users ADD COLUMN ths_path VARCHAR(500) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN focused TINYINT NOT NULL DEFAULT 0",
@@ -957,6 +960,23 @@ async def _rename_tables(conn):
                 logger.info(f"Renamed table {old_name} -> {new_name}")
 
 
+async def _migrate_stock_pool_pk(cur):
+    """v1.7.571: 条件迁移 stock_pool 主键到 (code, user_id) — 仅当当前主键不同时才改,
+    避免每次启动无谓 DROP+ADD 全表重建。建表已定义 PK(code,user_id), 故新库/已迁移库直接跳过。"""
+    try:
+        await cur.execute(
+            "SELECT COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cfzy_biz_stock_pool' "
+            "AND CONSTRAINT_NAME = 'PRIMARY' ORDER BY ORDINAL_POSITION")
+        cols = [r[0] for r in await cur.fetchall()]
+        if cols == ["code", "user_id"]:
+            return   # 已是目标主键, 无需改
+        await cur.execute("ALTER TABLE cfzy_biz_stock_pool DROP PRIMARY KEY, ADD PRIMARY KEY (code, user_id)")
+        logger.info(f"[migration] stock_pool 主键 {cols} → (code, user_id) 已迁移")
+    except Exception as e:
+        logger.warning(f"[migration] stock_pool 主键条件迁移跳过: {e}")
+
+
 async def _run_migrations(conn):
     import json as _json
     # v1.7.x: MySQL 错误码区分 —— "幂等已存在"类静默吞掉, 真正的错误必须记 warning
@@ -968,6 +988,7 @@ async def _run_migrations(conn):
     #   1146 Table doesn't exist (旧表已经被 _rename_tables 处理)
     IDEMPOTENT_ERRNOS = {1060, 1061, 1068, 1091, 1146}
     async with conn.cursor() as cur:
+        await _migrate_stock_pool_pk(cur)   # v1.7.571: 条件迁移主键(替代每次重建的盲ALTER)
         for stmt in MIGRATION_STATEMENTS:
             try:
                 await cur.execute(stmt)

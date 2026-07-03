@@ -163,8 +163,9 @@ const stats = computed(() => overview.value?.market_stats)
 onMounted(() => {
   loadIntraday()
   loadDaily()
-  intradayTimer = window.setInterval(loadIntraday, 60_000)
-  dailyTimer = window.setInterval(loadDaily, 5 * 60_000)
+  // v1.7.571: 切走标签页时跳过请求(原来后台仍每分钟并发打5个接口), 切回照常; 定时器照转不发网络
+  intradayTimer = window.setInterval(() => { if (!document.hidden) loadIntraday() }, 60_000)
+  dailyTimer = window.setInterval(() => { if (!document.hidden) loadDaily() }, 5 * 60_000)
 })
 onUnmounted(() => {
   if (intradayTimer) clearInterval(intradayTimer)

@@ -80,14 +80,20 @@ async def reset_account(user_id: int, initial_capital: float, max_positions: int
                 await conn.commit()
                 return
             aid = acct["id"]
-            await cur.execute("DELETE FROM cfzy_biz_paper_position WHERE account_id=%s", (aid,))
-            await cur.execute("DELETE FROM cfzy_biz_paper_trade WHERE account_id=%s", (aid,))
-            await cur.execute("DELETE FROM cfzy_biz_paper_equity WHERE account_id=%s", (aid,))
-            await cur.execute(
-                "UPDATE cfzy_biz_paper_account SET cash=%s, initial_capital=%s, max_positions=%s, "
-                "started_at=NOW(), reset_at=NOW() WHERE id=%s",
-                (initial_capital, initial_capital, max_positions, aid))
-            await conn.commit()
+            # v1.7.571: 真事务包裹三删一改, 防中途崩溃留下"清了持仓没重置现金"的半重置账户。
+            try:
+                await conn.begin()
+                await cur.execute("DELETE FROM cfzy_biz_paper_position WHERE account_id=%s", (aid,))
+                await cur.execute("DELETE FROM cfzy_biz_paper_trade WHERE account_id=%s", (aid,))
+                await cur.execute("DELETE FROM cfzy_biz_paper_equity WHERE account_id=%s", (aid,))
+                await cur.execute(
+                    "UPDATE cfzy_biz_paper_account SET cash=%s, initial_capital=%s, max_positions=%s, "
+                    "started_at=NOW(), reset_at=NOW() WHERE id=%s",
+                    (initial_capital, initial_capital, max_positions, aid))
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
 
 async def get_position(account_id: int, code: str):
@@ -176,42 +182,56 @@ async def record_failure(account: dict, code: str, name: str, signal_id: str,
 async def apply_fill(account: dict, action: dict, code: str, name: str,
                      signal_id: str, signal_name: str, direction: str,
                      entry_model_name: str = "") -> None:
-    """单事务: 写流水 + 改持仓 + 改现金。action 来自 paper_trader.decide()。"""
+    """单事务: 写流水 + 改持仓 + 改现金。action 来自 paper_trader.decide()。
+
+    v1.7.571: ①真事务包裹(conn.begin/commit/rollback) — 全局连接池 autocommit=True 时原来的
+      conn.commit() 是空操作, 三条写(流水/持仓/现金)非原子, 中途崩溃会写了流水没扣钱=账户不平。
+    ②现金改增量写 `cash = cash + delta` — 原来写调用方预读算出的绝对 cash_after, 两笔并发都基于
+      同一旧现金算 → 后写覆盖先写(丢失更新, 现金凭空多出)。增量写由 DB 原子累加, 天然正确。
+    """
     aid = account["id"]
     uid = account["user_id"]
     today = datetime.now().date()
+    # 现金增量: 买 -(成交额+费), 卖 +(成交额-费)
+    cash_delta = ((action["amount"] - action["fee"]) if action["side"] == "sell"
+                  else -(action["amount"] + action["fee"]))
     pool = get_pool()
     async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "INSERT INTO cfzy_biz_paper_trade (account_id,user_id,code,name,side,qty,price,amount,fee,"
-                "cash_after,signal_id,signal_name,signal_direction,realized_pnl,realized_pnl_pct,note,trade_date) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (aid, uid, code, name, action["side"], action["qty"], action["price"], action["amount"],
-                 action["fee"], action["cash_after"], signal_id, signal_name, direction,
-                 action.get("realized_pnl"), action.get("realized_pnl_pct"), action.get("note", ""), today))
-            if action["side"] == "buy":
-                # 无限子弹账户同股可加仓: 已持仓则累加股数/成本(均价随之摊薄), 首仓信息(开仓日/入仓买点)保留。
-                # 普通账户买入前已持仓会在 decide() 被跳过, 走不到 ON DUPLICATE 分支, 行为不变。
+        try:
+            await conn.begin()
+            async with conn.cursor() as cur:
                 await cur.execute(
-                    "INSERT INTO cfzy_biz_paper_position (account_id,user_id,code,name,qty,cost_amount,"
-                    "open_date,entry_signal_id,entry_model_name) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
-                    "ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty), "
-                    "cost_amount=cost_amount+VALUES(cost_amount), name=VALUES(name)",
-                    (aid, uid, code, name, action["qty"], action["amount"] + action["fee"], today,
-                     signal_id, entry_model_name))
-            else:
-                if action.get("close_position"):
+                    "INSERT INTO cfzy_biz_paper_trade (account_id,user_id,code,name,side,qty,price,amount,fee,"
+                    "cash_after,signal_id,signal_name,signal_direction,realized_pnl,realized_pnl_pct,note,trade_date) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (aid, uid, code, name, action["side"], action["qty"], action["price"], action["amount"],
+                     action["fee"], action["cash_after"], signal_id, signal_name, direction,
+                     action.get("realized_pnl"), action.get("realized_pnl_pct"), action.get("note", ""), today))
+                if action["side"] == "buy":
+                    # 无限子弹账户同股可加仓: 已持仓则累加股数/成本(均价随之摊薄), 首仓信息(开仓日/入仓买点)保留。
+                    # 普通账户买入前已持仓会在 decide() 被跳过, 走不到 ON DUPLICATE 分支, 行为不变。
                     await cur.execute(
-                        "DELETE FROM cfzy_biz_paper_position WHERE account_id=%s AND code=%s", (aid, code))
+                        "INSERT INTO cfzy_biz_paper_position (account_id,user_id,code,name,qty,cost_amount,"
+                        "open_date,entry_signal_id,entry_model_name) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                        "ON DUPLICATE KEY UPDATE qty=qty+VALUES(qty), "
+                        "cost_amount=cost_amount+VALUES(cost_amount), name=VALUES(name)",
+                        (aid, uid, code, name, action["qty"], action["amount"] + action["fee"], today,
+                         signal_id, entry_model_name))
                 else:
-                    await cur.execute(
-                        "UPDATE cfzy_biz_paper_position SET qty=qty-%s, cost_amount=cost_amount-%s "
-                        "WHERE account_id=%s AND code=%s",
-                        (action["qty"], action["cost_basis_sold"], aid, code))
-            await cur.execute(
-                "UPDATE cfzy_biz_paper_account SET cash=%s WHERE id=%s", (action["cash_after"], aid))
+                    if action.get("close_position"):
+                        await cur.execute(
+                            "DELETE FROM cfzy_biz_paper_position WHERE account_id=%s AND code=%s", (aid, code))
+                    else:
+                        await cur.execute(
+                            "UPDATE cfzy_biz_paper_position SET qty=qty-%s, cost_amount=cost_amount-%s "
+                            "WHERE account_id=%s AND code=%s",
+                            (action["qty"], action["cost_basis_sold"], aid, code))
+                await cur.execute(
+                    "UPDATE cfzy_biz_paper_account SET cash = cash + %s WHERE id=%s", (cash_delta, aid))
             await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
 
 
 async def list_trades(account_id: int, limit: int = 100, offset: int = 0) -> list:

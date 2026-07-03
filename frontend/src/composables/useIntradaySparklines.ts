@@ -1,11 +1,11 @@
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { fetchBatchIntraday, type SparklineData } from '../api/kline'
+import { useVisiblePolling } from './useVisiblePolling'
 
 export function useIntradaySparklines(getCodes: () => string[]) {
   // v1.7.x: 按 code 合并而非整张替换 — 防止单只票偶发失败时
   // 上一轮成功的曲线被这一轮的空响应覆盖成 "-"
   const sparklineMap = ref<Record<string, SparklineData>>({})
-  let timer: ReturnType<typeof setInterval> | null = null
 
   async function refresh() {
     const codes = getCodes()
@@ -30,14 +30,8 @@ export function useIntradaySparklines(getCodes: () => string[]) {
     }
   }
 
-  onMounted(() => {
-    refresh()
-    timer = setInterval(refresh, 30_000)
-  })
-
-  onUnmounted(() => {
-    if (timer) clearInterval(timer)
-  })
+  // v1.7.571: 切走标签页暂停(全池分时是最重的一个请求), 切回补刷; 卸载自动清理。
+  useVisiblePolling(refresh, 30_000)
 
   return { sparklineMap, refreshSparklines: refresh }
 }
