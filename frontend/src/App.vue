@@ -6,6 +6,7 @@ import { useAuthStore } from './stores/auth'
 import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AppTabBar from './components/layout/AppTabBar.vue'
+import MarketRiskLight from './components/layout/MarketRiskLight.vue'
 import StockDetailModal from './components/chart/StockDetailModal.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -116,6 +117,7 @@ const themeOverrides: GlobalThemeOverrides = {
         <div class="mobile-header">
           <span class="mobile-brand">观潮</span>
           <div class="mobile-header-right">
+            <MarketRiskLight />
             <span class="mobile-user">{{ authStore.user?.username }}</span>
             <span :class="['status-dot', { off: !connected }]" />
           </div>

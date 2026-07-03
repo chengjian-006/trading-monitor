@@ -5,6 +5,7 @@ import { NButton, NIcon } from 'naive-ui'
 import { LogOutOutline } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 import ApiHealthIndicator from './ApiHealthIndicator.vue'
+import MarketRiskLight from './MarketRiskLight.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -40,6 +41,7 @@ function handleLogout() {
       <span class="env-tag" :style="{ background: envInfo.color }">{{ envInfo.label }}</span>
     </div>
     <div class="navbar-right">
+      <MarketRiskLight />
       <ApiHealthIndicator />
       <span :class="['ws-status', { off: !connected }]" :title="connected ? '后端服务在线 (WebSocket 连接正常)' : '后端服务离线 (WebSocket 已断开)'" :aria-label="connected ? '后端服务在线 (WebSocket 连接正常)' : '后端服务离线 (WebSocket 已断开)'">
         <span class="ws-dot" />
