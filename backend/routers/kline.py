@@ -65,7 +65,20 @@ async def get_batch_intraday(codes: str = ""):
     # v1.7.x: 不再每次调用都后台全池实时刷新(走势存盘由 prefetch_intraday_sparklines 任务每25s统一负责)。
     # 原来每次 batch-intraday(挂载+每30s×多用户/多标签页)都 create_task 全池实时取一次(~2.7s/50只),
     # 后台任务堆积 + 与 quote_refresher 抢事件循环 → 盘中股票池整体变慢。去掉重复劳动。
-    return result
+    return {c: _slim_sparkline(v) for c, v in result.items()}
+
+
+def _slim_sparkline(v: dict) -> dict:
+    """响应瘦身(v1.7.566): 迷你走势前端只画 time/price, 240点降采样到~80点。
+    0703实测: 公网上 gzip 后 ≥~92KB 的接口响应会整段卡死(浏览器3个分块请求全挂,
+    还占满6连接配额拖垮整页) — 全量50只×240点×带volume ≈700KB/95KB gz 必中雷区,
+    瘦身后 ≈15KB gz 远离阈值。快照/进程缓存仍存全量(5min涨速等消费方不受影响)。"""
+    trends = v.get("trends") or []
+    n = len(trends)
+    step = 3 if n > 130 else 1
+    pts = [{"time": t.get("time"), "price": t.get("price")}
+           for i, t in enumerate(trends) if i % step == 0 or i == n - 1]
+    return {"pre_close": v.get("pre_close", 0), "trends": pts}
 
 
 def _sparkline_to_points(trends: list[dict]) -> list[dict]:

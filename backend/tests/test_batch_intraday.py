@@ -54,6 +54,23 @@ class TestInflightDedup:
         assert calls.count("600000") == 1   # 同code飞行中只拉一份
 
 
+class TestResponseSlimming:
+    def test_downsample_and_drop_volume(self):
+        from backend.routers.kline import _slim_sparkline
+        trends = [{"time": f"09:{i:02d}", "price": float(i), "volume": 100.0} for i in range(240)]
+        out = _slim_sparkline({"pre_close": 10.0, "trends": trends})
+        assert out["pre_close"] == 10.0
+        assert 78 <= len(out["trends"]) <= 82          # 240点 → ~80点
+        assert "volume" not in out["trends"][0]         # 前端不用, 砍掉
+        assert out["trends"][-1]["price"] == 239.0      # 末点(最新价)必保留
+
+    def test_short_series_kept_full(self):
+        from backend.routers.kline import _slim_sparkline
+        trends = [{"time": f"09:{i:02d}", "price": float(i)} for i in range(30)]
+        out = _slim_sparkline({"pre_close": 1.0, "trends": trends})
+        assert len(out["trends"]) == 30                 # 早盘点少, 不降采样
+
+
 class TestClosedMarketTTL:
     async def test_stale_entry_served_when_market_closed(self, monkeypatch):
         _reset()
