@@ -11,6 +11,7 @@ const router = createRouter({
     { path: '/intraday', name: 'intraday', component: () => import('../views/IntraDayView.vue') },
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },
     { path: '/popularity', name: 'popularity', component: () => import('../views/PopularityView.vue') },
+    { path: '/limit-up', name: 'limit-up', component: () => import('../views/LimitUpView.vue') },
     { path: '/signal-config', name: 'signal-config', component: () => import('../views/SignalConfigView.vue') },
     { path: '/alert-overview', name: 'alert-overview', component: () => import('../views/AlertOverviewView.vue') },
     { path: '/review', name: 'review', component: () => import('../views/ReviewView.vue') },

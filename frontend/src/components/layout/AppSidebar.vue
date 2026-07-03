@@ -51,6 +51,7 @@ const menuGroups: MenuGroup[] = [
     children: [
       { key: 'win-rate', label: '买卖胜率', path: '/review', icon: TrendingUpOutline },
       { key: 'alert-overview', label: '预警总览', path: '/alert-overview', icon: ListOutline },
+      { key: 'limit-up', label: '涨停复盘', path: '/limit-up', icon: BarChartOutline },
       { key: 'popularity', label: '人气分析', path: '/popularity', icon: TrendingUpOutline },
       { key: 'model-backtest', label: '模型回测', path: '/model-backtest', icon: BarChartOutline },
       { key: 'trade-analysis', label: '交易分析', path: '/trade-analysis', icon: WalletOutline },

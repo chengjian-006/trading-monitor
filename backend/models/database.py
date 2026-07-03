@@ -522,6 +522,36 @@ SCHEMA_STATEMENTS = [
         INDEX idx_user (user_id)
     )
     """,
+    # 每日涨停复盘存档 (v1.7.572) — 明细: 每交易日每只涨停股一行(代码/名称/板数/连板标签/涨停概念/涨幅/炸板),
+    # 由 run_limit_up_daily 收盘后15:35拉同花顺涨停池写入. 供「每日涨停复盘」看板/导出/推送 + 概念上榜历史分析.
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_limit_up_pool (
+        trade_date   VARCHAR(10) NOT NULL,
+        code         VARCHAR(10) NOT NULL,
+        name         VARCHAR(50) NOT NULL DEFAULT '',
+        height       INT NOT NULL DEFAULT 1,
+        streak_label VARCHAR(20) NOT NULL DEFAULT '',
+        reason       VARCHAR(255) NOT NULL DEFAULT '',
+        pct          DOUBLE DEFAULT NULL,
+        open_times   INT NOT NULL DEFAULT 0,
+        PRIMARY KEY (trade_date, code),
+        INDEX idx_date (trade_date),
+        INDEX idx_reason (reason(64))
+    )
+    """,
+    # 每日涨停复盘·日汇总 (v1.7.572) — 每交易日一行: 涨停/曾涨停/跌停/炸板/封板率.
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_limit_up_daily (
+        trade_date        VARCHAR(10) NOT NULL,
+        limit_up_count    INT DEFAULT NULL,
+        limit_up_history  INT DEFAULT NULL,
+        limit_down_count  INT DEFAULT NULL,
+        broken_board_count INT DEFAULT NULL,
+        seal_rate         DOUBLE DEFAULT NULL,
+        updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (trade_date)
+    )
+    """,
     # 市场情绪温度表 (v1.7.x) — 按 日期×题材 记当日各涨停题材的涨停家数(热度),
     # 由 refresh_theme_heat 收盘前后定时聚合涨停池(同花顺 reason_type 首标签)写入, 前端 ThemeHeatPanel 矩阵展示主线演变.
     """
@@ -1004,6 +1034,11 @@ async def _run_migrations(conn):
             except Exception as e:
                 logger.warning(f"[migration] 未知异常被跳过: stmt={stmt[:100]!r} err={e}")
         migration_tasks = [
+            # v1.7.572: 每日涨停复盘存档+推送 — 收盘后15:40拉同花顺涨停池(每只带涨停概念/板数/炸板)
+            # 存 cfzy_sys_limit_up_pool/daily, 并推一张飞书复盘卡(概览+连板梯队+热点分布, 精华版)。
+            ("limit_up_daily_1540", "涨停复盘·存档+推送·15:40",
+             "每交易日15:40拉同花顺涨停池存档(每只涨停股带涨停概念/板数/炸板)+推一张飞书复盘卡(数据概览+连板梯队+热点分布), 供看板/导出/概念上榜历史分析",
+             "cron", _json.dumps({"hour": 15, "minute": 40}), "run_limit_up_daily"),
             # v1.7.557: 推送降噪·批次E — 系统故障告警(数据源交叉校验/博主拉取中断等)不再实时逐类推,
             # 当日累积盘后 21:00 合成一条「系统健康·盘后汇总」, 无异常则不推。
             ("system_health_digest", "系统健康·盘后汇总·21:00",

@@ -46,6 +46,7 @@ from backend.services.log_cleanup import cleanup_old_logs
 from backend.services.data_sanity import self_heal_stale_quotes, check_data_sanity
 from backend.services.market_ebb_detector import detect_market_ebb, detect_strength_ebb
 from backend.services.sector_rotation_scanner import scan_sector_rotation, predict_sector_next_day
+from backend.services.limit_up_archive import run_limit_up_daily
 from backend.services.trade_round_builder import rebuild_user_rounds
 from backend.services.paper_equity import snapshot_paper_equity
 from backend.services.signal_eod_audit import run_signal_eod_audit
@@ -126,6 +127,7 @@ TASK_HANDLERS: dict[str, object] = {
     "detect_strength_ebb": detect_strength_ebb,
     "scan_sector_rotation": scan_sector_rotation,
     "predict_sector_next_day": predict_sector_next_day,
+    "run_limit_up_daily": run_limit_up_daily,
     "rebuild_trade_rounds": rebuild_trade_rounds,
     "snapshot_paper_equity": snapshot_paper_equity,
     "signal_eod_audit": run_signal_eod_audit,

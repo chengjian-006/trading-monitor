@@ -121,6 +121,11 @@ from backend.models.repo.wencai_query import (  # noqa: F401
 from backend.models.repo.sector_rotation import (  # noqa: F401
     upsert_sector_rotation, upsert_sector_prediction, get_sector_rotation,
 )
+from backend.models.repo.limit_up_pool import (  # noqa: F401
+    upsert_daily as upsert_limit_up_daily, get_daily as get_limit_up_daily,
+    list_dates as list_limit_up_dates, latest_date as latest_limit_up_date,
+    concept_streak as limit_up_concept_streak,
+)
 from backend.models.repo.auction_pool import (  # noqa: F401
     save_auction_snapshots, get_auction_snapshots, get_auction_latest_date,
 )
