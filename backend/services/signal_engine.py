@@ -375,7 +375,11 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
     #   头条事件. 故取触发中周期最长者(ss_specs 按周期升序排, 即末位), 同 PLOSS triggered[-1].
     #   (曾用"最低 anchor 值"判定, 空头排列下会误挑最轻的 SS1, 已修正.)
     #   emit_all=True 可恢复全推.
-    is_holding = entry_cost is not None and entry_cost > 0
+    # v1.7.567: 持仓判定改「净持股>0」(entry_cost 非 None 即在持仓成本表, compute_diluted_holdings
+    #   只返回 qty>0 的票), 不再要求 entry_cost>0。摊薄成本≤0(高抛低吸超额落袋)也是真实持仓,
+    #   原 >0 判定会把它当非持仓 → 静默丢掉跌破MA5/10/20 与弱势极限T+15清仓等不依赖成本的卖点保护。
+    #   依赖成本算阈值的信号(止盈/止损/盈利保护/-12%硬止损)另有 cost_valid 闸单独挡负成本, 不受影响。
+    is_holding = entry_cost is not None
     if is_holding and not weak_exit:
         ss_specs = [
             ("SELL_BREAK_MA5", "短线卖 跌破MA5",  "ma5",  ma5,  "MA5"),
