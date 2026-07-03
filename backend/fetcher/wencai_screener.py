@@ -107,11 +107,25 @@ def _normalize_rows(df, limit: int) -> list[dict]:
     return out
 
 
+def _login_cookie() -> str:
+    """取同花顺登录 cookie(复用博主自动续签维护的那份, config.blogger_tracking.cookie)。
+
+    带登录态的 pywencai 请求被同花顺风控/限流的概率大幅降低(逆向接口对匿名请求限流最狠)。
+    cookie 由 /opt/blogger-renew 的 systemd timer 每6h自动续签, 始终新鲜; 取不到则空(退回匿名)。
+    """
+    try:
+        from backend.core.config import load_config
+        return load_config().get("blogger_tracking", {}).get("cookie", "") or ""
+    except Exception:
+        return ""
+
+
 async def fetch_wencai(query: str, limit: int = 50) -> list[dict]:
     """跑一条问财选股语句, 返回归一化候选列表(无结果返回 [], 失败抛 WencaiFetchError)。
 
     pywencai.get 是同步阻塞(内部起 Node 子进程算 token), 故经 asyncio.to_thread 丢线程池跑,
     避免卡住事件循环(同 model_winrate 重算的 to_thread 思路)。
+    v1.7.573: 带同花顺登录 cookie 请求(pywencai 0.13.1 支持 cookie 参数), 大幅降低撞风控概率。
     """
     import asyncio
 
@@ -120,7 +134,12 @@ async def fetch_wencai(query: str, limit: int = 50) -> list[dict]:
     except ImportError as e:
         raise WencaiFetchError(f"pywencai 未安装: {e}")
 
+    cookie = _login_cookie()
+
     def _run():
+        # 带 cookie(登录态少被风控); cookie 为空则匿名(退回旧行为)
+        if cookie:
+            return pywencai.get(question=query, loop=False, cookie=cookie)
         return pywencai.get(question=query, loop=False)
 
     try:
