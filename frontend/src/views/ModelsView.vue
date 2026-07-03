@@ -177,8 +177,8 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
           <line x1="205" y1="52" x2="225" y2="35" stroke="#ef4444" stroke-width="2.5"/><line x1="225" y1="35" x2="270" y2="35" stroke="#ef4444" stroke-width="2.5"/><text x="195" y="50" font-size="9" fill="#ef4444" font-weight="700">高开3-9%</text>
           <rect x="230" y="20" width="130" height="32" fill="#ef4444" rx="2"/><line x1="295" y1="18" x2="295" y2="55" stroke="#ef4444" stroke-width="1.5"/>
           <rect x="88" y="112" width="105" height="8" fill="#c4c9d1" rx="1"/><text x="140" y="128" text-anchor="middle" font-size="8" fill="#94a3b8">昨缩量小调</text>
-          <rect x="238" y="104" width="118" height="20" fill="#ef4444" rx="2"/><text x="297" y="117" text-anchor="middle" font-size="9" fill="#fff" font-weight="700">竞价放量≥1亿</text>
-          <rect x="310" y="82" width="120" height="26" fill="#fef3c7" stroke="#f59e0b" stroke-width="1" rx="4"/><text x="370" y="98" text-anchor="middle" font-size="8" fill="#92400e">红盘≥3500</text><text x="370" y="107" text-anchor="middle" font-size="7" fill="#92400e">或绿盘≥3500</text>
+          <rect x="238" y="104" width="118" height="20" fill="#ef4444" rx="2"/><text x="297" y="117" text-anchor="middle" font-size="9" fill="#fff" font-weight="700">竞价额≥5000万</text>
+          <rect x="368" y="74" width="104" height="26" fill="#fef3c7" stroke="#f59e0b" stroke-width="1" rx="4"/><text x="420" y="86" text-anchor="middle" font-size="8" fill="#92400e">红盘≥3500</text><text x="420" y="96" text-anchor="middle" font-size="7" fill="#92400e">或绿盘≥3500</text>
         </svg>
 
         <div v-else class="mp-viz-chart-na">暂无示意图</div>

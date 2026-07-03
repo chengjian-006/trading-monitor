@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.560',
+    date: '2026-07-03',
+    title: '竞价弱转强图鉴示意图勘误(≥1亿→≥5000万)',
+    changes: [
+      { text: '修复:模型图鉴「竞价弱转强」流程示意图里的竞价额门槛还写着旧值「竞价放量≥1亿」——之前勘误(0614下调为5000万)改了名册gate和触发门控列, 漏了SVG示意图这处; 现统一为「竞价额≥5000万」, 与实际配置 min_auction_amount=5000万一致。顺带修示意图黄色情绪门控框与红条轻微重叠。', tag: 'fix' },
+    ],
+  },
+  {
     version: 'v1.7.559',
     date: '2026-07-03',
     title: '市场风险卡防刷屏根因修复+全面可视化',
