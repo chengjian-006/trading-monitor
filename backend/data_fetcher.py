@@ -47,6 +47,7 @@ from backend.fetcher.http_client import (  # noqa: E402,F401
 # ── 实时行情 (sina 主 / eastmoney 备) ──
 from backend.fetcher.quotes import (  # noqa: E402,F401
     _get_quotes_sina, _get_quotes_eastmoney, get_realtime_quotes,
+    fetch_quotes_uncached, seed_realtime_cache,
     REALTIME_CACHE_TTL, _sf, _safe_num,
 )
 

@@ -129,15 +129,12 @@ async def _get_quotes_eastmoney(codes: list[str]) -> dict:
     return result
 
 
-async def get_realtime_quotes(codes: list[str]) -> dict:
-    """主源 sina (1次), 失败/空切东财(2次重试). 命中 5s 进程缓存."""
-    global _realtime_cache, _realtime_cache_ts
-    now = time.time()
-    if now - _realtime_cache_ts < REALTIME_CACHE_TTL and _realtime_cache:
-        filtered = {c: _realtime_cache[c] for c in codes if c in _realtime_cache}
-        if len(filtered) == len(codes):
-            return filtered
+async def fetch_quotes_uncached(codes: list[str]) -> dict:
+    """绕过 5s 进程缓存直接抓一批(sina 1次 → 东财2次重试), 不读不写缓存。
 
+    v1.7.562: 供 quote_refresher 分块抓取+逐块落库用(源慢时拿到一块落一块,
+    不因单轮超时整轮作废); 整轮抓完由调用方 seed_realtime_cache 灌回缓存。
+    """
     result = {}
     try:
         result = await _get_quotes_sina(codes)
@@ -156,8 +153,28 @@ async def get_realtime_quotes(codes: list[str]) -> dict:
                 logger.warning(f"[quotes] 东财第{attempt}次失败: {e}")
             if attempt < 2:
                 await asyncio.sleep(0.4)  # 东财仅备源且热路径(3s周期), 退避缩短减少放大
+    return {c: result[c] for c in codes if c in result}
 
+
+def seed_realtime_cache(result: dict) -> None:
+    """把一份完整行情结果灌回 5s 进程缓存(整轮分块抓完后调用), 维持其他消费者的缓存命中。"""
+    global _realtime_cache, _realtime_cache_ts
+    if result:
+        _realtime_cache = dict(result)
+        _realtime_cache_ts = time.time()
+
+
+async def get_realtime_quotes(codes: list[str]) -> dict:
+    """主源 sina (1次), 失败/空切东财(2次重试). 命中 5s 进程缓存."""
+    global _realtime_cache, _realtime_cache_ts
+    now = time.time()
+    if now - _realtime_cache_ts < REALTIME_CACHE_TTL and _realtime_cache:
+        filtered = {c: _realtime_cache[c] for c in codes if c in _realtime_cache}
+        if len(filtered) == len(codes):
+            return filtered
+
+    result = await fetch_quotes_uncached(codes)
     if result:
         _realtime_cache = result
         _realtime_cache_ts = now
-    return {c: result[c] for c in codes if c in result}
+    return result

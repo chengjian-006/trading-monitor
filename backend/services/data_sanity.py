@@ -16,17 +16,42 @@ from backend import data_fetcher
 logger = logging.getLogger(__name__)
 
 HEAL_STALE_SEC = 150       # 盘中 >150s 未更新即补刷
+HEAL_LIMIT = 500           # v1.7.562: 单轮补刷上限 80→500(覆盖整池), 原 80 只补不完大池致自检仍报陈旧
 ALERT_STALE_SEC = 360      # 自愈后仍 >360s(6min) 未更新才算异常
 ALERT_MIN_COUNT = 5        # 异常票数达到此值才告警
 ALERT_COOLDOWN = 1800      # 同类告警冷却 30min
+RESUME_GRACE_SEC = 180     # v1.7.562: 开盘/午休恢复宽限窗(秒), 窗内不判"陈旧"
 
 _last_alert_at: float = 0.0
+
+
+def _in_resume_grace(now=None, grace: int = RESUME_GRACE_SEC) -> bool:
+    """是否处于交易时段刚恢复的宽限窗(开盘 09:25 / 午休回来 13:00 后的前几分钟)。
+
+    v1.7.562: 午休/隔夜期间行情刷新暂停, 全池 quote_updated_at 天然停在上一时段末;
+    恢复后头几分钟只要没把整池刷完, "陈旧>6min"就是必然读数而非真异常(0703 13:00
+    自检告警 87/153 只陈旧即此结构性误报)。宽限窗内跳过陈旧判定, 行情缺失判定不受影响。
+    """
+    from datetime import datetime as _dt
+    from backend.core.config import load_config
+    n = now if now is not None else _dt.now()
+    cur = n.hour * 3600 + n.minute * 60 + n.second
+    periods = load_config().get("trading_hours") or [{"start": "09:25"}, {"start": "13:00"}]
+    for p in periods:
+        try:
+            hh, mm = str(p.get("start", "")).split(":")
+            start = int(hh) * 3600 + int(mm) * 60
+        except (ValueError, AttributeError):
+            continue
+        if 0 <= cur - start < grace:
+            return True
+    return False
 
 
 async def self_heal_stale_quotes():
     if not is_trading_time():
         return
-    stale = await repository.get_stale_quote_codes(HEAL_STALE_SEC, limit=80)
+    stale = await repository.get_stale_quote_codes(HEAL_STALE_SEC, limit=HEAL_LIMIT)
     if not stale:
         return
     try:
@@ -62,7 +87,8 @@ async def check_data_sanity():
         return
 
     problems = []
-    if h["stale"] >= ALERT_MIN_COUNT:
+    # 陈旧判定跳过"恢复宽限窗"(开盘/午休回来前3分钟) — 该窗内大面积陈旧是结构性必然, 非真异常
+    if h["stale"] >= ALERT_MIN_COUNT and not _in_resume_grace():
         problems.append(f"行情陈旧: {h['stale']}/{h['total']} 只 >6 分钟未更新")
     if h["null_price"] >= ALERT_MIN_COUNT:
         problems.append(f"行情缺失: {h['null_price']}/{h['total']} 只无价格")

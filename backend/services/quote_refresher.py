@@ -16,6 +16,12 @@ RANK_CACHE_TTL = 300
 # 单轮刷新封顶: 任务每3秒触发(max_instances=1, 不堆积), 但 httpx 超时达15s,
 # 一次卡住会连跳好几个周期。封到 2.8s 内, 超时则跳过本轮(保留上轮数据)。
 REFRESH_TIMEOUT = 2.8
+# v1.7.562: 开盘/午休恢复后的第一轮放宽超时 — 恢复瞬间全池时间戳停在上一时段末(基线陈旧),
+#   又常撞源慢/任务惊群, 2.8s 连续作废会让全池长时间刷不上(0703 13:00 自检告警 87/153 陈旧的根因)。
+#   第一轮给足预算把整池刷一遍, 之后回到 2.8s 节奏。
+RESUME_TIMEOUT = 10.0
+# v1.7.562: 行情分块抓取+逐块落库 — 源慢时拿到一块落一块, 超时砍掉的只是没抓完的尾块, 不整轮作废。
+CORE_CHUNK = 80
 
 _off_hours_refreshed: bool = False
 
@@ -37,7 +43,10 @@ async def _get_rank_map(codes: list[str]) -> dict[str, int]:
 async def refresh_quotes():
     global _off_hours_refreshed
 
+    resume_round = False
     if _is_trading_time():
+        # 上一轮还处于盘外状态 → 本轮是开盘/午休恢复的第一轮
+        resume_round = _off_hours_refreshed
         _off_hours_refreshed = False
     else:
         if _off_hours_refreshed:
@@ -49,21 +58,30 @@ async def refresh_quotes():
         return
 
     codes = list({s["code"] for s in all_stocks})
+    timeout = RESUME_TIMEOUT if resume_round else REFRESH_TIMEOUT
+    if resume_round:
+        logger.info(f"[quotes] 交易时段恢复第一轮: 放宽超时至 {RESUME_TIMEOUT}s 先整池刷一遍")
     try:
-        await asyncio.wait_for(_do_refresh(codes, all_stocks), timeout=REFRESH_TIMEOUT)
+        await asyncio.wait_for(_do_refresh(codes, all_stocks), timeout=timeout)
     except asyncio.TimeoutError:
-        logger.warning(f"[quotes] 本轮刷新超过 {REFRESH_TIMEOUT}s 被中止, 跳过(保留上轮行情), 避免卡死周期")
+        logger.warning(f"[quotes] 本轮刷新超过 {timeout}s 被中止, 跳过(保留上轮行情), 避免卡死周期")
 
 
 async def _do_refresh(codes: list[str], all_stocks: list[dict]):
-    quotes = await data_fetcher.get_realtime_quotes(codes)
-
-    # 1) 先把 价/涨跌幅/成交额(新浪, 快) 立刻落库 —— 即使后面慢的东财 extra 把本轮拖到
-    #    2.8s 超时被中止, 这步已 commit, 价/涨跌幅不会再长期不刷(修德明利那类卡死)。
-    core = [{"code": c, "price": quotes[c]["price"], "pct_change": quotes[c]["pct_change"],
-             "amount": quotes[c]["amount"]} for c in codes if quotes.get(c)]
-    if core:
-        await repository.batch_update_core_quotes(core)
+    # 1) 价/涨跌幅/成交额(新浪, 快) 分块抓取+逐块立刻落库 —— v1.7.562: 源慢时拿到一块落一块,
+    #    单轮超时被中止只损失没抓完的尾块, 不再"整轮作废什么都没落"(0703 13:00 大面积陈旧根因之一)。
+    #    整轮抓完把合并结果灌回 5s 进程缓存, 其他消费者(扫描器等)缓存命中率不受分块影响。
+    quotes: dict = {}
+    for k in range(0, len(codes), CORE_CHUNK):
+        part = codes[k:k + CORE_CHUNK]
+        q = await data_fetcher.fetch_quotes_uncached(part)
+        if q:
+            core = [{"code": c, "price": q[c]["price"], "pct_change": q[c]["pct_change"],
+                     "amount": q[c]["amount"]} for c in part if q.get(c)]
+            if core:
+                await repository.batch_update_core_quotes(core)
+            quotes.update(q)
+    data_fetcher.seed_realtime_cache(quotes)
 
     # 1.5) 持仓在最热题材板块内的强弱名次: 拿实时涨幅在 60s 快照名单里二分定位(零外部请求)。
     #      紧跟核心行情之后算, 不被后面慢的东财 extra 拖累, 保证每 3s 都刷。
