@@ -82,6 +82,33 @@ def _reset_if_new_day(date: str) -> None:
         for k in list(d.keys()):
             if k != date:
                 del d[k]
+    _seeded.intersection_update({date})
+
+
+# 已从DB回读补种的日期(每日只回读一次)
+_seeded: set[str] = set()
+
+
+async def _seed_from_db(date: str, pushed: set, trans_log: list) -> None:
+    """重启后回读当日快照里的转换流水, 补种去重集合。
+
+    去重集合 _pushed 原本只在进程内存, 部署重启即丢 → 同一「弱转强启动」当日重推
+    (0703实况: 机器人题材 13:41/13:58/14:04 三连推, 对应三次部署重启)。快照本就
+    每3分钟把当日 transitions 落库, 重启后第一轮回读补种, 即可重启安全。"""
+    if date in _seeded:
+        return
+    _seeded.add(date)
+    try:
+        row = await repository.get_sector_rotation(date)
+        stored = ((row or {}).get("rotation_data") or {}).get("transitions") or []
+    except Exception as e:
+        logger.warning(f"[sector_rotation] 回读当日转换流水失败(按无历史继续): {e}")
+        return
+    for t in reversed(stored):   # 库里存倒序, 回放成升序
+        theme, direction = t.get("theme"), t.get("direction")
+        if theme and direction and (theme, direction) not in pushed:
+            pushed.add((theme, direction))
+            trans_log.append(t)
 
 
 async def scan_sector_rotation() -> None:
@@ -104,6 +131,7 @@ async def scan_sector_rotation() -> None:
     state_map = _state.setdefault(date, {})
     pushed = _pushed.setdefault(date, set())
     trans_log = _transitions.setdefault(date, [])
+    await _seed_from_db(date, pushed, trans_log)   # 重启后补种当日已推流水, 防重推
 
     # 日基准口径(v1.7.x): 拿昨日各题材涨停家数当基准比今日盘中; 强转弱仅下午判(防早盘未封满)
     yest_by_theme = await _load_yest_baseline(date)
@@ -123,14 +151,21 @@ async def scan_sector_rotation() -> None:
         state_map[theme] = state
 
         direction = sr.detect_transition(prev, state)
+        # 弱转强失败跟踪: 早先已广播「启动」, 现回落到 退潮/冷 → 补一条失败提醒(每题材每日一次)
+        if (direction is None and state in ("退潮", "冷")
+                and (theme, "weak_to_strong") in pushed
+                and (theme, "wts_failed") not in pushed):
+            direction = "wts_failed"
         if direction and (theme, direction) not in pushed:
             pushed.add((theme, direction))
             slope = sr.compute_slope(list(series))
-            transitions.append((direction, theme, {**m, "slope": slope, "yest": yest}))
+            peak = max(series) if series else m["limit_up"]
+            transitions.append((direction, theme,
+                                {**m, "slope": slope, "yest": yest, "peak": peak}))
             # 记入当日转换流水(供看板头条), 带触发时刻
             trans_log.append({
                 "at": now.strftime("%H:%M"), "direction": direction, "theme": theme,
-                "limit_up": m["limit_up"], "yest": yest, "slope": slope,
+                "limit_up": m["limit_up"], "yest": yest, "slope": slope, "peak": peak,
                 "max_height": m["max_height"], "broken": m["broken"],
                 "samples": m["samples"][:3],
             })
@@ -176,6 +211,16 @@ async def scan_sector_rotation() -> None:
                     "slope": m.get("slope", 0),
                     "max_height": m["max_height"], "broken": m["broken"],
                     "samples": m["samples"], "holds": hold_names,
+                })
+            except Exception as e:
+                logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
+        elif direction == "wts_failed":
+            # 弱转强失败: 早先广播过启动, 现回落 — 补一条失败提醒(同样全市场广播)
+            try:
+                await alert_throttle.enqueue("SECTOR_WTS_FAILED", {
+                    "theme": theme, "limit_up": m["limit_up"], "yest": m.get("yest", 0),
+                    "peak": m.get("peak", m["limit_up"]),
+                    "broken": m["broken"], "samples": m["samples"],
                 })
             except Exception as e:
                 logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
@@ -254,10 +299,36 @@ def _build_strong_to_weak_card(items: list[dict]):
     return "🔴 板块强转弱·退潮", [table_element(cols, rows, page_size=10)]
 
 
+def _merge_wts_failed(items: list[dict]) -> str:
+    lines = ["⚠️ 板块弱转强·失败\n"]
+    for a in items:
+        lines.append(f"▸ [{a['theme']}] 早先弱转强启动, 现涨停回落: "
+                     f"峰值{a.get('peak', 0)}家→现{a['limit_up']}家(昨{a.get('yest', 0)}) — "
+                     f"{('、'.join(a.get('samples', [])[:3]))}")
+    lines.append("\n启动没接住, 追进的注意风控。")
+    return "\n".join(lines)
+
+
+def _build_wts_failed_card(items: list[dict]):
+    cols = [
+        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "26%"},
+        {"name": "peak", "display_name": "峰值→现在", "data_type": "text", "width": "24%"},
+        {"name": "yest", "display_name": "昨日", "data_type": "text", "width": "14%"},
+        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "36%"},
+    ]
+    rows = [{"theme": a["theme"],
+             "peak": f"{a.get('peak', 0)}家→{a['limit_up']}家",
+             "yest": f"{a.get('yest', 0)}家",
+             "rep": "、".join(a.get("samples", [])[:3])} for a in items]
+    return "⚠️ 板块弱转强·失败", [table_element(cols, rows, page_size=10)]
+
+
 alert_throttle.register("SECTOR_WEAK_TO_STRONG", _merge_weak_to_strong,
                         lark_card_builder=_build_weak_to_strong_card)
 alert_throttle.register("SECTOR_STRONG_TO_WEAK", _merge_strong_to_weak,
                         lark_card_builder=_build_strong_to_weak_card)
+alert_throttle.register("SECTOR_WTS_FAILED", _merge_wts_failed,
+                        lark_card_builder=_build_wts_failed_card)
 
 
 # ── 14:30 收盘前次日预测 ──

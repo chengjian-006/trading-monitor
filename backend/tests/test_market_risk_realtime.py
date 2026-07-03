@@ -76,7 +76,7 @@ class TestDowngradeNoLoop:
                                   existing=existing, prev_eod=mrc.RED)
         await mrc.market_risk_realtime()
         assert card.await_count == 1
-        assert "RED降级" in card.await_args[0][0]
+        assert "降为谨慎" in card.await_args[0][0]
         assert upsert.await_args[0][1]["state"] == mrc.YELLOW
 
     async def test_after_downgrade_next_round_silent(self, monkeypatch):
@@ -99,7 +99,7 @@ class TestUpgradeStillWorks:
         upsert, card = _patch_env(monkeypatch, rows=rows, existing=None, prev_eod=mrc.GREEN)
         await mrc.market_risk_realtime()
         assert card.await_count == 1
-        assert "RED" in card.await_args[0][0]
+        assert "空仓" in card.await_args[0][0]
         assert upsert.await_args[0][1]["state"] == mrc.RED
 
     async def test_daily_push_cap(self, monkeypatch):
@@ -112,11 +112,16 @@ class TestUpgradeStillWorks:
 
 
 class TestStateCardBuild:
-    def test_scale_highlights_current_state(self):
-        md = mrc._state_scale_md(mrc.YELLOW, mrc.RED)
-        assert "➜" in md and "YELLOW" in md
-        assert "［🟡 YELLOW 谨慎］" in md
-
-    def test_scale_no_arrow_when_same(self):
-        md = mrc._state_scale_md(mrc.GREEN, None)
-        assert "➜" not in md
+    async def test_card_is_compact_plain_text(self, monkeypatch):
+        # 极简卡: 状态迁移行 + 白话行 + 👉建议, 走 send_dual 纯文本卡, 无表格
+        from unittest.mock import AsyncMock
+        from backend.services import notifier
+        sent = AsyncMock(return_value=True)
+        monkeypatch.setattr(notifier, "send_dual", sent)
+        await mrc._push_state_card("🟡 盘面回暖·降为谨慎", "yellow", mrc.RED, mrc.YELLOW,
+                                   ["盘面回暖: 63%在涨"], "先别重仓.")
+        assert sent.await_count == 1
+        body = sent.await_args[0][0]
+        assert "🔴 空仓  →  🟡 谨慎" in body
+        assert "👉 先别重仓." in body
+        assert sent.await_args[1]["template"] == "yellow"
