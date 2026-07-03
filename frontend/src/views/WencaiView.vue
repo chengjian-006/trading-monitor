@@ -21,6 +21,7 @@ const loading = ref(false)
 const adding = ref(false)
 const loaded = ref(false)
 const scanning = ref(false)
+const autoRefreshing = ref(false)   // 页面事件触发的静默刷新(数据非今日时)
 
 // 即时搜索
 const searchInput = ref('')
@@ -65,6 +66,33 @@ async function runScan() {
     message.error(e?.response?.data?.detail || '刷新失败（问财接口可能暂时不可用）')
   } finally {
     scanning.value = false
+  }
+}
+
+function localToday(): string {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
+// 页面事件触发: 打开页面时若候选榜不是今天的(或为空), 静默自动刷一次;
+// 成功即替换、失败保留旧数据不打扰(问财逆向接口偶发风控是常态)。取代后台定时扫描。
+function isStale(): boolean {
+  if (!strategies.value.length) return true
+  const t = localToday()
+  return strategies.value.some(s => (s.trade_date || '') !== t)
+}
+
+async function autoRefreshIfStale() {
+  if (!isStale() || autoRefreshing.value) return
+  autoRefreshing.value = true
+  try {
+    await scanWencai()
+    await load()
+  } catch {
+    // 静默: 保留已显示的旧数据, 顶部会标注数据日期
+  } finally {
+    autoRefreshing.value = false
   }
 }
 
@@ -146,7 +174,10 @@ function saveSearchAsQuery() {
   openCreate(searchResult.value?.query || searchInput.value.trim())
 }
 
-onMounted(load)
+onMounted(async () => {
+  await load()          // 先秒显现有数据
+  await autoRefreshIfStale()   // 非今日则静默刷新替换
+})
 </script>
 
 <template>
@@ -168,9 +199,12 @@ onMounted(load)
       </div>
     </div>
     <p class="page-desc">
-      同花顺问财(iwencai)自然语言选股。已改「手工触发」——点「立即跑问财」才会去同花顺重新选股刷新全部榜(不再定时自动跑)。
+      同花顺问财(iwencai)自然语言选股。打开页面时若候选不是今天的会<b>自动刷新一次</b>；也可随时点「立即跑问财」手动重刷。
       下方输入条件可即时搜索;看中的条件「存为常驻榜」(仅你自己可见)。
     </p>
+    <div v-if="autoRefreshing" class="auto-refresh-tip">
+      <NIcon :component="RefreshOutline" class="spin" /> 正在更新今日候选…（问财偶发限流，稍等；失败会保留现有数据）
+    </div>
 
     <!-- 输入条件 -->
     <div class="search-box">
@@ -278,6 +312,9 @@ onMounted(load)
 .title h2 { margin: 0; font-size: 18px; }
 .head-ops { display: flex; gap: 8px; flex-shrink: 0; }
 .page-desc { color: #888; font-size: 13px; line-height: 1.6; margin: 8px 0 0; }
+.auto-refresh-tip { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 13px; color: #b0812c; }
+.auto-refresh-tip .spin { animation: wc-spin 1s linear infinite; }
+@keyframes wc-spin { to { transform: rotate(360deg); } }
 
 .search-box { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .search-box :deep(.n-input) { flex: 1; min-width: 220px; }
