@@ -91,6 +91,7 @@ async def detect_market_ebb():
 # ── 强势退潮: 昨日涨停股今日平均溢价转负 = 打板/强势资金亏钱, 赚钱效应消失 ──
 PREMIUM_EBB_THRESHOLD = -0.5     # yest_limit_up_premium ≤ 此值 → 退潮(今 -0.77 会触发, 可调)
 _strength_alerted_date: str | None = None
+_STRENGTH_SIGNAL_ID = "PLUNGE_STRENGTH_EBB"
 
 
 def _premium_ebb(prem, threshold: float) -> bool:
@@ -114,12 +115,39 @@ async def detect_strength_ebb():
     prem = cur.get("yest_limit_up_premium")
     if not _premium_ebb(prem, PREMIUM_EBB_THRESHOLD):
         return
+
+    # DB 去重(v1.7.565, 0703全系统排查): 溢价条件一旦成立会持续一整天, 纯内存哨兵在
+    # 部署重启后即丢 → 大盘风控卡当日重推。仿 detect_market_ebb 加 DB 双保险。
+    try:
+        if await repository.signal_already_sent_today(_EBB_CODE, _STRENGTH_SIGNAL_ID, _EBB_USER_ID):
+            _strength_alerted_date = today
+            return
+    except Exception as e:
+        logger.error(f"[strength_ebb] DB 去重查询失败, 本轮跳过: {e}")
+        return
     _strength_alerted_date = today
+
     text = (
         f"🌊 强势退潮·赚钱效应消失\n\n"
         f"昨日涨停股今日平均溢价 {prem:.2f}%(≤{PREMIUM_EBB_THRESHOLD}%),打板/强势资金转亏。\n"
         f"短线赚钱效应退潮 — 对手中强势/高位股谨慎,控制仓位与开新仓节奏。"
     )
+
+    # 先写库(写库失败则不推, 避免重启重推) — 同 detect_market_ebb。
+    try:
+        from backend.services import signal_specs
+        await repository.save_signal(
+            code=_EBB_CODE, name=str(cur.get("name") or "上证指数"),
+            signal_id=_STRENGTH_SIGNAL_ID, signal_name="强势退潮·赚钱效应消失",
+            direction="plunge",
+            price=0, detail=f"昨涨停今溢价{prem:.2f}%|阈值{PREMIUM_EBB_THRESHOLD}%",
+            user_id=_EBB_USER_ID,
+            signal_group=signal_specs.group_of(_STRENGTH_SIGNAL_ID),
+        )
+    except Exception as e:
+        logger.error(f"[strength_ebb] save_signal 失败, 跳过推送避免重启重推: {e}")
+        return
+
     try:
         # v1.7.556 批次D: 溢价转负不再独推, 并入统一「大盘风控」卡(与退潮/当前风险状态合并去重)
         from backend.services import market_risk_controller

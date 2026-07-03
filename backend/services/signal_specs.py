@@ -52,6 +52,7 @@ SIGNAL_GROUP_MAP: dict[str, str] = {
     "PLUNGE_BREADTH":    "regime",
     "PLUNGE_SPEED":      "regime",
     "PLUNGE_MARKET_EBB": "regime",   # 大盘退潮(涨停家数骤降≥40%) 减仓提示
+    "PLUNGE_STRENGTH_EBB": "regime", # 强势退潮(昨涨停股今日溢价转负) 赚钱效应消失
     # sector — 板块级
     "SECTOR_CAPITAL_INFLOW": "sector",
     # quality — 后台评分
