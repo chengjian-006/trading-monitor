@@ -54,6 +54,8 @@ from backend.services.custom_alert_scanner import check_custom_alerts
 from backend.services.risk_announcement_scanner import scan_risk_announcements
 from backend.services.financial_risk_scanner import scan_financial_risk
 from backend.services.blackswan_alerts import scan_blackswan_alerts
+from backend.services.disclosure_reminder import refresh_disclosure_calendar, run_disclosure_reminder
+from backend.services.earnings_forecast_scan import run_earnings_forecast_scan
 from backend.services.stock_names_refresher import refresh_stock_names
 from backend.services.holding_brief import refresh_holding_state_fwd, run_holding_evening_report
 from backend.services.tail_decision import run_tail_decision_1440
@@ -141,6 +143,9 @@ TASK_HANDLERS: dict[str, object] = {
     "run_holding_evening_report": run_holding_evening_report,
     "run_tail_decision_1440": run_tail_decision_1440,
     "run_system_health_digest": run_system_health_digest,
+    "refresh_disclosure_calendar": refresh_disclosure_calendar,
+    "run_disclosure_reminder": run_disclosure_reminder,
+    "run_earnings_forecast_scan": run_earnings_forecast_scan,
 }
 
 

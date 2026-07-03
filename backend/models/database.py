@@ -85,6 +85,36 @@ SCHEMA_STATEMENTS = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_disclosure_calendar (
+        code          VARCHAR(16) NOT NULL,
+        report_year   VARCHAR(8) NOT NULL,
+        report_type   VARCHAR(8) NOT NULL,
+        name          VARCHAR(50) NOT NULL DEFAULT '',
+        appoint_date  DATE DEFAULT NULL,
+        actual_date   DATE DEFAULT NULL,
+        updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (code, report_year, report_type),
+        INDEX idx_appoint (appoint_date)
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_earnings_forecast (
+        code          VARCHAR(16) NOT NULL,
+        report_date   VARCHAR(12) NOT NULL,
+        name          VARCHAR(50) NOT NULL DEFAULT '',
+        notice_date   DATE DEFAULT NULL,
+        predict_type  VARCHAR(16) NOT NULL DEFAULT '',
+        forecast_group VARCHAR(8) NOT NULL DEFAULT '',
+        amp_lower     DOUBLE DEFAULT NULL,
+        amp_upper     DOUBLE DEFAULT NULL,
+        content       VARCHAR(500) NOT NULL DEFAULT '',
+        pushed_at     DATETIME DEFAULT NULL,
+        updated_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (code, report_date),
+        INDEX idx_notice (notice_date)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS cfzy_sys_kline_cache (
         code        VARCHAR(10) NOT NULL,
         trade_date  VARCHAR(10) NOT NULL,
@@ -1044,6 +1074,16 @@ async def _run_migrations(conn):
             ("system_health_digest", "系统健康·盘后汇总·21:00",
              "每日 21:00 把当日累积的系统故障(数据源交叉校验偏差/博主拉取中断等)合成一条汇总推送, 无异常不推; 更紧急的行情源健康仍即时告警",
              "cron", _json.dumps({"hour": 21, "minute": 0}), "run_system_health_digest"),
+            # v1.7.573: 财报披露日历(防御) + 预增榜(进攻·克制) — 数据走东财datacenter(生产可达)
+            ("disclosure_calendar_refresh", "财报预约披露·刷新·08:20",
+             "每日 08:20 拉当前报告期定期报告预约披露时间表落库(慢变, 顺带捕捉披露日变更), 供披露日历提醒读取",
+             "cron", _json.dumps({"hour": 8, "minute": 20}), "refresh_disclosure_calendar"),
+            ("disclosure_reminder", "财报披露日历·提醒·08:40",
+             "交易日 08:40 把自选+持仓里未来7天内要披露定期报告的票推一张提醒卡(防御: 财报是二元事件, 利空跌幅大于利好涨幅, 拿不准可披露前减仓)",
+             "cron", _json.dumps({"hour": 8, "minute": 40}), "run_disclosure_reminder"),
+            ("earnings_forecast_scan", "预增榜·当日正向业绩预告·18:30",
+             "每日 18:30 拉当日新出业绩预告落库, 把正向预告(预增/略增/扭亏等)推一张预增榜卡(自选/持仓命中置顶+全市场大幅预增TopN); 回测背书仅快进快出非埋伏神器",
+             "cron", _json.dumps({"hour": 18, "minute": 30}), "run_earnings_forecast_scan"),
             # v1.7.554: 推送降噪·批次B③ — 尾盘三卡(真假强势14:30/次日板块14:30/弱势极限14:45)合并成14:40一张
             ("tail_decision_1440", "尾盘决策·14:40(强势评分+次日板块+弱势极限合并)",
              "14:40 一张合并卡: 真假强势评分 + 次日板块预测 + 弱势极限尾盘候选; 原三条 14:30~14:45 独立推送合并",
