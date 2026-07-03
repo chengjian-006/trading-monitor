@@ -143,10 +143,11 @@ def _hist_indicators(rows: list[tuple], need_days: int = 6) -> list[dict]:
                 dd["zt_touch"] += 1
                 if c / lp < 0.97:
                     dd["zt_fail"] += 1
-            # 52周低点
+            # 52周(交易日)低点 — v1.7.570: 空 low 序列(全为脏 0)时 min() 会抛 ValueError 炸掉整轮 EOD,
+            # 改为收集有效 low 再取 min, 无有效值则跳过本票 low52 计数。
             start = max(0, j - 52)
-            l52 = min(seq[k][3] for k in range(start, j) if seq[k][3] > 0)
-            if l52 > 0 and c <= l52 * 1.001:
+            lows = [seq[k][3] for k in range(start, j) if seq[k][3] > 0]
+            if lows and c <= min(lows) * 1.001:
                 dd["low52_cnt"] += 1
 
     dates = sorted(d for d, v in daily.items() if v["n"] >= 1000)
@@ -347,7 +348,9 @@ async def emit_risk_dimension(key: str, text: str) -> None:
     st["sig"] = sig
 
     try:
-        state = await _current_state()
+        # v1.7.570: 用 get_risk_state(读最新任意日期行)而非 _current_state(只读今日行, 16:40前无行→GREEN)。
+        #   原来盘中退潮卡在 EOD 落库前恒显 GREEN, 与买点卡的 RED 警示自相矛盾(基线 RED 日尤甚)。
+        state = await get_risk_state()
     except Exception:
         state = GREEN
     tmpl = {"RED": "red", "YELLOW": "yellow"}.get(state, "red")
@@ -379,7 +382,10 @@ async def _gather_metrics() -> tuple[list[dict], dict, float | None] | None:
     返回 None = 数据不足, 调用方跳过.
     """
     today = datetime.now().strftime("%Y-%m-%d")
-    start = (datetime.now() - timedelta(days=35)).strftime("%Y-%m-%d")
+    # v1.7.570: 拉 100 自然日(≈66-70 交易日) — 原来只拉 35 天(≈23 交易日), 导致 _hist_indicators 里
+    #   "52 交易日新低"回看窗被截到约 23 日, "新低占比"系统性偏高、RED 空仓预警偏易误升。
+    #   回测 bt_risk_state_machine.py 用的是真 52 交易日滚动低点标定阈值, 拉够数据 = 对齐已验证口径。
+    start = (datetime.now() - timedelta(days=100)).strftime("%Y-%m-%d")
 
     # 历史: kline_cache
     from backend.models.database import get_pool
@@ -463,6 +469,13 @@ async def market_risk_eod():
             [f"市场转弱: 只有 **{cur['advance_ratio']:.0f}%** 的票在涨, "
              f"守住20日线的票 {yest_breadth:.0f}%, 涨停里炸板 {cur['zha_rate']:.0f}%"],
             "正常交易但注意控制仓位.")
+    elif new_state == YELLOW and prev_state == RED:
+        # v1.7.570: RED→YELLOW 降级原来不推任何通知, 用户一直以为还在空仓预警。补一张降级卡。
+        await _push_state_card(
+            "🟡 空仓预警降级·转谨慎", "yellow", prev_state, YELLOW,
+            [f"市场回暖: **{cur['advance_ratio']:.0f}%** 的票在涨, "
+             f"守住20日线的票回到 {yest_breadth:.0f}%, 已从空仓预警(RED)降到谨慎(YELLOW)"],
+            "可小仓试探, 但仍需控制仓位、别追高.")
     elif new_state == GREEN and prev_state != GREEN:
         await _push_state_card(
             "🟢 预警解除", "green", prev_state, GREEN,
