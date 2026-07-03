@@ -98,7 +98,7 @@ MODEL_RULES: dict[str, str] = {
     "强势起点": "前置弱势极限地量 → 放量≥近期×2 · 涨幅≥2% · 站上MA10/20 · 成交额≥10亿",
     "弱势极限": "近30日主升≥15% · 贴MA10/20±2% → 地量≤近10日最低×1.1且≤均量×0.70",
     "中继平台突破": "前12日横盘振幅≤15% · 缓升台阶 → 收盘≥上沿×1.005 · 放量≥均量×1.2 · 成交额≥10亿",
-    "竞价弱转强": "昨缩量≤均×0.8 → 竞价高开3-9% · 竞价成交额≥1亿 · 大盘红盘≥3500或绿盘≥3500",
+    "竞价弱转强": "昨缩量≤均×0.8 → 竞价高开3-9% · 竞价成交额≥5000万 · 大盘红盘≥3500或绿盘≥3500",
 }
 ACTION_HINT = {
     "buy":    "建议跟随入场",
@@ -247,15 +247,24 @@ def _basics_line(basics: dict | None, *, bold: bool) -> str:
 
 
 def _sector_line(sector: dict | None, *, bold: bool) -> str:
-    """所属板块最近情况(题材轮动状态 + 今日涨停家数 + 近3日趋势)。无则空串。"""
+    """所属行业 + 关联热点(概念标签中当前最热题材: 轮动状态 + 今日涨停家数 + 近3日趋势)。无则空串。
+
+    v1.7.559: 原来只显示最热概念且叫"所属板块", 主业与热点无关的票会被误导(卫星化学
+    主业化学原料却显示 AI算力·液冷) → 改两截: 行业是主业口径, 热点明示只是"关联"。
+    """
     if not sector:
         return ""
+    industry = (sector.get("industry") or "").strip()
+    label = sector.get("label")
+    if not label:
+        return f"📊 所属行业：{industry}" if industry else ""
     b = (lambda s: f"**{s}**") if bold else (lambda s: str(s))
     seq = "→".join(str(x) for x in sector.get("seq", []))
     n = len(sector.get("seq", []))
     line2 = (f"{sector['status']}{sector['emoji']} · 今日涨停{b(sector['today'])}家"
              f" · 近{n}日 {seq} {sector['trend']}")
-    return f"📊 所属板块：{sector['label']}\n　　{line2}"
+    head = f"所属行业：{industry} ｜ 关联热点：{label}" if industry else f"关联热点：{label}"
+    return f"📊 {head}\n　　{line2}"
 
 
 async def _fetch_signal_basics(code: str, user_id: int | None) -> dict:
