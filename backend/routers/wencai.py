@@ -110,8 +110,11 @@ async def manual_scan(user: Annotated[dict, Depends(get_current_user)]):
             sid = repository.pool_strategy_id(user["id"], uq["id"])
             work.append((sid, user["id"], uq.get("name") or sid, uq["query_text"]))
 
+    import asyncio
     succeeded, failed = 0, []
-    for sid, uid, name, query in work:
+    for i, (sid, uid, name, query) in enumerate(work):
+        if i > 0:
+            await asyncio.sleep(2.5)   # 语句间隔: 连打易触发同花顺 IP 级风控, 拉开间隔降触发
         r = await _run_into_pool(sid, uid, name, query)
         if r["ok"]:
             succeeded += 1
