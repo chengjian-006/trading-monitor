@@ -3,7 +3,7 @@
 cfzy_sys_disclosure_calendar — 定期报告预约/实际披露日历(周期性刷新, 供「财报披露日历」提醒)
 cfzy_sys_earnings_forecast   — 业绩预告(当日抓取落库+去重, 供「预增榜」推送)
 """
-from backend.models.repo._db import _execute, _executemany, _fetchall
+from backend.models.repo._db import _execute, _executemany, _fetchall, _fetchone
 
 
 async def upsert_disclosure(rows: list[dict]) -> None:
@@ -57,6 +57,19 @@ async def forecasts_to_push(notice_date: str, groups: tuple[str, ...] = ("利好
         f"WHERE notice_date=%s AND forecast_group IN ({ph}) AND pushed_at IS NULL "
         f"ORDER BY amp_upper DESC",
         (notice_date, *groups))
+
+
+async def get_positive_forecast_by_code(code: str) -> dict | None:
+    """某票最近的正向业绩预告(买卖卡背景标签用)。取 notice_date 最新的一条利好预告;
+    近90天内才算有效(过季的老预告不标)。无则 None。"""
+    from datetime import date, timedelta
+    lo = (date.today() - timedelta(days=90)).isoformat()
+    return await _fetchone(
+        "SELECT code, name, report_date, predict_type, amp_lower, amp_upper, notice_date "
+        "FROM cfzy_sys_earnings_forecast "
+        "WHERE code=%s AND forecast_group='利好' AND notice_date >= %s "
+        "ORDER BY notice_date DESC LIMIT 1",
+        (code, lo))
 
 
 async def mark_forecasts_pushed(keys: list[tuple[str, str]]) -> None:

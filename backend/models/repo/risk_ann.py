@@ -33,3 +33,14 @@ async def list_risk_anns(limit: int = 100) -> list[dict]:
         "SELECT * FROM cfzy_biz_risk_ann_seen ORDER BY ann_date DESC, id DESC LIMIT %s",
         (limit,),
     )
+
+
+async def get_recent_risk_anns_by_code(code: str, days: int = 14) -> list[dict]:
+    """某票近 N 天风险公告(买卖卡背景标签用), 最新在前。ann_date 为 'YYYY-MM-DD' 文本列。"""
+    from datetime import date, timedelta
+    lo = (date.today() - timedelta(days=days)).isoformat()
+    return await _fetchall(
+        "SELECT code, name, title, tags, ann_date FROM cfzy_biz_risk_ann_seen "
+        "WHERE code = %s AND ann_date >= %s ORDER BY ann_date DESC, id DESC LIMIT 3",
+        (code, lo),
+    )

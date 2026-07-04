@@ -289,17 +289,34 @@ async def _fetch_signal_basics(code: str, user_id: int | None) -> dict:
     return out
 
 
+def _background_line(background: dict | None, *, bold: bool) -> str:
+    """背景标签行(黑天鹅·风险公告/财务红旗 + 业绩预增)。无则空串。"""
+    if not background:
+        return ""
+    from backend.services import signal_background as sbg
+    tags = sbg.build_background_tags(
+        forecast=background.get("forecast"), fin_risk=background.get("fin_risk"),
+        risk_anns=background.get("risk_anns") or [], bold=bold)
+    return sbg.render_tags_text(tags)
+
+
 def _build_signal_elements(code: str, name: str, signal_name: str, direction: str,
                            price: float, detail: str, strategy: str = "",
                            pct_change: float = 0.0, model_stats: dict | None = None,
-                           basics: dict | None = None, sector: dict | None = None) -> list:
-    """飞书 v2 卡 elements: 头/现价 + 战绩表(近3月/近6月) + 我的策略 + 触发条件/计划/共振成交 + 行动。"""
+                           basics: dict | None = None, sector: dict | None = None,
+                           background: dict | None = None) -> list:
+    """飞书 v2 卡 elements: 头/现价 + 背景标签 + 战绩表(近3月/近6月) + 我的策略 + 触发条件/计划/共振成交 + 行动。"""
     from backend.services import lark_notifier
     header = f"**{name}**　`{code}`\n{_kpi_line(price, pct_change, direction, bold=True)}"
     _bl = _basics_line(basics, bold=True)
     if _bl:
         header += f"\n{_bl}"
     els = [lark_notifier.md_element(header)]
+
+    # ⚠️📈 背景标签(黑天鹅/业绩预增) — 紧跟头部, 风险优先看
+    _bg = _background_line(background, bold=True)
+    if _bg:
+        els.append(lark_notifier.md_element(_bg))
 
     conds, plan, reso, amount = _split_detail_sections(detail)
 
@@ -365,9 +382,10 @@ def _build_text(code: str, name: str, signal_name: str,
                 direction: str, price: float, detail: str,
                 username: str = "", strategy: str = "",
                 pct_change: float = 0.0, model_stats: dict | None = None,
-                basics: dict | None = None, sector: dict | None = None) -> str:
+                basics: dict | None = None, sector: dict | None = None,
+                background: dict | None = None) -> str:
     """企微卡片：决策优先 / 分层布局
-    顺序: 信号头 → 股票+实时价 → 我的策略 → 触发要点 → 行动提示 → @
+    顺序: 信号头 → 股票+实时价 → 背景标签 → 我的策略 → 触发要点 → 行动提示 → @
     """
     emoji = DIRECTION_EMOJI.get(direction, "⚪")
     label = DIRECTION_LABEL.get(direction, "信号")
@@ -391,6 +409,11 @@ def _build_text(code: str, name: str, signal_name: str,
     _sl = _sector_line(sector, bold=False)
     if _sl:
         lines.append(_sl)
+    # ⚠️📈 背景标签(黑天鹅/业绩预增)
+    _bg = _background_line(background, bold=False)
+    if _bg:
+        for _t in _bg.split("\n"):
+            lines.append(f"   {_t}")
     # 战绩(企微无表格 → 近3月/近6月 对齐文本块)
     if direction == "buy":
         lines.extend(_build_model_stats_block(model_stats))
@@ -428,7 +451,8 @@ def _build_text(code: str, name: str, signal_name: str,
 def _build_lark_signal(code: str, name: str, signal_name: str, direction: str,
                        price: float, detail: str, strategy: str = "",
                        pct_change: float = 0.0, model_stats: dict | None = None,
-                       basics: dict | None = None, sector: dict | None = None) -> str:
+                       basics: dict | None = None, sector: dict | None = None,
+                       background: dict | None = None) -> str:
     """飞书卡片正文(lark_md): 股票名/现价加粗, 策略/要点分节. 信号头放在卡片彩色标题栏."""
     # 头 + KPI 一行
     lines: list[str] = [
@@ -441,6 +465,10 @@ def _build_lark_signal(code: str, name: str, signal_name: str, direction: str,
     _sl = _sector_line(sector, bold=True)
     if _sl:
         lines.append(_sl)
+    # ⚠️📈 背景标签(黑天鹅/业绩预增)
+    _bg = _background_line(background, bold=True)
+    if _bg:
+        lines.append(_bg)
     if direction == "buy":
         lines.extend(_build_model_stats_lark(model_stats))
 
@@ -468,11 +496,12 @@ def _build_lark_signal(code: str, name: str, signal_name: str, direction: str,
 def _build_pushplus_html(code: str, name: str, signal_name: str, direction: str,
                           price: float, detail: str, strategy: str = "",
                           pct_change: float = 0.0, model_stats: dict | None = None,
-                          basics: dict | None = None, sector: dict | None = None) -> str:
+                          basics: dict | None = None, sector: dict | None = None,
+                          background: dict | None = None) -> str:
     """微信(PushPlus)信号正文 — 复用飞书同一份 lark_md(_build_lark_signal)再转 HTML,
     保证内容/分节/加粗与飞书卡片完全一致(飞书 v2 卡的战绩原生表格此处呈现为同数据的文本块)。"""
     md = _build_lark_signal(code, name, signal_name, direction, price, detail,
-                            strategy, pct_change, model_stats, basics, sector)
+                            strategy, pct_change, model_stats, basics, sector, background)
     return _lark_md_to_html(md)
 
 
@@ -536,7 +565,13 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         sector = await sector_context.get_sector_brief(code, user_id)
     except Exception as e:
         logger.warning(f"[sector_brief] 取板块情况失败, 略过: {e}")
-    content = _build_text(code, name, signal_name, direction, price, detail, username, strategy, pct_change, model_stats, basics, sector)
+    background = None
+    try:
+        from backend.services import signal_background as _sbg
+        background = await _sbg.fetch_background(code)
+    except Exception as e:
+        logger.warning(f"[signal_background] 取黑天鹅/预增背景失败, 略过: {e}")
+    content = _build_text(code, name, signal_name, direction, price, detail, username, strategy, pct_change, model_stats, basics, sector, background)
 
     # 飞书并推(独立通道, 不受企微开关影响) — 交互卡片: 信号头进彩色标题栏, 正文加粗
     lark_ok = False
@@ -555,14 +590,14 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         quick_md = _pref_svc.build_quick_actions_md(site, user_id or 1, code, signal_id, direction)
         # v2 卡(战绩走原生表格); 失败回退旧 markdown 卡
         elements = _build_signal_elements(code, name, signal_name, direction, price, detail,
-                                          strategy, pct_change, model_stats, basics, sector)
+                                          strategy, pct_change, model_stats, basics, sector, background)
         if quick_md:
             elements = list(elements) + [lark_notifier.md_element(quick_md)]
         lark_ok = await lark_notifier.post_lark_card_v2(
             lark_webhook, lark_title, elements, lark_template, link_url=link, link_text="查看分时图")
         if not lark_ok:
             lark_body = _build_lark_signal(code, name, signal_name, direction, price, detail,
-                                           strategy, pct_change, model_stats, basics, sector)
+                                           strategy, pct_change, model_stats, basics, sector, background)
             if quick_md:
                 lark_body = f"{lark_body}<br>{quick_md}"
             lark_ok = await lark_notifier.post_lark_card(
@@ -576,7 +611,7 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
     pp_ok = False
     if pp_cfg.get("pushplus_enabled", True):
         pp_title = f"{DIRECTION_EMOJI.get(direction,'')} {DIRECTION_SHORT.get(direction,'')} · [{signal_name}] — {name}"
-        pp_html = _build_pushplus_html(code, name, signal_name, direction, price, detail, strategy, pct_change, model_stats, basics, sector)
+        pp_html = _build_pushplus_html(code, name, signal_name, direction, price, detail, strategy, pct_change, model_stats, basics, sector, background)
         pp_ok = await _post_pushplus(pp_cfg.get("pushplus_token", ""), pp_title, pp_html, "pushplus")
 
     if lark_ok or wx_ok or pp_ok:
