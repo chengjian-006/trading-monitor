@@ -20,7 +20,8 @@ from backend.core.auth import SECRET_KEY
 
 _SIGN_KEY = ("pushpref:" + SECRET_KEY).encode()
 
-VALID_KINDS = ("mute", "snooze", "model_off", "ack", "unmute")  # unmute=恢复今日免打扰(撤销, 非新增偏好)
+VALID_KINDS = ("mute", "snooze", "model_off", "ack", "unmute",  # unmute=恢复今日免打扰(撤销, 非新增偏好)
+               "stop_snooze")  # stop_snooze=止损强制升级专用静音(target=code), 仅升级检查消费, 不压这只票的其它推送
 
 
 def _canonical(user_id, kind: str, target: str, days) -> str:
@@ -52,12 +53,27 @@ def build_quick_link(site: str, user_id, kind: str, target: str = "", days=0) ->
 
 
 def until_for(kind: str, days, today: date | None = None) -> date:
-    """各 kind 的生效截止日(含当日). 今日域(mute/model_off/ack)=今日; snooze=今日+N-1."""
+    """各 kind 的生效截止日(含当日). 今日域(mute/model_off/ack)=今日; snooze/stop_snooze=今日+N-1."""
     today = today or date.today()
-    if kind == "snooze":
+    if kind in ("snooze", "stop_snooze"):
         n = max(int(days or 0), 1)
         return today + timedelta(days=n - 1)
     return today
+
+
+def days_until_week_end(today: date | None = None) -> int:
+    """含今日到本周日的自然日数(周一=7 … 周日=1). 供「本周不提醒」算 snooze 天数。"""
+    today = today or date.today()
+    return 7 - today.weekday()
+
+
+def stop_snooze_active(prefs: list[dict], code: str) -> bool:
+    """止损升级检查专用: 生效偏好里是否有这只票的 stop_snooze(已在 SQL 层过滤未撤销+未过期)。
+    独立于 decide(): 故点了止损升级静音, 这只票的买卖点/异动照常推。"""
+    for p in prefs:
+        if p.get("kind") == "stop_snooze" and code and (p.get("target") or "") == code:
+            return True
+    return False
 
 
 def decide(prefs: list[dict], code: str, signal_id: str, today: date | None = None) -> dict:
@@ -95,3 +111,15 @@ def build_quick_actions_md(site: str, user_id, code: str, signal_id: str, direct
     # 「今日关此模型」按需移除(2026-06-27): 只保留今日免打扰; model_off 后端能力保留(管理面板/历史链接仍可用)
     links = [f"[🔕 今日免打扰]({build_quick_link(site, user_id, 'mute')})"]
     return "　·　".join(links)
+
+
+def build_stop_escalation_actions_md(site: str, user_id, code: str, today: date | None = None) -> str:
+    """止损升级红卡底部两开关: 当日不提醒 / 本周不提醒。均走 stop_snooze(target=code),
+    只静音这只票的止损升级, 不影响其它推送。site 为空则不给链接(本地/非生产)。"""
+    site = (site or "").rstrip("/")
+    if not site:
+        return ""
+    week_days = days_until_week_end(today)
+    today_link = build_quick_link(site, user_id, "stop_snooze", target=code, days=1)
+    week_link = build_quick_link(site, user_id, "stop_snooze", target=code, days=week_days)
+    return f"[🔕 当日不提醒]({today_link})　·　[🔕 本周不提醒]({week_link})"

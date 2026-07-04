@@ -42,6 +42,14 @@ def test_simple_average_no_sell():
     assert res["A"]["earliest_buy_date"] == "2026-01-01"
 
 
+def test_exposes_current_net_qty():
+    """止损升级算累计多亏需要当前净持股数。"""
+    trades = [_t("A", "buy", 300, 10.0, "2026-01-01"),
+              _t("A", "sell", 100, 12.0, "2026-01-05")]
+    res = compute_diluted_holdings(trades)
+    assert res["A"]["qty"] == 200
+
+
 def test_reset_on_flat_then_rebuy():
     """清仓后重新建仓 → 只算新一段, 建仓日=新买入日, 旧段盈亏不带入。"""
     trades = [_t("A", "buy", 100, 10.0, "2026-01-01"),

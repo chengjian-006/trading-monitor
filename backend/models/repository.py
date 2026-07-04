@@ -48,7 +48,7 @@ from backend.models.repo.signals import (  # noqa: F401
     fetch_signals_for_perf, bulk_insert_signal_perf, get_signal_perf_stats,
     get_signal_stats, get_signal_matrix,
     get_signals_by_code_date, get_signal_days_for_code, get_signals_by_code_since,
-    get_key_signals_between,
+    get_stop_fires_by_code, get_key_signals_between,
     get_outcome_compare, get_weekly_outcome_trend, get_model_weekly_outcome,
     get_review_signal_list, set_eod_audit,
 )
@@ -69,6 +69,7 @@ from backend.models.repo.signal_config import (  # noqa: F401
 )
 from backend.models.repo.holdings import (  # noqa: F401
     get_holdings_cost, get_holdings_entry_date, get_holdings_entry_model, get_holdings_full_info,
+    get_holdings_qty,
 )
 from backend.models.repo.market import (  # noqa: F401
     save_market_report, get_today_reports, get_latest_report, get_report_context,

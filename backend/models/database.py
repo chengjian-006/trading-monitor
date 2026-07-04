@@ -1161,6 +1161,14 @@ async def _run_migrations(conn):
             ("holding_guard_tick", "持仓守护提醒·盘中",
              "盘中每60秒: 真实持仓现价逼近近60日波段前高(≤2%)推接近前高; 曾赚过≥+10%又回吐到≤+2%推盈利保护(锁利提醒)",
              "interval", _json.dumps({"seconds": 60}), "holding_guard_tick"),
+            # v1.7.x: 止损强制升级 — 硬止损(弱势极限-12%/浮亏止损)连续≥2个交易日未执行(持仓仍在)→ 升级🚨红卡,
+            # 带累计多亏, 开盘09:30+午间11:20各推一次; 卡片内置"当日/本周不提醒"(stop_snooze, 只静音升级不影响其它推送)
+            ("stop_escalation_0930", "止损未执行升级·开盘09:30",
+             "开盘扫真实持仓, 硬止损连续≥2交易日未执行(持仓仍在且现价未站回首次止损位)推🚨升级红卡, 带累计多亏与当日/本周静音开关",
+             "cron", _json.dumps({"hour": 9, "minute": 30}), "stop_escalation_tick"),
+            ("stop_escalation_1120", "止损未执行升级·午间11:20",
+             "午间再扫一次硬止损未执行升级, 兼顾下午决断(口径同开盘)",
+             "cron", _json.dumps({"hour": 11, "minute": 20}), "stop_escalation_tick"),
             # 日志保留 30 天 — 每日凌晨3:30 删除 30 天前的操作日志(DB)与轮转日志文件
             ("cleanup_old_logs", "日志清理·每日03:30",
              "每日凌晨删除30天前的操作日志(cfzy_biz_operation_logs)与轮转日志文件 app.log.*, 控制表与磁盘体积",

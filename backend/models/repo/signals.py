@@ -89,6 +89,22 @@ async def get_signals_by_code_since(code: str, user_id: int = 1, days: int = 150
     )
 
 
+async def get_stop_fires_by_code(code: str, signal_ids: list[str], user_id: int = 1,
+                                 days: int = 30) -> list[dict]:
+    """某票近 N 天内指定硬止损 signal_id 的触发记录(止损强制升级用)。
+    返回 [{signal_id, price, d:'YYYY-MM-DD', triggered_at}], 按触发时间正序(最早在前)。"""
+    if not signal_ids:
+        return []
+    ph = ", ".join(["%s"] * len(signal_ids))
+    return await _fetchall(
+        f"SELECT signal_id, price, DATE(triggered_at) AS d, triggered_at FROM cfzy_biz_signals "
+        f"WHERE code = %s AND user_id = %s AND signal_id IN ({ph}) "
+        f"AND triggered_at >= DATE_SUB(NOW(), INTERVAL %s DAY) "
+        f"ORDER BY triggered_at ASC",
+        (code, user_id, *signal_ids, days),
+    )
+
+
 async def get_key_signals_between(start: str, end: str, directions: list[str]) -> list[dict]:
     """时间窗 [start, end] 内指定方向的关键信号(全用户), 按触发时间正序。给推送补发用。
     同票同方向窗口内只取首次(GROUP BY 去掉重复触发)。"""

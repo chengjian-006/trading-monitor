@@ -61,6 +61,7 @@ def compute_diluted_holdings(trades: list[dict]) -> dict[str, dict]:
             result[code] = {
                 "avg_cost": round(total_cost / qty, 3),   # 可为负(超额落袋)
                 "earliest_buy_date": leg_str,
+                "qty": qty,                               # 当前净持股数(止损升级算累计多亏用)
             }
     return result
 
@@ -75,6 +76,12 @@ async def get_holdings_entry_date(user_id: int) -> dict[str, str]:
     """返回 {code: 'YYYY-MM-DD'}, 当前持仓段建仓日."""
     info = await _get_holdings_cost_info(user_id)
     return {code: v["earliest_buy_date"] for code, v in info.items()}
+
+
+async def get_holdings_qty(user_id: int) -> dict[str, int]:
+    """返回 {code: 当前净持股数}, 仅 remaining_qty > 0 的票(止损升级算累计多亏用)."""
+    info = await _get_holdings_cost_info(user_id)
+    return {code: v["qty"] for code, v in info.items()}
 
 
 def _as_date(v) -> date | None:
