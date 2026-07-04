@@ -230,20 +230,17 @@ async def _build_relay_data(themes: list[dict], gn_clean: list[dict],
     return rows, summary
 
 
-def _board_row(b: dict, my_codes: set[str]) -> dict:
-    """单板块一行(移动优化 markdown 表格, 2列): 涨幅独占前置短列, 板块名+领涨并进一格。
-    (原原生 3 列表格手机端长内容被截需点开; 改 md 表格换行不截, 领涨命中自选仍标红。)"""
+def _board_line(b: dict, my_codes: set[str]) -> str:
+    """单板块一行(移动优化: 涨幅前置短列 + 板块名/领涨股全名, 手机窄屏换行不截)。
+    (原 2 列 md 表格把 板块名+领涨股 挤一格, 飞书手机端超宽字符级截断→领涨股被切;
+     改换行文本行: 涨幅红/绿短列前置, 板块加粗, 领涨命中自选仍标红, 无截断。)"""
     leader = b["leader_name"] or ""
-    if b["leader_code"] and b["leader_code"] in my_codes:
-        leader = f"<font color='red'>{leader[:5]}</font>"   # 命中自选标红
-    else:
-        leader = leader[:5]
+    if leader and b["leader_code"] and b["leader_code"] in my_codes:
+        leader = f"<font color='red'>{leader}</font>"   # 命中自选标红
     pct_color = "red" if b["pct"] >= 0 else "green"
-    name = b["name"][:6]
-    return {
-        "pct": f"<font color='{pct_color}'>{b['pct']:+.1f}%</font>",
-        "bk": f"{name}　{leader}" if leader else name,
-    }
+    pct = f"<font color='{pct_color}'>{b['pct']:+.1f}%</font>"
+    tail = f"　领涨 {leader}" if leader else ""
+    return f"{pct}　**{b['name']}**{tail}"
 
 
 async def build_auction_sector_part() -> tuple[list[str], list] | None:
@@ -311,8 +308,8 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
         _, b = m
         rank_in_hy = next((i for i, x in enumerate(hy, 1) if x["name"] == b["name"]), None)
         hold_rows.append({"name": s["name"], "pct": b["pct"],
-                          # 板块名截4字: 与板块涨幅并入64%一列(约7字宽), "被动元件概念"全名装不下
-                          "board": f"行业{rank_in_hy}/{len(hy)}" if rank_in_hy else b["name"][:4]})
+                          # 换行文本行不再挤表格, 板块名给全名(手机换行不截)
+                          "board": f"行业{rank_in_hy}/{len(hy)}" if rank_in_hy else b["name"]})
 
     # ── 飞书 V2 卡: 精简重构 — 竞价最强TOP5 / 持仓板块 / 承接 ──
     from backend.services import lark_notifier
@@ -326,46 +323,37 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
         lark_notifier.md_element(f"🕤 **09:26 集合竞价**　{idx_line}　|　腾讯板块榜 · 用时 {elapsed:.1f}s"),
     ]
 
-    # 合并行业+概念 → "竞价最强 TOP5"
+    # 合并行业+概念 → "竞价最强 TOP5" (换行文本行: 板块名/领涨股全名不截)
     merged = hy_top + gn_top
     merged.sort(key=lambda x: -x["pct"])
     top5 = merged[:5]
-    cols = [
-        {"name": "pct", "display_name": "涨幅", "data_type": "lark_md"},
-        {"name": "bk", "display_name": "板块·领涨", "data_type": "lark_md"},
-    ]
-    def t_of(bs): return lark_notifier.md_table(cols, [_board_row(b, my_codes) for b in bs])
     elements.append(lark_notifier.md_element(f"🔥 **竞价最强 TOP5**（{len(hy)}行业 + {len(gn_clean)}概念）"))
-    elements.append(t_of(top5))
+    elements.append(lark_notifier.md_element(
+        "\n".join(_board_line(b, my_codes) for b in top5)))
 
-    # 持仓关联
+    # 持仓关联 (换行文本行: 涨幅前置 + 持仓名 + 所在板块/名次全名不截)
     if hold_rows:
-        hold_cols = [
-            {"name": "pct", "display_name": "涨幅", "data_type": "lark_md"},
-            {"name": "nb", "display_name": "持仓·所在板块", "data_type": "lark_md"},
-        ]
-        hrows = [{"pct": f"<font color='{'red' if r['pct'] >= 0 else 'green'}'>{r['pct']:+.1f}%</font>",
-                  "nb": f"{r['name']}　{r['board']}"}
-                 for r in hold_rows]
+        hlines = []
+        for r in hold_rows:
+            pc = "red" if r["pct"] >= 0 else "green"
+            hlines.append(
+                f"<font color='{pc}'>{r['pct']:+.1f}%</font>　**{r['name']}**　{r['board']}")
         elements.append(lark_notifier.md_element("💼 **持仓关联板块**"))
-        elements.append(lark_notifier.md_table(hold_cols, hrows))
+        elements.append(lark_notifier.md_element("\n".join(hlines)))
 
-    # 承接 (简化)
+    # 承接 (换行文本行: 判级+溢价前置 + 题材全名不截)
     if relay_rows:
-        relay_cols = [
-            {"name": "lv", "display_name": "承接·溢价", "data_type": "lark_md"},
-            {"name": "theme", "display_name": "昨日热点", "data_type": "text"},
-        ]
-        rrows = []
+        rlines = []
         for r in relay_rows[:5]:
             lv_color = "red" if r["icon"] == "✅" else ("green" if r["icon"] == "⚠️" else "grey")
             cell = f"<font color='{lv_color}'>{r['icon']} {r['level']}</font>"
             if r["premium"] is not None:
                 pc = "red" if r["premium"] >= 0 else "green"
                 cell += f"　<font color='{pc}'>{r['premium']:+.1f}%</font>"
-            rrows.append({"theme": ("⭐" if r["my"] else "") + r["theme"], "lv": cell})
+            theme = ("⭐" if r["my"] else "") + r["theme"]
+            rlines.append(f"{cell}　{theme}")
         elements.append(lark_notifier.md_element(f"🔁 **昨日热点 · 今晨承接**　{relay_summary}"))
-        elements.append(lark_notifier.md_table(relay_cols, rrows))
+        elements.append(lark_notifier.md_element("\n".join(rlines)))
         elements.append(lark_notifier.md_element(
             "<font color='grey'>✅强承接 🔶一般 ⚠️转弱　溢价=昨停今竞均涨　⭐=自选有票</font>"))
 
