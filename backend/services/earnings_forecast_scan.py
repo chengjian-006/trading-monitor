@@ -7,7 +7,7 @@ D+2→D+5 阴跌(利好兑现)。故此榜定位= 盘后把当日新出的正向
 任务: run_earnings_forecast_scan  每日 18:30  拉当日业绩预告→落库→推正向预告(自选置顶+全市场大幅预增TopN)
 """
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from backend.fetcher.earnings_data import fetch_earnings_forecasts
 from backend.models import repository
@@ -19,6 +19,7 @@ from backend.services.lark_notifier import md_element, table_element
 logger = logging.getLogger(__name__)
 
 MARKET_TOP = 15         # 全市场正向预告最多展示 N 条(按变动幅度上限降序)
+LOOKBACK_DAYS = 3       # 回看窗: 捞最近N天公告(周五盘后/周末发的次日补上, pushed_at去重不重推)
 CAUTION = "⚠️ 回测: 好业绩涨在公告那一下、之后D+2→D+5阴跌(利好兑现), 只做快进快出别追高; 埋伏仅「预增」有小edge。"
 
 
@@ -35,20 +36,21 @@ def _amp_txt(lo, up) -> str:
 async def run_earnings_forecast_scan() -> None:
     """盘后拉当日业绩预告→落库→推正向预告榜(自选/持仓命中置顶)。任意日可跑(周末也有公告)。"""
     today = date.today().isoformat()
+    since = (date.today() - timedelta(days=LOOKBACK_DAYS)).isoformat()
     rd = _current_report_date()
     try:
-        rows = await fetch_earnings_forecasts(rd, notice_date=today)
+        rows = await fetch_earnings_forecasts(rd, notice_since=since)
     except Exception as e:
-        logger.warning(f"[yjyg] 业绩预告抓取失败({rd}/{today}): {e}")
+        logger.warning(f"[yjyg] 业绩预告抓取失败({rd}/{since}起): {e}")
         return
     if not rows:
-        logger.info(f"[yjyg] {today} 无当日业绩预告")
+        logger.info(f"[yjyg] {since}起 无业绩预告")
         return
     await earnings_repo.upsert_forecasts(rows)
 
-    good = await earnings_repo.forecasts_to_push(today, groups=("利好",))
+    good = await earnings_repo.forecasts_to_push(since, groups=("利好",))
     if not good:
-        logger.info(f"[yjyg] {today} 无未推送的正向预告")
+        logger.info(f"[yjyg] {since}起 无未推送的正向预告")
         return
 
     # 自选/持仓命中集合(置顶)

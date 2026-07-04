@@ -19,6 +19,36 @@ _BASE = "https://datacenter.eastmoney.com/securities/api/data/v1/get"
 GOOD_TYPES = {"预增", "略增", "扭亏", "减亏", "续盈", "预盈"}
 BAD_TYPES = {"预减", "略减", "首亏", "增亏", "续亏", "预亏"}
 
+# 净利变动"标准口径"指标(东财每家按财务指标返回多行, 预增榜取归母净利润这行)
+PARENT_NP = "归属于上市公司股东的净利润"
+DEDUCT_NP = "扣除非经常性损益后的净利润"
+
+
+def _has_amp(r: dict) -> bool:
+    return r.get("ADD_AMP_LOWER") is not None or r.get("ADD_AMP_UPPER") is not None
+
+
+def pick_forecast_row(rows: list[dict]) -> dict | None:
+    """东财每家按财务指标返回多行(每股收益/扣非/营收/归母净利润), 选"净利变动"标准口径行。
+
+    优先级: 归母净利润(有幅度) > 扣非净利润(有幅度) > 任一有幅度 > 归母/扣非行(无幅度) > 首行。
+    避免无脑取第一行——它可能是"每股收益"行, 东财对EPS不给同比幅度 → 净利变动列空成"—"(中金岭南bug)。
+    """
+    if not rows:
+        return None
+    for target in (PARENT_NP, DEDUCT_NP):
+        hit = [r for r in rows if (r.get("PREDICT_FINANCE") or "").strip() == target and _has_amp(r)]
+        if hit:
+            return hit[0]
+    with_amp = [r for r in rows if _has_amp(r)]
+    if with_amp:
+        return with_amp[0]
+    for target in (PARENT_NP, DEDUCT_NP):     # 都无幅度: 优先归母行(content更完整)
+        hit = [r for r in rows if (r.get("PREDICT_FINANCE") or "").strip() == target]
+        if hit:
+            return hit[0]
+    return rows[0]
+
 
 def _d10(v) -> str:
     """'2025-06-19 00:00:00' → '2025-06-19'; None/空 → ''。"""
@@ -54,22 +84,35 @@ async def _fetch_all(report_name: str, report_date: str, sort: str,
     return out
 
 
-async def fetch_earnings_forecasts(report_date: str, notice_date: str | None = None) -> list[dict]:
-    """某报告期业绩预告(可按公告日过滤当日新增)。
+async def fetch_earnings_forecasts(report_date: str, notice_date: str | None = None,
+                                   notice_since: str | None = None) -> list[dict]:
+    """某报告期业绩预告(可按公告日过滤: notice_date 精确当日 / notice_since 回看至该日起)。
 
-    返回 [{code, name, notice_date, report_date, predict_type, amp_lower, amp_upper,
-            content, group}], group ∈ 利好/利空/中性。
+    notice_since 用于回看窗(修"周五盘后/周末发的预告掉进裂缝"bug): 扫描回看最近几天,
+    已推过的靠 pushed_at 去重, 不会重复推。notice_date 与 notice_since 二选一(后者优先)。
+
+    每家按财务指标多行 → pick_forecast_row 取归母净利润标准口径行(修"净利变动为空"bug)。
+    返回 [{code, name, notice_date, report_date, predict_type, amp_lower, amp_upper, content, group}]。
     """
-    extra = f"(NOTICE_DATE='{notice_date}')" if notice_date else ""
+    if notice_since:
+        extra = f"(NOTICE_DATE>='{notice_since}')"
+    elif notice_date:
+        extra = f"(NOTICE_DATE='{notice_date}')"
+    else:
+        extra = ""
     rows = await _fetch_all("RPT_PUBLIC_OP_NEWPREDICT", report_date,
                             "NOTICE_DATE,SECURITY_CODE", extra)
-    out = []
-    seen = set()
+    # 按 code 分组(东财每家多行/每指标一行), 每家选"净利变动"标准口径行
+    by_code: dict[str, list[dict]] = {}
     for r in rows:
         code = str(r.get("SECURITY_CODE") or "").zfill(6)
-        if not code or code in seen:
+        if code:
+            by_code.setdefault(code, []).append(r)
+    out = []
+    for code, group_rows in by_code.items():
+        r = pick_forecast_row(group_rows)
+        if not r:
             continue
-        seen.add(code)   # 一司一期取首条(datacenter 已按最新在前)
         ptype = (r.get("PREDICT_TYPE") or "").strip()
         group = "利好" if ptype in GOOD_TYPES else ("利空" if ptype in BAD_TYPES else "中性")
         out.append({

@@ -48,15 +48,18 @@ async def upsert_forecasts(rows: list[dict]) -> None:
           r["group"], r["amp_lower"], r["amp_upper"], (r["content"] or "")[:500]) for r in rows])
 
 
-async def forecasts_to_push(notice_date: str, groups: tuple[str, ...] = ("利好",)) -> list[dict]:
-    """某公告日、指定分组、尚未推送过的预告(按变动幅度上限降序)。供预增榜。"""
+async def forecasts_to_push(notice_since: str, groups: tuple[str, ...] = ("利好",)) -> list[dict]:
+    """公告日 >= notice_since、指定分组、尚未推送过的预告(按变动幅度上限降序)。供预增榜。
+
+    改回看窗(原来精确当日): 周五盘后/周末发的预告次日能补上(靠 pushed_at 去重不重推)。
+    amp_upper 可能为空(EPS口径票), NULL 在 DESC 下排最后, 不影响有幅度票的置顶。"""
     ph = ",".join(["%s"] * len(groups))
     return await _fetchall(
         f"SELECT code, name, report_date, predict_type, forecast_group, amp_lower, amp_upper, content "
         f"FROM cfzy_sys_earnings_forecast "
-        f"WHERE notice_date=%s AND forecast_group IN ({ph}) AND pushed_at IS NULL "
+        f"WHERE notice_date>=%s AND forecast_group IN ({ph}) AND pushed_at IS NULL "
         f"ORDER BY amp_upper DESC",
-        (notice_date, *groups))
+        (notice_since, *groups))
 
 
 async def get_positive_forecast_by_code(code: str) -> dict | None:
