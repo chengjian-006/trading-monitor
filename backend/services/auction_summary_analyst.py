@@ -189,13 +189,11 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int, elapsed:
     ])
     elements = [lark_notifier.md_element(field_md)]
     if mls:
-        cols = [
-            {"name": "dir", "display_name": "方向", "data_type": "text"},
-            {"name": "reps", "display_name": "代表股", "data_type": "text"},
-        ]
-        rows = [{"dir": str(m.get("direction", "")), "reps": str(m.get("reps", ""))} for m in mls]
+        # 移动优化(v1.7.581): 逐条换行文本行, 方向加粗前置, 代表股全名换行不截
+        #   (原 2列表格把代表股列表挤单元格, 手机端字符级截断被吃掉)
+        mlines = [f"**{str(m.get('direction', ''))}**　{str(m.get('reps', ''))}" for m in mls]
         elements.append(lark_notifier.md_element("🎯 **题材主线**"))
-        elements.append(lark_notifier.md_table(cols, rows))
+        elements.append(lark_notifier.md_element("\n".join(mlines)))
     if action:
         elements.append(lark_notifier.md_element(f"✅ **操作**　{action}"))
     elements.append(lark_notifier.md_element(footer))

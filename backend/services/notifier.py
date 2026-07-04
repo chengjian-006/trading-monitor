@@ -799,19 +799,18 @@ def _buy_tracking_tables(context: dict | None) -> list:
     if not (bt.get("today") or bt.get("yest")):
         return []
     from backend.services import lark_notifier
-    # 移动优化: 2列(差额|名称·买点), 差额(关键可扫值)前置独占短列, 买点并进名称格, 去代码省宽。
-    columns = [
-        {"name": "diff", "display_name": "差额"},
-        {"name": "name", "display_name": "名称"},
-    ]
+    # 移动优化(v1.7.581): 逐条换行文本行, 差额(关键可扫值)红绿前置, 名称+买点全名换行不截
+    #   (原 2列表格把 名称+买点 挤名称格, 手机端买点模型名被字符级截断)
 
-    def _rows(items: list) -> list:
+    def _lines(items: list) -> list:
         out = []
         for it in items:
             pct = float(it.get("pct", 0) or 0)
             nm = str(it.get("name", ""))
             sig = str(it.get("signal", "")).strip()
-            out.append({"diff": f"{pct:+.2f}%", "name": f"{nm} {sig}" if sig else nm})
+            color = "red" if pct >= 0 else "green"
+            tail = f"　{sig}" if sig else ""
+            out.append(f"<font color='{color}'>{pct:+.2f}%</font>　**{nm}**{tail}")
         return out
 
     elements = [lark_notifier.md_element(f"💹 **买点盈利跟踪**（截至 {bt.get('as_of', '')}）")]
@@ -824,7 +823,7 @@ def _buy_tracking_tables(context: dict | None) -> list:
         head = (f"{label} {sm.get('n', len(items))}只 · 均{sm.get('avg', 0):+.1f}%"
                 f"（{sm.get('red', 0)}红{sm.get('green', 0)}绿）")
         elements.append(lark_notifier.md_element(f"**{head}**"))
-        elements.append(lark_notifier.md_table(columns, _rows(items)))
+        elements.append(lark_notifier.md_element("\n".join(_lines(items))))
     return elements
 
 

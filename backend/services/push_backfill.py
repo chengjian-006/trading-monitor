@@ -66,7 +66,7 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
                         risk_state: str = "GREEN") -> tuple[str, list]:
     """构建「错过消息回顾」摘要: 返回 (企微纯文本, 飞书元素列表)。
     kept_events 已按时间降序、已封顶。"""
-    from backend.services.lark_notifier import md_element, md_table
+    from backend.services.lark_notifier import md_element
 
     n = len(kept_events)
     tail = f"(最新{MAX_ITEMS}条, 另有{dropped}条更早未列)" if dropped else ""
@@ -83,24 +83,20 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
         text_lines.append(banner)
         text_lines.append("")
 
-    # 移动优化: 类型独占前置短列, 时间·标的·信号并进一列(markdown 自动换行不截断)
-    cols = [
-        {"name": "kind", "display_name": "类型"},
-        {"name": "info", "display_name": "时间 · 标的 · 信号"},
-    ]
-    rows = []
+    # 移动优化(v1.7.581): 逐条换行文本行, 类型加粗前置, 时间/标的/信号全名换行不截
+    #   (原 2列表格把 时间+名称+代码+信号 挤 info 一格, 手机端字符级截断——md_table 单元格不换行只截断,
+    #    "自动换行"是错误前提, 与竞价卡同源 bug)
+    info_lines = []
     for e in kept_events:
         kind = _DIR_LABEL.get(str(e.get("direction") or "").lower(), e.get("direction") or "")
         nm = e.get("name") or ""
         code = e.get("code") or ""
-        rows.append({
-            "kind": kind,
-            "info": f"{_fmt_time(e.get('triggered_at'))} {nm} {code} {e.get('signal_name') or ''}".strip(),
-        })
-        text_lines.append(f"  • {_fmt_time(e.get('triggered_at'))} {kind} {nm}({code}) {e.get('signal_name') or ''}")
+        sig = e.get("signal_name") or ""
+        info_lines.append(f"**{kind}**　{_fmt_time(e.get('triggered_at'))} **{nm}** {code} {sig}".rstrip())
+        text_lines.append(f"  • {_fmt_time(e.get('triggered_at'))} {kind} {nm}({code}) {sig}")
 
-    if rows:
-        elements.append(md_table(cols, rows))
+    if info_lines:
+        elements.append(md_element("\n".join(info_lines)))
     else:
         elements.append(md_element("_关闭期间无关键信号_"))
         text_lines.append("(关闭期间无关键信号)")

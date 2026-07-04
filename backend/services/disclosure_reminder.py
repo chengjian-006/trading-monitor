@@ -14,7 +14,7 @@ from backend.fetcher.earnings_data import fetch_disclosure_calendar
 from backend.models import repository
 from backend.models.repo import earnings as earnings_repo
 from backend.services import notifier
-from backend.services.lark_notifier import md_element, md_table
+from backend.services.lark_notifier import md_element
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +87,9 @@ async def run_disclosure_reminder() -> None:
         pass
 
     # 手机友好2列: 预约披露日是核心可扫值独占列; 持仓标记+报告类型并入股票格
-    cols = [
-        {"name": "stock", "display_name": "股票", "data_type": "lark_md", "width": "58%"},
-        {"name": "day", "display_name": "预约披露日", "data_type": "text", "width": "42%"},
-    ]
-    trows = []
+    # 移动优化(v1.7.581): 逐条换行文本行, 披露日(关键值)前置加粗, 名称/代码/年报类型全名换行不截
+    #   (原 股票格塞 名称+代码+年报类型, 手机端字符级截断→代码/年报类型被吃掉, 年报半年报分不清)
+    tlines = []
     for r in rows:
         held = str(r["code"]) in hold_codes
         rt = REPORT_TYPE_CN.get(str(r["report_type"]), "定期报告")
@@ -101,16 +99,14 @@ async def run_disclosure_reminder() -> None:
         except Exception:
             dleft = ""
         mark = "🔴" if held else ""
-        trows.append({
-            "stock": f"{mark}{r['name']}({r['code']}) {r['report_year']}{rt}",
-            "day": f"{d}" + (f"·{dleft}天后" if dleft != "" else ""),
-        })
+        left = f" · {dleft}天后" if dleft != "" else ""
+        tlines.append(f"**{d}**{left}　{mark}**{r['name']}**({r['code']}) {r['report_year']}{rt}")
     title = "📅 财报披露日历·近期"
     body = (f"{title}\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(trows)}** 只披露定期报告。\n"
             "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。")
     try:
         await notifier.send_dual_card(body, lark_title=title,
-                                      elements=[md_element(body), md_table(cols, trows)])
+                                      elements=[md_element(body), md_element("\n".join(tlines))])
         logger.info(f"[disclosure] 披露提醒已推: {len(trows)} 只")
     except Exception as e:
         logger.warning(f"[disclosure] 推送失败: {e}")

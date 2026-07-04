@@ -200,8 +200,9 @@ def test_render_wechat_handles_missing_verdict():
 def test_build_lark_elements_empty_and_filled():
     assert len(build_lark_elements([], {}, "震荡")) == 1   # 空仓一条
     els = build_lark_elements([_payload()], {"000725": {"action": "减仓", "target": 7.0, "stop": 6.5, "reason": "滞涨"}}, "震荡")
-    # 移动优化: 原生 table 改 markdown 表格(修手机端截断)
-    assert any(e.get("tag") == "markdown" and "|" in e.get("content", "") and "建议" in e.get("content", "") for e in els)
+    # 移动优化(v1.7.581): 表格改逐股换行文本块(单元格塞多字段手机端字符级截断), 断言建议/理由进 markdown 行、无表格竖线
+    assert any(e.get("tag") == "markdown" and "减仓" in e.get("content", "")
+               and "滞涨" in e.get("content", "") and "|" not in e.get("content", "") for e in els)
 
 
 def test_build_brief_prompt_carries_data():

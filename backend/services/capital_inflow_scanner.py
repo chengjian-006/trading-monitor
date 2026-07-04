@@ -190,37 +190,30 @@ def _build_capital_inflow_lark(items: list[dict]):
                 f"龙头 **{a['leader_name']}** {a['leader_pct']:+.2f}%(涨停)　"
                 f"前{a['sector_top_n']}股均涨 {top_avg_str}")
         elements.append(lark_notifier.md_element(head))
-        # 板块前N股表 → 手机友好2列(名称+成交额/名次并入名称格, 涨幅独占核心列)
-        # md_table 手机端不截断; 命中自选池的票名称标红一眼认出
+        # 板块前N股 → 逐条换行文本行(涨幅前置, 名称+代码+成交额换行不截), 命中自选⭐标记
         my_codes = {r.get("code") for r in (a.get("stock_rows") or []) if r.get("code")}
-        md_cols = [{"name": "name", "display_name": "名称", "data_type": "lark_md", "width": "70%"},
-                   {"name": "pct", "display_name": "涨幅", "data_type": "text", "width": "30%"}]
 
-        def _name_cell(r):
-            nm = f"{r.get('name', '')} {r.get('code', '')}"
+        # 移动优化(v1.7.581): 逐条换行文本行, 涨幅红绿前置, 名称+代码+成交额/名次全名换行不截, 自选⭐标记
+        #   (原 名称格塞 名称+代码+成交额+名次, 手机端字符级截断→成交额/名次被吃掉)
+        def _stock_line(r):
+            pct = float(r.get("pct", 0) or 0)
+            color = "red" if pct >= 0 else "green"
             amt = _fmt_amount(float(r.get("amt", 0) or 0))
             rk = _fmt_rank(r.get("rank"))
             sub = f"成交{amt}·额第{rk}" if rk not in ("—", "100+") else f"成交{amt}"
-            cell = f"{nm}（{sub}）"
-            if r.get("code") in my_codes:
-                cell = f"<font color='red'>{cell}</font>"   # 自选票标红
-            return cell
+            mark = "⭐" if r.get("code") in my_codes else ""
+            return (f"<font color='{color}'>{pct:+.2f}%</font>　{mark}**{r.get('name', '')}** "
+                    f"{r.get('code', '')} · {sub}")
 
-        top_rows = []
-        for r in a.get("sector_top_rows") or []:
-            tp = float(r.get("pct", 0) or 0)
-            top_rows.append({"name": _name_cell(r), "pct": f"{tp:+.2f}%"})
+        top_rows = a.get("sector_top_rows") or []
         if top_rows:
             elements.append(lark_notifier.md_element(f"📈 板块前{a['sector_top_n']}股"))
-            elements.append(lark_notifier.md_table(md_cols, top_rows))
-        # 自选个股表
-        rows = []
-        for r in a.get("stock_rows") or []:
-            pct = float(r.get("pct", 0) or 0)
-            rows.append({"name": _name_cell(r), "pct": f"{pct:+.2f}%"})
+            elements.append(lark_notifier.md_element("\n".join(_stock_line(r) for r in top_rows)))
+        # 自选个股
+        rows = a.get("stock_rows") or []
         if rows:
             elements.append(lark_notifier.md_element(f"⭐ 你自选的该板块个股（{len(rows)}只）"))
-            elements.append(lark_notifier.md_table(md_cols, rows))
+            elements.append(lark_notifier.md_element("\n".join(_stock_line(r) for r in rows)))
         else:
             elements.append(lark_notifier.md_element("_(你的股票池中暂无该板块个股)_"))
     return "📊 资金回流·板块预警", elements

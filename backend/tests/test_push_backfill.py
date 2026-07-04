@@ -49,14 +49,15 @@ def test_cap_items_no_drop_when_few():
     assert len(kept) == 1 and dropped == 0
 
 
-# ── 卡片构建: 有事件 → 有表格元素; 风险档非GREEN → 有横幅 ──
+# ── 卡片构建: 有事件 → 有信号文本行; 风险档非GREEN → 有横幅 ──
 def test_build_card_has_table_and_risk_banner():
     evs = [{"triggered_at": datetime(2026, 6, 18, 10, 30), "name": "国际复材", "code": "301526",
             "direction": "buy", "signal_name": "缩量突破"}]
     text, elements = pb.build_backfill_card("lark", evs, 0, risk_state="RED")
     assert "错过" in text
-    # 移动优化: 原生 table 改 markdown 表格(修手机端截断)
-    assert any(e.get("tag") == "markdown" and "|" in e.get("content", "") and "类型" in e.get("content", "") for e in elements)
+    # 移动优化(v1.7.581): 表格改换行文本行(单元格塞多字段手机端字符级截断), 断言信号名/标的进 markdown 行、无表格竖线
+    assert any(e.get("tag") == "markdown" and "缩量突破" in e.get("content", "")
+               and "国际复材" in e.get("content", "") and "|" not in e.get("content", "") for e in elements)
     joined = "".join(str(e) for e in elements)
     assert "RED" in joined  # 风险横幅
 

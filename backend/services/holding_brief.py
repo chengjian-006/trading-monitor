@@ -283,37 +283,34 @@ def render_wechat_text(payloads: list[dict], verdicts: dict[str, dict], market_b
 
 
 def build_lark_elements(payloads: list[dict], verdicts: dict[str, dict], market_brief: str) -> list:
-    """飞书卡 elements: 前言 md + 逐股表格 + 免责 md。空仓一条 md。"""
-    from backend.services.lark_notifier import md_element, md_table
+    """飞书卡 elements: 前言 md + 逐股换行文本块 + 免责 md。空仓一条 md。"""
+    from backend.services.lark_notifier import md_element
 
     if not payloads:
         return [md_element("**今日空仓**，无需研判。")]
     els = [md_element(f"**次日大盘环境**：{market_brief}")]
-    # 移动优化: 次日建议独占前置短列, 个股/浮盈/目标止损/理由并进详情格(markdown 自动换行不截断)
-    columns = [
-        {"name": "advice", "display_name": "建议"},
-        {"name": "info", "display_name": "个股 · 目标止损 · 理由"},
-    ]
-    rows = []
+    # 移动优化(v1.7.581): 逐股换行文本块, 建议+名称前置, 目标止损/理由各独立行, 手机窄屏换行不截。
+    #   (原 2列表格把 个股/浮盈/目标止损/理由 全挤 info 一格, 飞书手机端字符级截断只显示前~10字,
+    #    价格/浮盈/目标止损/AI研判全被吃掉——md_table 单元格不换行只截断, "自动换行"是错误前提。)
     for p in payloads:
         v = verdicts.get(p["code"])
         if v:
             emoji = ACTION_EMOJI.get(v["action"], "")
-            advice = f"{emoji}{v['action']}"
-            levels = f"目标{_fmt_num(v.get('target'))} 止损{_fmt_num(v.get('stop'))}"
+            head = f"{emoji} **{v['action']}**"
+            levels = f"目标 {_fmt_num(v.get('target'))} · 止损 {_fmt_num(v.get('stop'))}"
             reason = v.get("reason", "")
         else:
-            advice, levels, reason = "—", "", "AI研判未生成"
-        info = f"{p['name']} {p['code']} {_fmt_num(p.get('price'))}"
-        if p.get("state"):
-            info += f"·{p['state']}"
-        info += f"　浮盈{p.get('profit_pct', 0):+.1f}% 持{p.get('hold_days', 0)}天"
+            head, levels, reason = "— **待研判**", "", "AI研判未生成"
+        state = f" · {p['state']}" if p.get("state") else ""
+        block = [
+            f"{head}　**{p['name']}** {p['code']}",
+            f"现价 {_fmt_num(p.get('price'))}{state}　浮盈 {p.get('profit_pct', 0):+.1f}% · 持 {p.get('hold_days', 0)}天",
+        ]
         if levels:
-            info += f"　{levels}"
+            block.append(levels)
         if reason:
-            info += f"　{reason}"
-        rows.append({"advice": advice, "info": info})
-    els.append(md_table(columns, rows))
+            block.append(f"🤖 {reason}")
+        els.append(md_element("\n".join(block)))
     els.append(md_element("**AI研判仅供参考，最终决策在你。** 客观概率源自全市场五年同类形态回测。"))
     return els
 
