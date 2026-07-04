@@ -14,7 +14,7 @@ from backend.models import repository
 from backend.models.repo import earnings as earnings_repo
 from backend.services import notifier
 from backend.services.disclosure_reminder import _current_report_date
-from backend.services.lark_notifier import md_element, table_element
+from backend.services.lark_notifier import md_element
 
 logger = logging.getLogger(__name__)
 
@@ -67,28 +67,26 @@ async def run_earnings_forecast_scan() -> None:
     mine = [g for g in good if str(g["code"]) in user_codes]
     others = [g for g in good if str(g["code"]) not in user_codes][:MARKET_TOP]
 
-    cols = [
-        {"name": "stock", "display_name": "股票", "data_type": "text", "width": "26%"},
-        {"name": "ptype", "display_name": "类型", "data_type": "text", "width": "16%"},
-        {"name": "amp", "display_name": "净利变动", "data_type": "text", "width": "24%"},
-        {"name": "tag", "display_name": "", "data_type": "text", "width": "34%"},
-    ]
-
-    def to_row(g, tag):
-        return {"stock": f"{g['name']}({g['code']})", "ptype": g["predict_type"],
-                "amp": _amp_txt(g.get("amp_lower"), g.get("amp_upper")), "tag": tag}
+    # 文本行版式(替代原生表格): 每只一行, 手机自然换行不截断(原生4列表在手机全截成"...")。
+    def _line(g) -> str:
+        amp = _amp_txt(g.get("amp_lower"), g.get("amp_upper"))
+        return f"**{g['name']}**({g['code']}) {g['predict_type']} {amp}"
 
     elements = []
     title = "📈 预增榜·当日正向业绩预告"
-    head = f"{title}\n\n今日新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
+    head = f"{title}\n\n新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
     elements.append(md_element(head))
     if mine:
-        elements.append(md_element(f"**🎯 你的自选/持仓命中 {len(mine)} 只**"))
-        elements.append(table_element(
-            cols, [to_row(g, "🔴持仓" if str(g["code"]) in hold_codes else "自选") for g in mine], page_size=10))
+        lines = [f"**🎯 你的自选/持仓命中 {len(mine)} 只**"]
+        for g in mine:
+            tag = "［🔴持仓］" if str(g["code"]) in hold_codes else "［自选］"
+            lines.append(f"• {_line(g)}{tag}")
+        elements.append(md_element("\n".join(lines)))
     if others:
-        elements.append(md_element(f"**全市场大幅预增 Top{len(others)}**(按净利变动幅度)"))
-        elements.append(table_element(cols, [to_row(g, "") for g in others], page_size=10))
+        lines = [f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）"]
+        for i, g in enumerate(others, 1):
+            lines.append(f"{i}. {_line(g)}")
+        elements.append(md_element("\n".join(lines)))
 
     try:
         await notifier.send_dual_card(head, lark_title=title, elements=elements)
