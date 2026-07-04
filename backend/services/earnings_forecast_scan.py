@@ -67,26 +67,29 @@ async def run_earnings_forecast_scan() -> None:
     mine = [g for g in good if str(g["code"]) in user_codes]
     others = [g for g in good if str(g["code"]) not in user_codes][:MARKET_TOP]
 
-    # 文本行版式(替代原生表格): 每只一行, 手机自然换行不截断(原生4列表在手机全截成"...")。
-    def _line(g) -> str:
-        amp = _amp_txt(g.get("amp_lower"), g.get("amp_upper"))
-        return f"**{g['name']}**({g['code']}) {g['predict_type']} {amp}"
+    # markdown 表格版式(飞书 schema2.0 markdown 组件渲染, 手机端整齐不截断; 替代原生table组件——
+    # 后者列宽百分比在手机窄屏必截成"...")。2列: 股票 | 净利变动(含类型), 精简去空标签列。
+    def _amp_cell(g) -> str:
+        return f"{g['predict_type']} {_amp_txt(g.get('amp_lower'), g.get('amp_upper'))}"
+
+    def _mdtable(rows: list) -> str:
+        out = ["| 股票 | 净利变动 |", "| --- | --- |"]
+        out += [f"| {s} | {a} |" for s, a in rows]
+        return "\n".join(out)
 
     elements = []
     title = "📈 预增榜·当日正向业绩预告"
     head = f"{title}\n\n新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
     elements.append(md_element(head))
     if mine:
-        lines = [f"**🎯 你的自选/持仓命中 {len(mine)} 只**"]
-        for g in mine:
-            tag = "［🔴持仓］" if str(g["code"]) in hold_codes else "［自选］"
-            lines.append(f"• {_line(g)}{tag}")
-        elements.append(md_element("\n".join(lines)))
+        rows = [(f"{'🔴' if str(g['code']) in hold_codes else '⭐'}{g['name']}({g['code']})", _amp_cell(g))
+                for g in mine]
+        elements.append(md_element(
+            f"**🎯 你的自选/持仓命中 {len(mine)} 只**（🔴持仓 ⭐自选）\n\n" + _mdtable(rows)))
     if others:
-        lines = [f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）"]
-        for i, g in enumerate(others, 1):
-            lines.append(f"{i}. {_line(g)}")
-        elements.append(md_element("\n".join(lines)))
+        rows = [(f"{g['name']}({g['code']})", _amp_cell(g)) for g in others]
+        elements.append(md_element(
+            f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）\n\n" + _mdtable(rows)))
 
     try:
         await notifier.send_dual_card(head, lark_title=title, elements=elements)
