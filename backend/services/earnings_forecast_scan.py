@@ -67,10 +67,14 @@ async def run_earnings_forecast_scan() -> None:
     mine = [g for g in good if str(g["code"]) in user_codes]
     others = [g for g in good if str(g["code"]) not in user_codes][:MARKET_TOP]
 
-    # markdown 表格版式(飞书 schema2.0 markdown 组件渲染, 手机端整齐不截断; 替代原生table组件——
-    # 后者列宽百分比在手机窄屏必截成"...")。2列: 股票 | 净利变动(含类型), 精简去空标签列。
-    def _amp_cell(g) -> str:
-        return f"{g['predict_type']} {_amp_txt(g.get('amp_lower'), g.get('amp_upper'))}"
+    # markdown 表格版式(飞书 markdown 组件渲染)。手机端表格单元格长内容会被截需点开,
+    # 故: 第1列=名称+类型(短), 第2列=纯净利变动百分比(短且最前, 手机直接可见, 不用点开)。
+    # 代码不进表(会挤长第1列致类型被截); 名称足够识别。
+    def _stock_cell(g, mark: str = "") -> str:
+        return f"{mark}{g['name']} {g['predict_type']}"
+
+    def _pct_cell(g) -> str:
+        return _amp_txt(g.get("amp_lower"), g.get("amp_upper"))
 
     def _mdtable(rows: list) -> str:
         out = ["| 股票 | 净利变动 |", "| --- | --- |"]
@@ -82,12 +86,11 @@ async def run_earnings_forecast_scan() -> None:
     head = f"{title}\n\n新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
     elements.append(md_element(head))
     if mine:
-        rows = [(f"{'🔴' if str(g['code']) in hold_codes else '⭐'}{g['name']}({g['code']})", _amp_cell(g))
-                for g in mine]
+        rows = [(_stock_cell(g, "🔴" if str(g["code"]) in hold_codes else "⭐"), _pct_cell(g)) for g in mine]
         elements.append(md_element(
             f"**🎯 你的自选/持仓命中 {len(mine)} 只**（🔴持仓 ⭐自选）\n\n" + _mdtable(rows)))
     if others:
-        rows = [(f"{g['name']}({g['code']})", _amp_cell(g)) for g in others]
+        rows = [(_stock_cell(g), _pct_cell(g)) for g in others]
         elements.append(md_element(
             f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）\n\n" + _mdtable(rows)))
 
