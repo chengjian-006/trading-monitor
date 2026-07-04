@@ -66,7 +66,7 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
                         risk_state: str = "GREEN") -> tuple[str, list]:
     """构建「错过消息回顾」摘要: 返回 (企微纯文本, 飞书元素列表)。
     kept_events 已按时间降序、已封顶。"""
-    from backend.services.lark_notifier import md_element, table_element
+    from backend.services.lark_notifier import md_element, md_table
 
     n = len(kept_events)
     tail = f"(最新{MAX_ITEMS}条, 另有{dropped}条更早未列)" if dropped else ""
@@ -83,11 +83,10 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
         text_lines.append(banner)
         text_lines.append("")
 
+    # 移动优化: 类型独占前置短列, 时间·标的·信号并进一列(markdown 自动换行不截断)
     cols = [
-        {"name": "time", "display_name": "时间", "data_type": "text", "width": "20%"},
-        {"name": "kind", "display_name": "类型", "data_type": "text", "width": "22%"},
-        {"name": "name", "display_name": "标的", "data_type": "text", "width": "32%"},
-        {"name": "sig", "display_name": "信号", "data_type": "text", "width": "26%"},
+        {"name": "kind", "display_name": "类型"},
+        {"name": "info", "display_name": "时间 · 标的 · 信号"},
     ]
     rows = []
     for e in kept_events:
@@ -95,15 +94,13 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
         nm = e.get("name") or ""
         code = e.get("code") or ""
         rows.append({
-            "time": _fmt_time(e.get("triggered_at")),
             "kind": kind,
-            "name": f"{nm} {code}".strip(),
-            "sig": e.get("signal_name") or "",
+            "info": f"{_fmt_time(e.get('triggered_at'))} {nm} {code} {e.get('signal_name') or ''}".strip(),
         })
         text_lines.append(f"  • {_fmt_time(e.get('triggered_at'))} {kind} {nm}({code}) {e.get('signal_name') or ''}")
 
     if rows:
-        elements.append(table_element(cols, rows, page_size=10))
+        elements.append(md_table(cols, rows))
     else:
         elements.append(md_element("_关闭期间无关键信号_"))
         text_lines.append("(关闭期间无关键信号)")

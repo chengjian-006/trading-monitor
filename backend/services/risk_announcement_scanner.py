@@ -111,33 +111,32 @@ def ann_section_text(hits: list[dict], verdicts: dict | None = None) -> str:
 
 
 def ann_table(hits: list[dict], verdicts: dict | None = None) -> dict:
-    """风险公告飞书表格元素: 股票/风险类型/日期/公告(+AI研判)。verdicts 给定时加「🤖AI研判」列。"""
+    """风险公告飞书元素(移动优化): 2列 markdown 表「股票 | 风险类型」+ 表下每股一行明细。
+
+    手机端原生 table 长内容会截断需点开, 故改 markdown: 表格只留可扫的短列(股票/风险类型),
+    长自由文本(公告标题、AI研判)下沉到表格下方每股一行文本, 避免挤在窄单元格里被截。
+    verdicts={code:{emoji,severity,text}} 给定时, 明细行尾挂一句 🤖AI研判。
+    返回单个 markdown 元素(表+明细合为一体), 与 table_element 一样可直接进 elements 列表。"""
     from backend.services import lark_notifier
     verdicts = verdicts or {}
-    has_ai = bool(verdicts)
-    if has_ai:
-        columns = [
-            {"name": "stock", "display_name": "股票", "data_type": "text", "width": "16%", "horizontal_align": "left"},
-            {"name": "tag", "display_name": "风险类型", "data_type": "text", "width": "16%", "horizontal_align": "left"},
-            {"name": "date", "display_name": "日期", "data_type": "text", "width": "12%", "horizontal_align": "left"},
-            {"name": "title", "display_name": "公告", "data_type": "text", "width": "30%", "horizontal_align": "left"},
-            {"name": "ai", "display_name": "🤖AI研判", "data_type": "text", "width": "26%", "horizontal_align": "left"},
-        ]
-    else:
-        columns = [
-            {"name": "stock", "display_name": "股票", "data_type": "text", "width": "22%", "horizontal_align": "left"},
-            {"name": "tag", "display_name": "风险类型", "data_type": "text", "width": "22%", "horizontal_align": "left"},
-            {"name": "date", "display_name": "日期", "data_type": "text", "width": "16%", "horizontal_align": "left"},
-            {"name": "title", "display_name": "公告", "data_type": "text", "width": "40%", "horizontal_align": "left"},
-        ]
-    rows = []
+    columns = [
+        {"name": "stock", "display_name": "股票", "data_type": "text"},
+        {"name": "tag", "display_name": "风险类型", "data_type": "text"},
+    ]
+    rows = [{"stock": f"{h['name']} {h['code']}", "tag": h["tags"]} for h in hits]
+    table_md = lark_notifier.md_table_str(columns, rows)
+    # 长文本(公告标题+AI研判)下沉到表下, 每股一行
+    detail_lines = []
     for h in hits:
-        row = {"stock": f"{h['name']}\n{h['code']}", "tag": h["tags"], "date": h["date"], "title": h["title"]}
-        if has_ai:
-            v = verdicts.get(h["code"])
-            row["ai"] = f"{v['emoji']}{v['severity']} · {v['text']}" if v else "—"
-        rows.append(row)
-    return lark_notifier.table_element(columns, rows, page_size=10)
+        date_short = (h["date"] or "")[5:] or h["date"]
+        title = (h["title"] or "").replace("\n", " ")[:20]
+        line = f"• {h['name']} {title}（{date_short}）"
+        v = verdicts.get(h["code"])
+        if v:
+            line += f" 🤖{v['emoji']}{v['severity']}·{v['text']}"
+        detail_lines.append(line)
+    content = table_md + ("\n\n" + "\n".join(detail_lines) if detail_lines else "")
+    return lark_notifier.md_element(content)
 
 
 def _build_push(hits: list[dict]) -> tuple[str, list]:

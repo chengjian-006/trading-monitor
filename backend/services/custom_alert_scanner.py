@@ -196,13 +196,13 @@ async def _push_user_alerts(user_id: int, items: list[dict]):
 
     elements = []
     if lark_on and lark_webhook:
+        # 手机友好2列: 现价+涨跌合成核心可扫列; 触发条件已在正文逐条列出, 不塞长内容进单元格
         columns = [
-            {"name": "stock", "display_name": "股票", "data_type": "text", "width": "30%"},
-            {"name": "cond", "display_name": "触发条件", "data_type": "text", "width": "40%"},
-            {"name": "price", "display_name": "现价", "data_type": "text", "width": "15%"},
-            {"name": "pct", "display_name": "涨跌幅", "data_type": "text", "width": "15%"},
+            {"name": "stock", "display_name": "股票", "data_type": "text", "width": "55%"},
+            {"name": "price", "display_name": "现价(涨跌)", "data_type": "text", "width": "45%"},
         ]
-        elements = [lark_notifier.table_element(columns, rows_tbl)]
+        md_rows = [{"stock": r["stock"], "price": f"{r['price']}（{r['pct']}）"} for r in rows_tbl]
+        elements = [lark_notifier.md_table(columns, md_rows)]
 
     await notifier.send_dual_card_to(
         content,

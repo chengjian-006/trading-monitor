@@ -59,14 +59,13 @@ async def run_auction_strength_selfcheck():
         f"**竞价采集**　今日 {len(snaps)} 只 ／ 竞价额≥0.5亿 {len(big)} 只"))
     if big:
         cols = [
-            {"name": "name", "display_name": "名称", "data_type": "text", "width": "62%"},
-            {"name": "amt", "display_name": "竞价额(亿元)", "data_type": "text",
-             "width": "38%", "horizontal_align": "right"},
+            {"name": "amt", "display_name": "竞价额", "data_type": "text"},
+            {"name": "name", "display_name": "名称", "data_type": "text"},
         ]
-        big_rows = [{"name": r.get("name", "") or r.get("code", ""),
-                     "amt": f"{(r.get('auction_amount') or 0) / 1e8:.2f}亿"} for r in big[:10]]
+        big_rows = [{"amt": f"{(r.get('auction_amount') or 0) / 1e8:.2f}亿",
+                     "name": r.get("name", "") or r.get("code", "")} for r in big[:10]]
         elements.append(lark_notifier.md_element(f"**竞价额≥0.5亿（{len(big)}只）**"))
-        elements.append(lark_notifier.table_element(cols, big_rows, page_size=10))
+        elements.append(lark_notifier.md_table(cols, big_rows))
 
     # 3. 买点是否触发
     rows = await repository._fetchall(
@@ -78,15 +77,13 @@ async def run_auction_strength_selfcheck():
         for r in rows[:6]:
             lines.append(f"  {r.get('name', '')}({r['code']}) {str(r['triggered_at'])[11:16]}")
         cols = [
-            {"name": "name", "display_name": "名称", "data_type": "text", "width": "50%"},
-            {"name": "code", "display_name": "代码", "data_type": "text", "width": "28%"},
-            {"name": "time", "display_name": "时间", "data_type": "text",
-             "width": "22%"},
+            {"name": "time", "display_name": "时间", "data_type": "text"},
+            {"name": "nc", "display_name": "名称·代码", "data_type": "text"},
         ]
-        buy_rows = [{"name": r.get("name", "") or "", "code": r["code"],
-                     "time": str(r["triggered_at"])[11:16]} for r in rows[:10]]
+        buy_rows = [{"time": str(r["triggered_at"])[11:16],
+                     "nc": f"{r.get('name', '') or ''}　{r['code']}"} for r in rows[:10]]
         elements.append(lark_notifier.md_element(f"**🟢 买点触发（{len(rows)}）**"))
-        elements.append(lark_notifier.table_element(cols, buy_rows, page_size=10))
+        elements.append(lark_notifier.md_table(cols, buy_rows))
     else:
         lines.append("买点触发: 0条(四道门很严, 没票满足属正常, 不等于坏了)")
         elements.append(lark_notifier.md_element(

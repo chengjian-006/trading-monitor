@@ -186,22 +186,26 @@ def fin_section_text(hits: list[dict]) -> str:
 
 
 def fin_table(hits: list[dict]) -> dict:
-    """财务红旗飞书表格元素: 股票/告警级别/财务红旗(标签+数字)。"""
+    """财务红旗飞书元素(移动优化): 2列 markdown 表「股票 | 告警级别」+ 表下每股一行红旗明细。
+
+    手机端原生 table 长内容会截断需点开, 故改 markdown: 表格只留可扫的短列(股票/告警级别·分数),
+    长的红旗明细(标签+数字, 一只可好几项)下沉到表格下方每股一行文本, 避免挤在窄单元格里被截。
+    返回单个 markdown 元素(表+明细合为一体), 与 table_element 一样可直接进 elements 列表。"""
     from backend.services import lark_notifier
     columns = [
-        {"name": "stock", "display_name": "股票", "data_type": "text",
-         "width": "24%", "horizontal_align": "left"},
-        {"name": "level", "display_name": "告警级别", "data_type": "text",
-         "width": "16%", "horizontal_align": "left"},
-        {"name": "flags", "display_name": "财务红旗", "data_type": "text",
-         "width": "60%", "horizontal_align": "left"},
+        {"name": "stock", "display_name": "股票", "data_type": "text"},
+        {"name": "level", "display_name": "告警级别", "data_type": "text"},
     ]
     rows = []
+    detail_lines = []
     for h in hits:
         label, emoji = risk_level(h["score"])
-        rows.append({"stock": f"{h['name']}\n{h['code']}", "level": f"{emoji}{label}",
-                     "flags": "·".join(_flag_disp(f) for f in h["flags"])})
-    return lark_notifier.table_element(columns, rows, page_size=10)
+        rows.append({"stock": f"{h['name']} {h['code']}", "level": f"{emoji}{label}{h['score']}"})
+        fl = "·".join(_flag_disp(f) for f in h["flags"])
+        detail_lines.append(f"• {h['name']} {fl}")
+    table_md = lark_notifier.md_table_str(columns, rows)
+    content = table_md + ("\n\n" + "\n".join(detail_lines) if detail_lines else "")
+    return lark_notifier.md_element(content)
 
 
 def _build_push(hits: list[dict]) -> tuple[str, list]:

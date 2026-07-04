@@ -190,12 +190,12 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int, elapsed:
     elements = [lark_notifier.md_element(field_md)]
     if mls:
         cols = [
-            {"name": "dir", "display_name": "方向", "data_type": "text", "width": "42%"},
-            {"name": "reps", "display_name": "代表股", "data_type": "text", "width": "58%"},
+            {"name": "dir", "display_name": "方向", "data_type": "text"},
+            {"name": "reps", "display_name": "代表股", "data_type": "text"},
         ]
         rows = [{"dir": str(m.get("direction", "")), "reps": str(m.get("reps", ""))} for m in mls]
         elements.append(lark_notifier.md_element("🎯 **题材主线**"))
-        elements.append(lark_notifier.table_element(cols, rows, page_size=10))
+        elements.append(lark_notifier.md_table(cols, rows))
     if action:
         elements.append(lark_notifier.md_element(f"✅ **操作**　{action}"))
     elements.append(lark_notifier.md_element(footer))

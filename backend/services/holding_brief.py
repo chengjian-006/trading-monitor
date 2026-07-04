@@ -284,33 +284,36 @@ def render_wechat_text(payloads: list[dict], verdicts: dict[str, dict], market_b
 
 def build_lark_elements(payloads: list[dict], verdicts: dict[str, dict], market_brief: str) -> list:
     """飞书卡 elements: 前言 md + 逐股表格 + 免责 md。空仓一条 md。"""
-    from backend.services.lark_notifier import md_element, table_element
+    from backend.services.lark_notifier import md_element, md_table
 
     if not payloads:
         return [md_element("**今日空仓**，无需研判。")]
     els = [md_element(f"**次日大盘环境**：{market_brief}")]
+    # 移动优化: 次日建议独占前置短列, 个股/浮盈/目标止损/理由并进详情格(markdown 自动换行不截断)
     columns = [
-        {"name": "stock", "display_name": "股票", "data_type": "text", "width": "26%", "horizontal_align": "left"},
-        {"name": "state", "display_name": "状态/浮盈", "data_type": "text", "width": "24%", "horizontal_align": "left"},
-        {"name": "advice", "display_name": "次日建议", "data_type": "text", "width": "22%", "horizontal_align": "left"},
-        {"name": "reason", "display_name": "理由", "data_type": "text", "width": "28%", "horizontal_align": "left"},
+        {"name": "advice", "display_name": "建议"},
+        {"name": "info", "display_name": "个股 · 目标止损 · 理由"},
     ]
     rows = []
     for p in payloads:
         v = verdicts.get(p["code"])
         if v:
             emoji = ACTION_EMOJI.get(v["action"], "")
-            advice = f"{emoji}{v['action']}\n目标{_fmt_num(v.get('target'))} 止损{_fmt_num(v.get('stop'))}"
+            advice = f"{emoji}{v['action']}"
+            levels = f"目标{_fmt_num(v.get('target'))} 止损{_fmt_num(v.get('stop'))}"
             reason = v.get("reason", "")
         else:
-            advice, reason = "—", "AI研判未生成"
-        rows.append({
-            "stock": f"{p['name']}\n{p['code']} {_fmt_num(p.get('price'))}",
-            "state": f"{p.get('state', '')}\n浮盈{p.get('profit_pct', 0):+.1f}% 持{p.get('hold_days', 0)}天",
-            "advice": advice,
-            "reason": reason,
-        })
-    els.append(table_element(columns, rows))
+            advice, levels, reason = "—", "", "AI研判未生成"
+        info = f"{p['name']} {p['code']} {_fmt_num(p.get('price'))}"
+        if p.get("state"):
+            info += f"·{p['state']}"
+        info += f"　浮盈{p.get('profit_pct', 0):+.1f}% 持{p.get('hold_days', 0)}天"
+        if levels:
+            info += f"　{levels}"
+        if reason:
+            info += f"　{reason}"
+        rows.append({"advice": advice, "info": info})
+    els.append(md_table(columns, rows))
     els.append(md_element("**AI研判仅供参考，最终决策在你。** 客观概率源自全市场五年同类形态回测。"))
     return els
 

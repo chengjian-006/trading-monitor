@@ -119,12 +119,19 @@ def test_ann_section_text_injects_verdict():
     assert "🤖" not in ann_section_text(hits)
 
 
-def test_ann_table_adds_ai_column_when_verdicts():
+def test_ann_table_adds_ai_verdict_when_verdicts():
+    # 移动优化后: ann_table 返回单个 markdown 元素(2列表 + 表下每股明细)。
+    # verdicts 给定时, 明细行尾挂 🤖AI研判; 缺省时不挂。
     from backend.services.risk_announcement_scanner import ann_table
     hits = [_hit("002217", "合力泰", "立案告知书", "立案调查")]
     verdicts = {"002217": {"severity": "高", "emoji": "🔴", "text": "重大利空"}}
     el = ann_table(hits, verdicts)
-    assert any(c["name"] == "ai" for c in el["columns"])
-    assert "🔴高" in el["rows"][0]["ai"]
-    # 无 verdict → 仍是 4 列, 无 ai 列
-    assert all(c["name"] != "ai" for c in ann_table(hits)["columns"])
+    assert el["tag"] == "markdown"
+    content = el["content"]
+    # 表头短列 + 股票/风险类型可扫
+    assert "股票" in content and "风险类型" in content
+    assert "合力泰" in content and "立案调查" in content
+    # AI 研判下沉到明细行
+    assert "🤖🔴高" in content and "重大利空" in content
+    # 无 verdict → 明细不挂研判
+    assert "🤖" not in ann_table(hits)["content"]

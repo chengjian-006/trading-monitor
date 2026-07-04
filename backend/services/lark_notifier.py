@@ -144,6 +144,31 @@ def table_element(columns: list, rows: list, page_size: int = 10) -> dict:
     }
 
 
+def md_table_str(columns: list, rows: list) -> str:
+    """把 (columns, rows) 渲染成 markdown 竖线表格字符串(飞书 markdown 组件用)。
+
+    与 table_element 同入参便于替换: columns=[{name,display_name,...}], rows=[{col_name: value}]。
+    移动适配要点(飞书手机端单元格长内容会被截、需点开): 调用方应先把列精简到 2~3 列、
+    每格内容短、关键可扫的值(百分比/名次)独占短列且前置。本函数只做渲染, 不负责精简。
+    data_type='options' 的值(彩色标签 [{"text":..}])取其 text 拼接为纯文本。
+    """
+    def _cell(v) -> str:
+        if isinstance(v, list):   # options 彩色标签 → 纯文本
+            return " ".join(str(x.get("text", "")) for x in v if isinstance(x, dict))
+        return str(v if v is not None else "").replace("|", "／").replace("\n", " ")
+    heads = [c.get("display_name", "") or "　" for c in columns]
+    keys = [c.get("name", "") for c in columns]
+    lines = ["| " + " | ".join(heads) + " |", "| " + " | ".join(["---"] * len(columns)) + " |"]
+    for r in rows:
+        lines.append("| " + " | ".join(_cell(r.get(k)) for k in keys) + " |")
+    return "\n".join(lines)
+
+
+def md_table(columns: list, rows: list) -> dict:
+    """markdown 表格作为一个 markdown 元素返回(替代 table_element 修手机端截断)。"""
+    return md_element(md_table_str(columns, rows))
+
+
 def _build_card_v2(title: str, elements: list, template: str = "blue",
                    link_url: str = "", link_text: str = "查看完整报告") -> dict:
     full_title = f"{title}          {_time_str()}"

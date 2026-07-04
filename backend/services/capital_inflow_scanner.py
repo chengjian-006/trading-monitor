@@ -179,13 +179,6 @@ def _build_capital_inflow_lark(items: list[dict]):
     elements: list = []
     if len(groups) > 1:
         elements.append(lark_notifier.md_element(f"**近15分钟 {len(groups)} 波资金共振**"))
-    # 列宽用百分比合计100%(飞书手机端表格不横向滚动, auto/固定px 会把右列裁掉)
-    cols = [
-        {"name": "name", "display_name": "名称", "data_type": "text", "width": "38%"},
-        {"name": "pct", "display_name": "涨幅", "data_type": "options", "width": "22%"},
-        {"name": "amt", "display_name": "成交额", "data_type": "text", "width": "22%"},
-        {"name": "rank", "display_name": "额排名", "data_type": "text", "width": "18%"},
-    ]
     for a in groups:
         if "sector_pct_range" in a:
             sector_pct_str = _fmt_pct_range(*a["sector_pct_range"])
@@ -197,39 +190,37 @@ def _build_capital_inflow_lark(items: list[dict]):
                 f"龙头 **{a['leader_name']}** {a['leader_pct']:+.2f}%(涨停)　"
                 f"前{a['sector_top_n']}股均涨 {top_avg_str}")
         elements.append(lark_notifier.md_element(head))
-        # 板块前N股表(名称/涨幅/成交额); 命中你自选池的票名称标红, 一眼认出
+        # 板块前N股表 → 手机友好2列(名称+成交额/名次并入名称格, 涨幅独占核心列)
+        # md_table 手机端不截断; 命中自选池的票名称标红一眼认出
         my_codes = {r.get("code") for r in (a.get("stock_rows") or []) if r.get("code")}
-        # 名称列改 lark_md, 自选票包 <font color='red'>; 其余列同自选表
-        top_cols = [{"name": "name", "display_name": "名称", "data_type": "lark_md", "width": "38%"},
-                    cols[1], cols[2], cols[3]]
+        md_cols = [{"name": "name", "display_name": "名称", "data_type": "lark_md", "width": "70%"},
+                   {"name": "pct", "display_name": "涨幅", "data_type": "text", "width": "30%"}]
+
+        def _name_cell(r):
+            nm = f"{r.get('name', '')} {r.get('code', '')}"
+            amt = _fmt_amount(float(r.get("amt", 0) or 0))
+            rk = _fmt_rank(r.get("rank"))
+            sub = f"成交{amt}·额第{rk}" if rk not in ("—", "100+") else f"成交{amt}"
+            cell = f"{nm}（{sub}）"
+            if r.get("code") in my_codes:
+                cell = f"<font color='red'>{cell}</font>"   # 自选票标红
+            return cell
+
         top_rows = []
         for r in a.get("sector_top_rows") or []:
             tp = float(r.get("pct", 0) or 0)
-            nm = f"{r.get('name', '')} {r.get('code', '')}"
-            if r.get("code") in my_codes:
-                nm = f"<font color='red'>{nm}</font>"   # 自选票标红
-            top_rows.append({
-                "name": nm,
-                "pct": [{"text": f"{tp:+.2f}%", "color": "red" if tp >= 0 else "green"}],
-                "amt": _fmt_amount(float(r.get("amt", 0) or 0)),
-                "rank": _fmt_rank(r.get("rank")),
-            })
+            top_rows.append({"name": _name_cell(r), "pct": f"{tp:+.2f}%"})
         if top_rows:
             elements.append(lark_notifier.md_element(f"📈 板块前{a['sector_top_n']}股"))
-            elements.append(lark_notifier.table_element(top_cols, top_rows, page_size=10))
+            elements.append(lark_notifier.md_table(md_cols, top_rows))
         # 自选个股表
         rows = []
         for r in a.get("stock_rows") or []:
             pct = float(r.get("pct", 0) or 0)
-            rows.append({
-                "name": f"{r.get('name', '')} {r.get('code', '')}",
-                "pct": [{"text": f"{pct:+.2f}%", "color": "red" if pct >= 0 else "green"}],
-                "amt": _fmt_amount(float(r.get("amt", 0) or 0)),
-                "rank": _fmt_rank(r.get("rank")),
-            })
+            rows.append({"name": _name_cell(r), "pct": f"{pct:+.2f}%"})
         if rows:
             elements.append(lark_notifier.md_element(f"⭐ 你自选的该板块个股（{len(rows)}只）"))
-            elements.append(lark_notifier.table_element(cols, rows, page_size=10))
+            elements.append(lark_notifier.md_table(md_cols, rows))
         else:
             elements.append(lark_notifier.md_element("_(你的股票池中暂无该板块个股)_"))
     return "📊 资金回流·板块预警", elements

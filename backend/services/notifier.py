@@ -363,15 +363,15 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
         ms = model_stats
         els.append(lark_notifier.md_element(f"**📊 模型战绩**（{ms.get('model_name', '')}）"))
         cols = [
-            {"name": "period", "display_name": "周期", "data_type": "text", "width": "26%"},
-            {"name": "wr", "display_name": "胜率", "data_type": "text", "width": "40%"},
-            {"name": "net", "display_name": "单笔均收益", "data_type": "text", "width": "34%"},
+            {"name": "period", "display_name": "周期"},
+            {"name": "wr", "display_name": "胜率"},
+            {"name": "net", "display_name": "单笔"},
         ]
         rows = [
             {"period": "近3月", "wr": _ms_wr(ms, "3m"), "net": _ms_net(ms, "3m")},
             {"period": "近6月", "wr": _ms_wr(ms, "6m"), "net": _ms_net(ms, "6m")},
         ]
-        els.append(lark_notifier.table_element(cols, rows, page_size=10))
+        els.append(lark_notifier.md_table(cols, rows))
         if ms.get("rank_3m"):
             els.append(lark_notifier.md_element(
                 f"近3月胜率　全模型第 **{ms['rank_3m']}/{ms.get('rank_n', 0)}** 名"))
@@ -761,36 +761,35 @@ def _signals_tables(context: dict | None) -> list:
         uniq = list(dict.fromkeys(sec_types))
         if len(uniq) == 1:
             elements.append(lark_notifier.md_element(f"**🟢 板块预警 · {uniq[0]}（{len(sectors)}）**"))
-            cols = [{"name": "name", "display_name": "名称", "data_type": "text", "width": "100%"}]
-            rows = [{"name": f"{s['name']}({s['code']})"} for s in sectors]
+            cols = [{"name": "name", "display_name": "名称"}]
+            rows = [{"name": s['name']} for s in sectors]
         else:
             elements.append(lark_notifier.md_element(f"**🟢 板块预警（{len(sectors)}）**"))
-            cols = [{"name": "name", "display_name": "名称", "data_type": "text", "width": "60%"},
-                    {"name": "sig", "display_name": "预警", "data_type": "text", "width": "40%"}]
-            rows = [{"name": f"{s['name']}({s['code']})", "sig": t} for s, t in zip(sectors, sec_types)]
-        elements.append(lark_notifier.table_element(cols, rows))
+            cols = [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "预警"}]
+            rows = [{"name": s['name'], "sig": t} for s, t in zip(sectors, sec_types)]
+        elements.append(lark_notifier.md_table(cols, rows))
     if stocks:
-        cols = [name_col, {"name": "sig", "display_name": "信号", "data_type": "text", "width": "34%"}, win_col]
+        # 移动优化: 2列(名称|信号), 名称去代码省宽; 胜率下沉(个股卡自带战绩), 长信号名独占宽列
+        cols = [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}]
         rows = []
         for s in stocks:
             sg = s["signal_name"].replace("（左侧）", "").replace("(左侧)", "").strip() or s["signal_name"]
-            rows.append({"name": f"{s['name']}({s['code']})", "sig": sg, "win": _win(s)})
+            rows.append({"name": s['name'], "sig": sg})
         elements.append(lark_notifier.md_element(f"**🟢 个股信号（{len(stocks)}）**"))
-        elements.append(lark_notifier.table_element(cols, rows))
+        elements.append(lark_notifier.md_table(cols, rows))
     if sell_groups:
         from backend.services.signal_specs import SELL_CATEGORY_LABEL, SELL_CATEGORY_EMOJI
-        cols = [{"name": "name", "display_name": "名称", "data_type": "text", "width": "42%"},
-                {"name": "sig", "display_name": "信号", "data_type": "text", "width": "58%"}]
+        cols = [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}]
         elements.append(lark_notifier.md_element(f"**🔴 卖出（{len(sell_groups)}）**"))
         # 三组: 主动止盈 / 被动止损 / 纪律清仓, 各起一张小表(空组跳过)
         for cat in ("profit", "loss", "discipline"):
             cat_groups = [g for g in sell_groups if g.get("category", "loss") == cat]
             if not cat_groups:
                 continue
-            rows = [{"name": f"{g['name']}({g['code']})", "sig": " / ".join(g["signals"])} for g in cat_groups]
+            rows = [{"name": g['name'], "sig": " / ".join(g["signals"])} for g in cat_groups]
             elements.append(lark_notifier.md_element(
                 f"{SELL_CATEGORY_EMOJI[cat]} {SELL_CATEGORY_LABEL[cat]}（{len(cat_groups)}）"))
-            elements.append(lark_notifier.table_element(cols, rows))
+            elements.append(lark_notifier.md_table(cols, rows))
     return elements
 
 
@@ -800,23 +799,19 @@ def _buy_tracking_tables(context: dict | None) -> list:
     if not (bt.get("today") or bt.get("yest")):
         return []
     from backend.services import lark_notifier
-    # v1.7.x: 列宽百分比(合计100%), 防手机端末列"当前差额"被裁(见 _signals_tables 说明)。表头缩为"差额"省宽。
+    # 移动优化: 2列(差额|名称·买点), 差额(关键可扫值)前置独占短列, 买点并进名称格, 去代码省宽。
     columns = [
-        {"name": "name", "display_name": "名称", "data_type": "text", "width": "40%"},
-        {"name": "sig", "display_name": "买点", "data_type": "text", "width": "34%"},
-        {"name": "diff", "display_name": "差额", "data_type": "options",
-         "width": "26%"},
+        {"name": "diff", "display_name": "差额"},
+        {"name": "name", "display_name": "名称"},
     ]
 
     def _rows(items: list) -> list:
         out = []
         for it in items:
             pct = float(it.get("pct", 0) or 0)
-            out.append({
-                "name": str(it.get("name", "")),
-                "sig": str(it.get("signal", "")),
-                "diff": [{"text": f"{pct:+.2f}%", "color": "red" if pct >= 0 else "green"}],
-            })
+            nm = str(it.get("name", ""))
+            sig = str(it.get("signal", "")).strip()
+            out.append({"diff": f"{pct:+.2f}%", "name": f"{nm} {sig}" if sig else nm})
         return out
 
     elements = [lark_notifier.md_element(f"💹 **买点盈利跟踪**（截至 {bt.get('as_of', '')}）")]
@@ -829,7 +824,7 @@ def _buy_tracking_tables(context: dict | None) -> list:
         head = (f"{label} {sm.get('n', len(items))}只 · 均{sm.get('avg', 0):+.1f}%"
                 f"（{sm.get('red', 0)}红{sm.get('green', 0)}绿）")
         elements.append(lark_notifier.md_element(f"**{head}**"))
-        elements.append(lark_notifier.table_element(columns, _rows(items), page_size=10))
+        elements.append(lark_notifier.md_table(columns, _rows(items)))
     return elements
 
 

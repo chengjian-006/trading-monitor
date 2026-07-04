@@ -18,7 +18,7 @@ from backend.core.trading_calendar import is_workday
 from backend.fetcher.limit_pool import get_limit_pool_cached
 from backend.models import repository
 from backend.services import alert_throttle, sector_rotation as sr
-from backend.services.lark_notifier import md_element, table_element
+from backend.services.lark_notifier import md_element, md_table
 
 logger = logging.getLogger(__name__)
 
@@ -259,21 +259,40 @@ def _merge_strong_to_weak(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _rep_lines(items: list[dict], max_names: int = 2) -> list[str]:
+    """代表股移到表格下方逐题材一行(手机端表格单元格塞长股名列表会被截断)。
+
+    截成前 max_names 只 + 「等N只」, 每题材一行 markdown 文本, 不受表格列宽截断。"""
+    out = []
+    for a in items:
+        s = a.get("samples", []) or []
+        if not s:
+            continue
+        head = "、".join(s[:max_names])
+        more = f" 等{len(s)}只" if len(s) > max_names else ""
+        out.append(f"• {a['theme']}: {head}{more}")
+    return out
+
+
 def _build_rotation_card(items: list[dict], title: str, dir_label: str):
+    # 移动优化: 2 列 markdown 表(题材·质地 | 昨→今涨停), 代表股移到表下逐行文本。
+    is_quality = dir_label == "质地"
     cols = [
-        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "30%"},
-        {"name": "lu", "display_name": "昨→今涨停", "data_type": "text", "width": "22%"},
-        {"name": "trend", "display_name": dir_label, "data_type": "text", "width": "14%"},
-        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "34%"},
+        {"name": "theme", "display_name": "题材", "data_type": "text"},
+        {"name": "lu", "display_name": "昨→今涨停", "data_type": "text"},
     ]
     rows = []
     for a in items:
-        trend = f"{a['max_height']}板" if dir_label == "质地" else f"炸{a['broken']}"
+        tag = f"{a['max_height']}板" if is_quality else f"炸{a['broken']}"
         rows.append({
-            "theme": a["theme"], "lu": f"昨{a.get('yest', 0)}→今{a['limit_up']}家",
-            "trend": trend, "rep": "、".join(a.get("samples", [])[:3]),
+            "theme": f"{a['theme']}·{tag}",
+            "lu": f"{a.get('yest', 0)}→{a['limit_up']}家",
         })
-    return title, [table_element(cols, rows, page_size=10)]
+    elements = [md_table(cols, rows)]
+    reps = _rep_lines(items)
+    if reps:
+        elements.append(md_element("代表股\n" + "\n".join(reps)))
+    return title, elements
 
 
 def _build_weak_to_strong_card(items: list[dict]):
@@ -281,22 +300,21 @@ def _build_weak_to_strong_card(items: list[dict]):
 
 
 def _build_strong_to_weak_card(items: list[dict]):
-    """强转弱合并自板块退潮: 只推持仓踩线题材, 表里多一列「你持仓踩此线」。"""
+    """强转弱合并自板块退潮: 只推持仓踩线题材。移动优化 2 列表, 代表股/持仓踩线移到表下。"""
     cols = [
-        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "20%"},
-        {"name": "lu", "display_name": "昨→今涨停", "data_type": "text", "width": "20%"},
-        {"name": "trend", "display_name": "炸板", "data_type": "text", "width": "12%"},
-        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "24%"},
-        {"name": "holds", "display_name": "你持仓踩此线", "data_type": "text", "width": "24%"},
+        {"name": "theme", "display_name": "题材", "data_type": "text"},
+        {"name": "lu", "display_name": "昨→今涨停", "data_type": "text"},
     ]
-    rows = []
-    for a in items:
-        rows.append({
-            "theme": a["theme"], "lu": f"昨{a.get('yest', 0)}→今{a['limit_up']}家",
-            "trend": f"炸{a['broken']}", "rep": "、".join(a.get("samples", [])[:3]),
-            "holds": a.get("holds", ""),
-        })
-    return "🔴 板块强转弱·退潮", [table_element(cols, rows, page_size=10)]
+    rows = [{"theme": f"{a['theme']}·炸{a['broken']}",
+             "lu": f"{a.get('yest', 0)}→{a['limit_up']}家"} for a in items]
+    elements = [md_table(cols, rows)]
+    reps = _rep_lines(items)
+    if reps:
+        elements.append(md_element("代表股\n" + "\n".join(reps)))
+    holds = [f"• {a['theme']}: {a['holds']}" for a in items if a.get("holds")]
+    if holds:
+        elements.append(md_element("⚠️ 你持仓踩此线\n" + "\n".join(holds)))
+    return "🔴 板块强转弱·退潮", elements
 
 
 def _merge_wts_failed(items: list[dict]) -> str:
@@ -310,17 +328,18 @@ def _merge_wts_failed(items: list[dict]) -> str:
 
 
 def _build_wts_failed_card(items: list[dict]):
+    # 移动优化 2 列表: 题材·昨N | 峰值→现, 代表股移到表下。
     cols = [
-        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "26%"},
-        {"name": "peak", "display_name": "峰值→现在", "data_type": "text", "width": "24%"},
-        {"name": "yest", "display_name": "昨日", "data_type": "text", "width": "14%"},
-        {"name": "rep", "display_name": "代表股", "data_type": "text", "width": "36%"},
+        {"name": "theme", "display_name": "题材", "data_type": "text"},
+        {"name": "pk", "display_name": "峰值→现", "data_type": "text"},
     ]
-    rows = [{"theme": a["theme"],
-             "peak": f"{a.get('peak', 0)}家→{a['limit_up']}家",
-             "yest": f"{a.get('yest', 0)}家",
-             "rep": "、".join(a.get("samples", [])[:3])} for a in items]
-    return "⚠️ 板块弱转强·失败", [table_element(cols, rows, page_size=10)]
+    rows = [{"theme": f"{a['theme']}·昨{a.get('yest', 0)}",
+             "pk": f"{a.get('peak', 0)}→{a['limit_up']}家"} for a in items]
+    elements = [md_table(cols, rows)]
+    reps = _rep_lines(items)
+    if reps:
+        elements.append(md_element("代表股\n" + "\n".join(reps)))
+    return "⚠️ 板块弱转强·失败", elements
 
 
 alert_throttle.register("SECTOR_WEAK_TO_STRONG", _merge_weak_to_strong,
@@ -404,10 +423,10 @@ async def _push_prediction(groups: dict[str, list[dict]], return_only: bool = Fa
         md_element("**📅 次日板块预测**　_收盘前启发式预判, 未回测, 仅供布局参考_"),
         md_element(overview),
     ]
+    # 移动优化: 2 列表(题材 | 近期轨迹), 长文本「理由」移到表下逐题材整行(免手机端截断)。
     cols = [
-        {"name": "theme", "display_name": "题材", "data_type": "text", "width": "26%"},
-        {"name": "traj", "display_name": "近期轨迹", "data_type": "text", "width": "30%"},
-        {"name": "reason", "display_name": "理由", "data_type": "text", "width": "44%"},
+        {"name": "theme", "display_name": "题材", "data_type": "text"},
+        {"name": "traj", "display_name": "近期轨迹", "data_type": "text"},
     ]
     # ── 可操作三组上表(封顶, 多余只标计数) ──
     for direction in ("弱转强候选", "强转弱候选", "强势延续"):
@@ -421,8 +440,11 @@ async def _push_prediction(groups: dict[str, list[dict]], return_only: bool = Fa
         text_lines.append(f"{icon} {direction}: "
                           + "、".join(a["theme"] for a in shown) + more)
         elements.append(md_element(f"{icon} **{direction}**（{len(gitems)}）"))
-        rows = [{"theme": a["theme"], "traj": a["traj"], "reason": a["reason"]} for a in shown]
-        elements.append(table_element(cols, rows, page_size=10))
+        rows = [{"theme": a["theme"], "traj": a["traj"]} for a in shown]
+        elements.append(md_table(cols, rows))
+        reasons = [f"• {a['theme']}: {a['reason']}" for a in shown if a.get("reason")]
+        if reasons:
+            elements.append(md_element("\n".join(reasons)))
     # ── 疑似终结: 数量+几个例子, 折叠不展开(沉寂题材, 无操作价值) ──
     ended = groups.get("疑似终结") or []
     if ended:

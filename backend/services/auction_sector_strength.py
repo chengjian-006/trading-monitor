@@ -231,17 +231,18 @@ async def _build_relay_data(themes: list[dict], gn_clean: list[dict],
 
 
 def _board_row(b: dict, my_codes: set[str]) -> dict:
-    """单板块一行表格 (v1.7.395 三列减肥版, 实拍验证手机端整卡一行只装得下约12-14个汉字:
-    涨幅去掉 options 胖标签改纯文本着色+1位小数(标签自带内边距, 26%列宽连+3.21%都装不下),
-    领涨股去掉涨幅只留名字(命中自选仍标红), 列宽重排 34/22/44)。"""
-    leader = b["leader_name"] or "—"
+    """单板块一行(移动优化 markdown 表格, 2列): 涨幅独占前置短列, 板块名+领涨并进一格。
+    (原原生 3 列表格手机端长内容被截需点开; 改 md 表格换行不截, 领涨命中自选仍标红。)"""
+    leader = b["leader_name"] or ""
     if b["leader_code"] and b["leader_code"] in my_codes:
-        leader = f"<font color='red'>{leader}</font>"   # 命中自选标红
+        leader = f"<font color='red'>{leader[:5]}</font>"   # 命中自选标红
+    else:
+        leader = leader[:5]
     pct_color = "red" if b["pct"] >= 0 else "green"
+    name = b["name"][:6]
     return {
-        "bk": b["name"],
         "pct": f"<font color='{pct_color}'>{b['pct']:+.1f}%</font>",
-        "leader": leader,
+        "bk": f"{name}　{leader}" if leader else name,
     }
 
 
@@ -330,31 +331,30 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
     merged.sort(key=lambda x: -x["pct"])
     top5 = merged[:5]
     cols = [
-        {"name": "bk", "display_name": "板块", "data_type": "text", "width": "38%"},
-        {"name": "pct", "display_name": "涨幅", "data_type": "lark_md", "width": "26%"},
-        {"name": "leader", "display_name": "领涨", "data_type": "lark_md", "width": "36%"},
+        {"name": "pct", "display_name": "涨幅", "data_type": "lark_md"},
+        {"name": "bk", "display_name": "板块·领涨", "data_type": "lark_md"},
     ]
-    def t_of(bs): return lark_notifier.table_element(cols, [_board_row(b, my_codes) for b in bs], page_size=5)
+    def t_of(bs): return lark_notifier.md_table(cols, [_board_row(b, my_codes) for b in bs])
     elements.append(lark_notifier.md_element(f"🔥 **竞价最强 TOP5**（{len(hy)}行业 + {len(gn_clean)}概念）"))
     elements.append(t_of(top5))
 
     # 持仓关联
     if hold_rows:
         hold_cols = [
-            {"name": "name", "display_name": "持仓", "data_type": "text", "width": "34%"},
-            {"name": "board", "display_name": "所在板块 · 涨幅", "data_type": "lark_md", "width": "66%"},
+            {"name": "pct", "display_name": "涨幅", "data_type": "lark_md"},
+            {"name": "nb", "display_name": "持仓·所在板块", "data_type": "lark_md"},
         ]
-        hrows = [{"name": r["name"],
-                  "board": f"{r['board']}　<font color='{'red' if r['pct'] >= 0 else 'green'}'>{r['pct']:+.1f}%</font>"}
+        hrows = [{"pct": f"<font color='{'red' if r['pct'] >= 0 else 'green'}'>{r['pct']:+.1f}%</font>",
+                  "nb": f"{r['name']}　{r['board']}"}
                  for r in hold_rows]
         elements.append(lark_notifier.md_element("💼 **持仓关联板块**"))
-        elements.append(lark_notifier.table_element(hold_cols, hrows, page_size=6))
+        elements.append(lark_notifier.md_table(hold_cols, hrows))
 
     # 承接 (简化)
     if relay_rows:
         relay_cols = [
-            {"name": "theme", "display_name": "昨日热点承接", "data_type": "text", "width": "42%"},
-            {"name": "lv", "display_name": "判级 · 溢价", "data_type": "lark_md", "width": "58%"},
+            {"name": "lv", "display_name": "承接·溢价", "data_type": "lark_md"},
+            {"name": "theme", "display_name": "昨日热点", "data_type": "text"},
         ]
         rrows = []
         for r in relay_rows[:5]:
@@ -365,7 +365,7 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
                 cell += f"　<font color='{pc}'>{r['premium']:+.1f}%</font>"
             rrows.append({"theme": ("⭐" if r["my"] else "") + r["theme"], "lv": cell})
         elements.append(lark_notifier.md_element(f"🔁 **昨日热点 · 今晨承接**　{relay_summary}"))
-        elements.append(lark_notifier.table_element(relay_cols, rrows, page_size=5))
+        elements.append(lark_notifier.md_table(relay_cols, rrows))
         elements.append(lark_notifier.md_element(
             "<font color='grey'>✅强承接 🔶一般 ⚠️转弱　溢价=昨停今竞均涨　⭐=自选有票</font>"))
 

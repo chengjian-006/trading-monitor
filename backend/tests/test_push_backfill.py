@@ -55,7 +55,8 @@ def test_build_card_has_table_and_risk_banner():
             "direction": "buy", "signal_name": "缩量突破"}]
     text, elements = pb.build_backfill_card("lark", evs, 0, risk_state="RED")
     assert "错过" in text
-    assert any(e.get("tag") == "table" for e in elements)
+    # 移动优化: 原生 table 改 markdown 表格(修手机端截断)
+    assert any(e.get("tag") == "markdown" and "|" in e.get("content", "") and "类型" in e.get("content", "") for e in elements)
     joined = "".join(str(e) for e in elements)
     assert "RED" in joined  # 风险横幅
 

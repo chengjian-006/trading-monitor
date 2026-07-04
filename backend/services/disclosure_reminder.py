@@ -14,7 +14,7 @@ from backend.fetcher.earnings_data import fetch_disclosure_calendar
 from backend.models import repository
 from backend.models.repo import earnings as earnings_repo
 from backend.services import notifier
-from backend.services.lark_notifier import md_element, table_element
+from backend.services.lark_notifier import md_element, md_table
 
 logger = logging.getLogger(__name__)
 
@@ -86,11 +86,10 @@ async def run_disclosure_reminder() -> None:
     except Exception:
         pass
 
+    # 手机友好2列: 预约披露日是核心可扫值独占列; 持仓标记+报告类型并入股票格
     cols = [
-        {"name": "stock", "display_name": "股票", "data_type": "text", "width": "30%"},
-        {"name": "rpt", "display_name": "报告", "data_type": "text", "width": "22%"},
-        {"name": "day", "display_name": "预约披露日", "data_type": "text", "width": "26%"},
-        {"name": "flag", "display_name": "", "data_type": "text", "width": "22%"},
+        {"name": "stock", "display_name": "股票", "data_type": "lark_md", "width": "58%"},
+        {"name": "day", "display_name": "预约披露日", "data_type": "text", "width": "42%"},
     ]
     trows = []
     for r in rows:
@@ -101,18 +100,17 @@ async def run_disclosure_reminder() -> None:
             dleft = (date.fromisoformat(d) - today).days
         except Exception:
             dleft = ""
+        mark = "🔴" if held else ""
         trows.append({
-            "stock": f"{r['name']}({r['code']})",
-            "rpt": f"{r['report_year']}{rt}",
+            "stock": f"{mark}{r['name']}({r['code']}) {r['report_year']}{rt}",
             "day": f"{d}" + (f"·{dleft}天后" if dleft != "" else ""),
-            "flag": "🔴持仓" if held else "自选",
         })
     title = "📅 财报披露日历·近期"
     body = (f"{title}\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(trows)}** 只披露定期报告。\n"
             "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。")
     try:
         await notifier.send_dual_card(body, lark_title=title,
-                                      elements=[md_element(body), table_element(cols, trows, page_size=10)])
+                                      elements=[md_element(body), md_table(cols, trows)])
         logger.info(f"[disclosure] 披露提醒已推: {len(trows)} 只")
     except Exception as e:
         logger.warning(f"[disclosure] 推送失败: {e}")

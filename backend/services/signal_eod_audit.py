@@ -242,17 +242,15 @@ async def _push_suspects(suspects: list, today: str):
     for sig, note in suspects[:20]:
         t = str(sig.get("triggered_at") or "")[11:16]
         lines.append(f"{t} {sig.get('name')} {sig.get('signal_name')}: {note}")
-        rows.append({"time": t, "name": f"{sig.get('name')}",
-                     "sig": f"{sig.get('signal_name')}", "note": note})
+        rows.append({"who": f"{t} {sig.get('name')} {sig.get('signal_name')}", "note": note})
     if len(suspects) > 20:
         lines.append(f"... 仅列前20条, 其余见信号历史(eod_audit=suspect)")
+    # 移动优化: 时间·标的·信号并进一列做定位, 疑点独占一列(markdown 自动换行不截断)
     cols = [
-        {"name": "time", "display_name": "时间", "data_type": "text", "width": "10%"},
-        {"name": "name", "display_name": "名称", "data_type": "text", "width": "18%"},
-        {"name": "sig", "display_name": "信号", "data_type": "text", "width": "24%"},
-        {"name": "note", "display_name": "疑点", "data_type": "text", "width": "48%"},
+        {"name": "who", "display_name": "时间 · 标的 · 信号"},
+        {"name": "note", "display_name": "疑点"},
     ]
-    elements = [lark_notifier.table_element(cols, rows, page_size=10)]
+    elements = [lark_notifier.md_table(cols, rows)]
     try:
         await notifier.send_dual_card(
             "\n".join(lines),

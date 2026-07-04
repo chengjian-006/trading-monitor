@@ -18,7 +18,7 @@ from datetime import datetime
 from backend.models import repository
 from backend import data_fetcher
 from backend.services import signal_engine, notifier
-from backend.services.lark_notifier import md_element as _md, table_element as _table
+from backend.services.lark_notifier import md_element as _md, md_table as _table
 from backend.services.trading_concepts import (
     compute_strength_quality,
     strength_quality_config_from_dict,
@@ -232,9 +232,6 @@ async def scan_strength_quality_snapshot(return_only: bool = False):
         REAL_CAP = 15  # 真强势封顶, 多余只标计数, 不无限堆
         shown_real = real_strong[:REAL_CAP]
 
-        def _cum(v):
-            return [{"text": _fmt_pct(v), "color": "red" if (v or 0) >= 0 else "green"}]
-
         def _plus(crit):
             top = sorted(crit, key=lambda c: c["delta"], reverse=True)[:2]
             return " ".join(f"+{c['delta']}{c['name']}" for c in top)
@@ -243,32 +240,28 @@ async def scan_strength_quality_snapshot(return_only: bool = False):
             _md("**📊 真假强势评分快照**　_14:30 盘中_"),
             _md(head),
         ]
-        # ── 真强势表 ──
+        # ── 真强势表(移动优化: 评分独占前置短列, 个股/5日/加分并进名称格) ──
         if real_strong:
             more = f"，展示前 {REAL_CAP}" if len(real_strong) > REAL_CAP else ""
             elements.append(_md(f"🟢 **真强势**（{len(real_strong)} 只{more}）"))
+            def _real_info(r):
+                s = f"{r['name']} {r['code']}　5日{_fmt_pct(r['stock_5d_cum'])}"
+                plus = _plus(r["criteria"])
+                return s + (f"　{plus}" if plus else "")
             elements.append(_table(
-                [{"name": "name", "display_name": "名称", "data_type": "text", "width": "26%"},
-                 {"name": "ind", "display_name": "行业", "data_type": "text", "width": "20%"},
-                 {"name": "score", "display_name": "评分", "data_type": "text", "width": "12%"},
-                 {"name": "cum", "display_name": "5日累计", "data_type": "options", "width": "16%"},
-                 {"name": "plus", "display_name": "关键加分", "data_type": "text", "width": "26%"}],
-                [{"name": f"{r['name']} {r['code']}",
-                  "ind": r["industry"] or "—",
-                  "score": f"{r['score']}分",
-                  "cum": _cum(r["stock_5d_cum"]),
-                  "plus": _plus(r["criteria"])} for r in shown_real],
+                [{"name": "score", "display_name": "评分"},
+                 {"name": "info", "display_name": "个股 · 5日 · 加分"}],
+                [{"score": f"{r['score']}分", "info": _real_info(r)} for r in shown_real],
             ))
-        # ── 观望表 ──
+        # ── 观望表(移动优化: 评分前置, 个股+5日并列) ──
         if observe:
             elements.append(_md(f"🟡 **观望**（展示前 {len(observe)} 只）"))
             elements.append(_table(
-                [{"name": "name", "display_name": "名称", "data_type": "text", "width": "40%"},
-                 {"name": "score", "display_name": "评分", "data_type": "text", "width": "28%"},
-                 {"name": "cum", "display_name": "5日累计", "data_type": "options", "width": "32%"}],
-                [{"name": f"{r['name']} {r['code']}",
-                  "score": f"{r['score']}分",
-                  "cum": _cum(r["stock_5d_cum"])} for r in observe],
+                [{"name": "score", "display_name": "评分"},
+                 {"name": "info", "display_name": "个股 · 5日"}],
+                [{"score": f"{r['score']}分",
+                  "info": f"{r['name']} {r['code']}　5日{_fmt_pct(r['stock_5d_cum'])}"}
+                 for r in observe],
             ))
         elements.append(_md(GUIDE))
 
