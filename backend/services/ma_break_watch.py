@@ -51,6 +51,29 @@ def break_streaks(closes: list[float], price: float) -> dict[int, int]:
     return out
 
 
+def find_cost_line(closes: list[float], highs: list[float], lows: list[float],
+                   vols: list[float], vol_mult: float = 2.0, newhigh_win: int = 20):
+    """识别【最近一个放量起涨点K线】的最低价=主力成本线(用户0705逻辑: 放量起涨=主力建仓成本区)。
+
+    起涨点定义(与回测 bt_cost_line.py 一致): 某根K线 量≥近10日均量×vol_mult 且 收盘≥近20日最高收盘
+    (突破/新高=主升启动) 且 上涨(close>前一日)。从最近往前找第一个满足者, 返回其最低价(成本线下沿)。
+    输入均为不含今日的历史序列(升序)。返回 {"low": 成本价, "idx": 起涨点索引} 或 None。
+    全市场OOS回测: 跌破成本线后跑输大盘~0.4%(edge弱, 故仅作持仓风险提示、不做硬卖点/不落信号库)。
+    """
+    n = len(closes)
+    if n < newhigh_win + 1 or n < 11:
+        return None
+    lo_bound = max(10, newhigh_win - 1)
+    for i in range(n - 1, lo_bound - 1, -1):
+        vavg10 = sum(vols[i - 10:i]) / 10 if i >= 10 else 0
+        if vavg10 <= 0:
+            continue
+        hh20 = max(closes[i - newhigh_win + 1:i + 1])
+        if vols[i] >= vavg10 * vol_mult and closes[i] >= hh20 * 0.999 and closes[i] > closes[i - 1]:
+            return {"low": float(lows[i]), "idx": i}
+    return None
+
+
 def _streak_label(n: int, days: int) -> str:
     return f"破MA{n}·今日新破" if days == 1 else f"破MA{n}·连续{days}日"
 
@@ -65,23 +88,29 @@ def deepest_broken(streaks: dict[int, int]) -> int | None:
 
 def build_watch_card(items: list[dict]) -> tuple[str, str]:
     """合并警戒卡 (title, body_md)。items 每项:
-    {name, code, price, pct(今日涨跌%), streaks:{5:n,10:n,20:n}, actions_md}。
-    每票只报最深破位那档(见 deepest_broken)。换行文本行版式(手机端不截): 名称+现价 一行,
-    破位档标注一行, 有静音链接再挂一行。
+    {name, code, price, pct(今日涨跌%), streaks:{5:n,10:n,20:n}, cost_break:{price,date}|None, actions_md}。
+    每票均线只报最深破位那档(见 deepest_broken); 另叠加「主力成本线」维度(跌破放量起涨点最低价 → 醒目标注)。
+    入卡条件 = 破均线 或 跌破成本线(只破成本线也入卡)。换行文本行版式(手机端不截)。
     """
     lines: list[str] = []
     for it in items:
         deep = deepest_broken(it["streaks"])
-        if deep is None:
+        cost = it.get("cost_break")
+        if deep is None and not cost:
             continue
-        mark = _streak_label(deep, it["streaks"][deep])
+        marks = []
+        if deep is not None:
+            marks.append(_streak_label(deep, it["streaks"][deep]))
+        if cost:
+            marks.append(f"🔴跌破主力成本区¥{cost['price']:.2f}({str(cost['date'])[5:10]}放量起涨)")
         lines.append(f"**{it['name']}({it['code']})**　现价 {it['price']:.2f}（{it['pct']:+.1f}%）")
-        lines.append("　" + mark)
+        lines.append("　" + "　┃　".join(marks))
         if it.get("actions_md"):
             lines.append("　" + it["actions_md"])
         lines.append("")
     title = f"📉 尾盘破位警戒 · {len(items)}只持仓"
-    body = "\n".join(lines).rstrip() + "\n\n同时破多档只报最深；收复均线自动消失；破位深≥2%另有卖出信号卡。"
+    body = ("\n".join(lines).rstrip()
+            + "\n\n均线同破多档只报最深；🔴主力成本区=放量起涨K线最低价(跌破=资金弃守,仅提示非硬卖点)；收复自动消失。")
     return title, body
 
 
@@ -143,19 +172,29 @@ async def run_ma_break_watch():
         if len(closes) < 4:
             continue
         streaks = break_streaks(closes, price)
-        if not any(v > 0 for v in streaks.values()):
+        # 主力成本线: 最近放量起涨点最低价, 现价(尾盘)跌破则标记(仅提示, 不落库)
+        cost_break = None
+        cl = find_cost_line(closes,
+                            [float(x) for x in d["high"].tolist()],
+                            [float(x) for x in d["low"].tolist()],
+                            [float(x) for x in d["volume"].tolist()])
+        if cl and price < cl["low"]:
+            cost_break = {"price": cl["low"], "date": str(d["date"].iloc[cl["idx"]])[:10]}
+        # 入卡 = 破均线 或 跌破成本线
+        if not any(v > 0 for v in streaks.values()) and not cost_break:
             continue
         items.append({
             "name": q.get("name") or code, "code": code,
             "price": price, "pct": float(q.get("pct_change") or 0),
-            "streaks": streaks,
+            "streaks": streaks, "cost_break": cost_break,
             "actions_md": pp.build_ma_watch_actions_md(site, user_id, code) if site else "",
         })
 
     if not items:
         return
-    # 排序: 最深破位档(周期越长越前) → 该档连续天数越多越前
-    items.sort(key=lambda it: ((deepest_broken(it["streaks"]) or 0),
+    # 排序: 跌破成本线(资金弃守,最重)优先 → 再按最深破位均线周期 → 连续天数
+    items.sort(key=lambda it: (1 if it.get("cost_break") else 0,
+                               deepest_broken(it["streaks"]) or 0,
                                it["streaks"].get(deepest_broken(it["streaks"]) or 0, 0)),
                reverse=True)
     title, body = build_watch_card(items)

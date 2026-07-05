@@ -3,9 +3,64 @@
 from datetime import date, timedelta
 
 from backend.services.ma_break_watch import (
-    break_streaks, build_watch_card, deepest_broken, MA_PERIODS,
+    break_streaks, build_watch_card, deepest_broken, find_cost_line, MA_PERIODS,
 )
 from backend.services import push_pref as pp
+
+
+# ── find_cost_line: 识别最近放量起涨点成本线(用户0705逻辑) ──
+
+def _flat_then_start():
+    # 20日横盘(收10/量100) + 第21日放量2倍突破新高上涨(起涨点, low=10.5) + 后续温和
+    closes = [10.0] * 20 + [11.0, 11.5, 11.2]
+    highs = [10.2] * 20 + [11.3, 11.8, 11.5]
+    lows = [9.8] * 20 + [10.5, 11.0, 10.9]
+    vols = [100.0] * 20 + [300.0, 150.0, 120.0]
+    return closes, highs, lows, vols
+
+
+def test_find_cost_line_identifies_start():
+    c, h, l, v = _flat_then_start()
+    r = find_cost_line(c, h, l, v)
+    assert r is not None
+    assert abs(r["low"] - 10.5) < 1e-6      # 起涨点K线最低价=成本线
+    assert r["idx"] == 20                     # 第21根(idx20)是放量起涨点
+
+
+def test_find_cost_line_none_when_no_volume_surge():
+    # 全程平量, 无放量起涨点
+    c = [10.0] * 40; h = [10.2] * 40; l = [9.8] * 40; v = [100.0] * 40
+    assert find_cost_line(c, h, l, v) is None
+
+
+def test_find_cost_line_picks_most_recent():
+    # 两个起涨点, 取最近的
+    c = [10.0]*20 + [11.0] + [11.0]*10 + [13.0] + [13.0]*3
+    h = [10.2]*20 + [11.3] + [11.2]*10 + [13.3] + [13.2]*3
+    l = [9.8]*20 + [10.5] + [10.8]*10 + [12.5] + [12.8]*3
+    v = [100.0]*20 + [300.0] + [100.0]*10 + [300.0] + [100.0]*3
+    r = find_cost_line(c, h, l, v)
+    assert r["idx"] == 31                      # 最近那个起涨点(13.0), 非早先的11.0
+    assert abs(r["low"] - 12.5) < 1e-6
+
+
+# ── build_watch_card: 主力成本线维度 ──
+
+def test_card_shows_cost_break():
+    items = [{"name": "圣泉集团", "code": "605589", "price": 55.70, "pct": -2.9,
+              "streaks": {5: 3, 10: 3, 20: 3},
+              "cost_break": {"price": 57.01, "date": "2026-06-11"}, "actions_md": ""}]
+    title, body = build_watch_card(items)
+    assert "跌破主力成本区" in body and "57.01" in body and "06-11" in body
+
+
+def test_card_cost_break_alone_still_shown():
+    # 只跌破成本线、未破任何均线, 也要入卡显示
+    items = [{"name": "甲", "code": "000001", "price": 20.0, "pct": -1.0,
+              "streaks": {5: 0, 10: 0, 20: 0},
+              "cost_break": {"price": 21.0, "date": "2026-06-20"}, "actions_md": ""}]
+    title, body = build_watch_card(items)
+    assert "甲" in body and "跌破主力成本区" in body
 
 
 # ── break_streaks: 连续破位天数(含今日, 今日用尾盘现价) ──
