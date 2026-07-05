@@ -1,5 +1,11 @@
 ﻿$ErrorActionPreference = "Stop"
 
+# 交互运行时等回车再退出; 非交互(自动化/被工具调用)时 Read-Host 会抛错, 用 try/catch 吞掉,
+# 避免末尾暂停在 NonInteractive 下抛 PSInvalidOperationException 把整个脚本判成 exit 1 假失败。
+function Pause-Exit {
+    try { [void](Read-Host 'Press Enter to exit') } catch { }
+}
+
 $SERVER = "124.71.75.5"
 $USER = "root"
 $REMOTE_DIR = "/opt/trading-monitor"
@@ -15,7 +21,7 @@ Write-Host ""
 
 if (-not (Test-Path $KEY)) {
     Write-Host "Key not found: $KEY" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Pause-Exit
     exit 1
 }
 
@@ -28,7 +34,7 @@ Push-Location "$PROJECT_DIR\frontend"
 if ($LASTEXITCODE -ne 0) {
     Pop-Location
     Write-Host "Local frontend build failed! (修好前端构建再部署, 不上半成品)" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Pause-Exit
     exit 1
 }
 Pop-Location
@@ -48,7 +54,7 @@ Push-Location $PROJECT_DIR
 if ($LASTEXITCODE -ne 0) {
     Pop-Location
     Write-Host "Pack failed!" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Pause-Exit
     exit 1
 }
 Write-Host "  Done" -ForegroundColor Green
@@ -58,7 +64,7 @@ Write-Host "[3/5] Uploading..." -ForegroundColor Yellow
 Pop-Location
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Upload failed!" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Pause-Exit
     exit 1
 }
 Write-Host "  Done" -ForegroundColor Green
@@ -71,7 +77,7 @@ Write-Host "[4/5] Extract + Python deps (服务器不再build前端)..." -Foregr
 & ssh -i $KEY "${USER}@${SERVER}" "cd $REMOTE_DIR && tar -xzf trading-deploy.tar.gz && rm -f $REMOTE_DIR/trading-deploy.tar.gz && $REMOTE_DIR/venv/bin/pip install -q -r requirements.txt 2>&1 | tail -3"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Extract/deps failed!" -ForegroundColor Red
-    Read-Host "Press Enter to exit"
+    Pause-Exit
     exit 1
 }
 Write-Host "  Done" -ForegroundColor Green
@@ -87,4 +93,4 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "  Deploy OK!  http://$SERVER" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Read-Host "Press Enter to exit"
+Pause-Exit
