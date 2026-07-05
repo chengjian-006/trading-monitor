@@ -40,6 +40,7 @@ _KIND_LABEL = {
     "model_off": "今日关此模型",
     "ack": "标记已处理",
     "stop_snooze": "止损提醒静音",
+    "ma_watch_snooze": "破位警戒静音",
 }
 
 
@@ -97,6 +98,8 @@ async def quick_set(
         detail = f"已关闭「{t}」今日推送，明日自动恢复。"
     elif k == "stop_snooze":
         detail = f"已静音 {t} 的止损升级提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "ma_watch_snooze":
+        detail = f"已静音 {t} 的尾盘破位警戒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
     else:  # ack
         detail = "该信号已标记处理，当日不再重复提醒。"
     return _confirm_page(f"已设置：{label}", detail)

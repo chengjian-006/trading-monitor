@@ -32,6 +32,7 @@ from backend.services.market_breadth_refresher import refresh_market_breadth
 from backend.services.rally_reminder import rally_reminder_tick, rally_reminder_eod
 from backend.services.holding_guard import holding_guard_tick
 from backend.services.stop_escalation import stop_escalation_tick
+from backend.services.ma_break_watch import run_ma_break_watch
 from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday, market_risk_realtime
 from backend.services.data_cross_checker import run_cross_check
 from backend.services.blogger_post_scanner import scan_blogger_posts
@@ -111,6 +112,7 @@ TASK_HANDLERS: dict[str, object] = {
     "rally_reminder_eod": rally_reminder_eod,
     "holding_guard_tick": holding_guard_tick,
     "stop_escalation_tick": stop_escalation_tick,
+    "run_ma_break_watch": run_ma_break_watch,
     "market_risk_eod": market_risk_eod,
     "market_risk_intraday": market_risk_intraday,
     "market_risk_realtime": market_risk_realtime,

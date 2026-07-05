@@ -1169,6 +1169,11 @@ async def _run_migrations(conn):
             ("stop_escalation_1120", "止损未执行升级·午间11:20",
              "午间再扫一次硬止损未执行升级, 兼顾下午决断(口径同开盘)",
              "cron", _json.dumps({"hour": 11, "minute": 20}), "stop_escalation_tick"),
+            # v1.7.582: 尾盘破位警戒 — 持仓股14:40贴线判MA5/10/20破位(现价<MA即算), 连续N日从日线回算,
+            # 每日尾盘都报直到收复; 与SELL_BREAK_MA*事件卡(≥2%深度只报首日)互补; 卡带ma_watch_snooze逐票静音
+            ("ma_break_watch_1440", "尾盘破位警戒·14:40",
+             "交易日尾盘对真实持仓逐票贴线判跌破MA5/MA10/MA20(现价<均线即算), 标注连续N日尾盘破位, 合并一张警戒卡, 收复自动消失",
+             "cron", _json.dumps({"hour": 14, "minute": 40}), "run_ma_break_watch"),
             # 日志保留 30 天 — 每日凌晨3:30 删除 30 天前的操作日志(DB)与轮转日志文件
             ("cleanup_old_logs", "日志清理·每日03:30",
              "每日凌晨删除30天前的操作日志(cfzy_biz_operation_logs)与轮转日志文件 app.log.*, 控制表与磁盘体积",
