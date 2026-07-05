@@ -19,7 +19,7 @@ from backend.models.repo._db import _fetchall
 from backend.services.signal_engine_indicators import compute_indicators
 from backend.services.signal_engine_config import DEFAULT_SIGNAL_CONFIG
 from backend.services.model_backtest_weekly import (
-    _sim_right, _sim_left, _sim_rally20, MODELS, WCFG, FEE, DEDUP, MIN_BARS,
+    _sim_right, _sim_left, _sim_rally20, _sim_rally_ma5, MODELS, WCFG, FEE, DEDUP, MIN_BARS,
 )
 from backend.services.signal_engine_detectors import (
     _detect_rally_ma20_pullback, _detect_vol_breakout,
@@ -60,6 +60,7 @@ def _bt_one(df):
     vol_avg10 = ind["volume"].rolling(10, min_periods=5).mean().values
     o = ind["open"].values; h = ind["high"].values; c = ind["close"].values
     v = ind["volume"].values
+    m5 = ind["ma5"].values
     m10 = ind["ma10"].values; m20 = ind["ma20"].values; m60 = ind["ma60"].values
     dts = ind["date"].values; ph = ind["high"].shift(1).values
     n = len(ind)
@@ -77,17 +78,18 @@ def _bt_one(df):
 
     for i in range(MIN_BARS, n):
         latest = ind.iloc[i]; sub = ind.iloc[:i + 1]
+        # v1.7.584: 回踩MA10/MA20/缩量突破 出场改「剩半沿5日线飘」(_sim_rally_ma5), 对齐实盘 rally_reminder。
         if _detect_vol_breakout(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_VOL_BREAKOUT"]) and keep("缩量后放量突破", i):
             trig = ph[i] * 1.02; entry = o[i] if o[i] >= trig else trig
-            r = _sim_right(entry, o, h, c, m10, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: out.append(("缩量后放量突破", day(i), r[0] - FEE))
         if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA20"]) and keep("回踩20MA缩量后突破昨高", i):
             trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
-            r = _sim_rally20(entry, o, h, c, m20, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: out.append(("回踩20MA缩量后突破昨高", day(i), r[0] - FEE))
         if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA10"]) and keep("回踩10MA缩量后突破昨高", i):
             trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
-            r = _sim_right(entry, o, h, c, m10, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: out.append(("回踩10MA缩量后突破昨高", day(i), r[0] - FEE))
         if not np.isnan(m10[i]) and _detect_strong_start_right(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_STRONG_START"], WCFG) and keep("强势起点", i):
             r = _sim_right(c[i], o, h, c, m10, i, n)

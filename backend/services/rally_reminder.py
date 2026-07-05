@@ -29,15 +29,19 @@ TARGET = 0.07
 HARD = -0.06
 CAP_DAYS = 10
 
-# 各模型: 剩半跟踪锚点 + 容差; plan=买入提醒里展示的交易计划文案
+# 各模型: 剩半跟踪均线窗 ma_win + 容差 runner_tol; plan=买入提醒里展示的交易计划文案
 # v1.7.405: 缩量后放量突破/中继平台突破 出场口径与回踩10MA完全相同(回测同套出场寻优), 直接入册
+# v1.7.584: 剩半跟踪改「沿5日线飘」(课件中线六二法「大涨减仓降成本→剩仓沿5日线飘」)。全市场双窗OOS
+#   回测(实盘框架, 卖半后剩半破跟踪线): 回踩MA10/MA20/缩量突破 三模型独立样本 胜率/均收/PF 全升
+#   (回踩MA20 56.0%/PF1.65→59.7%/PF1.87 提升最大)。ma_win=5 即剩半跟踪MA5(注: 这是【剩半跟踪均线窗】,
+#   非买点回踩锚均线); runner_tol=0 即收盘破MA5即清(无×容差)。中继平台突破未验证B5, 保持破MA10×0.98。
 RALLY_MODELS = {
-    "BUY_RALLY_MA20": {"name": "回踩20MA缩量后突破昨高", "ma_win": 20, "runner_tol": 0.02,
-                       "plan": "+7%卖半 / 剩半收盘破MA20×0.98清 / -6%收盘止损 / 满10交易日时停"},
-    "BUY_RALLY_MA10": {"name": "回踩10MA缩量后突破昨高", "ma_win": 10, "runner_tol": 0.02,
-                       "plan": "+7%卖半 / 剩半收盘破MA10×0.98清 / -6%收盘止损 / 满10交易日时停"},
-    "BUY_VOL_BREAKOUT": {"name": "缩量后放量突破", "ma_win": 10, "runner_tol": 0.02,
-                         "plan": "+7%卖半 / 剩半收盘破MA10×0.98清 / -6%收盘止损 / 满10交易日时停"},
+    "BUY_RALLY_MA20": {"name": "回踩20MA缩量后突破昨高", "ma_win": 5, "runner_tol": 0.0,
+                       "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
+    "BUY_RALLY_MA10": {"name": "回踩10MA缩量后突破昨高", "ma_win": 5, "runner_tol": 0.0,
+                       "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
+    "BUY_VOL_BREAKOUT": {"name": "缩量后放量突破", "ma_win": 5, "runner_tol": 0.0,
+                         "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
     "BUY_PLATFORM_BREAKOUT": {"name": "中继平台突破", "ma_win": 10, "runner_tol": 0.02,
                               "plan": "+7%卖半 / 剩半收盘破MA10×0.98清 / -6%收盘止损 / 满10交易日时停"},
 }
@@ -236,8 +240,10 @@ async def rally_reminder_eod():
             ma = await _ma(code, m["ma_win"])
             if ma and price < ma * (1 - m["runner_tol"]):
                 line = ma * (1 - m["runner_tol"])
+                # runner_tol=0(沿5日线) 文案不带×系数; >0 保留 ×mult 显示
+                ma_lbl = f"MA{m['ma_win']}" if m["runner_tol"] == 0 else f"MA{m['ma_win']}×{1-m['runner_tol']:.2f}"
                 await _push_close(t, m, price, "清剩半",
-                                  f"剩半收盘跌破MA{m['ma_win']}×{1-m['runner_tol']:.2f}(¥{line:.2f})，清仓剩余50%", notify)
+                                  f"剩半收盘跌破{ma_lbl}(¥{line:.2f})，清仓剩余50%", notify)
                 continue
         days = int(t["days_held"]) + 1
         await repository.set_days_held(t["id"], days)

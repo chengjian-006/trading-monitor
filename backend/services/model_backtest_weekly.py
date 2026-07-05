@@ -74,8 +74,34 @@ def _sim_left(entry, c, i, n, cap=15, hard=-0.12):
     return c[last] / entry - 1.0, cap, cap
 
 
+def _sim_rally_ma5(entry, o, h, c, m5, i, n, cap=10, hard=-0.06, target=0.07):
+    """v1.7.584 回踩族(回踩MA10/MA20/缩量突破)真实出场 —— 匹配实盘 rally_reminder 框架:
+    未卖半仅 -6%止损 / +7%转卖半 / T+10时停(不判破均线); 卖半后剩半 收盘破MA5 即清(沿5日线飘, 无×容差)。
+    与 _sim_right 的差异: ①剩半跟踪 MA5 而非 MA10×0.98 ②未卖半段不判破均线(实盘就只-6%止损)。
+    全市场双窗OOS: 回踩MA10/MA20/缩量突破 三模型独立样本 胜率/均收/PF 全升(回踩MA20提升最大)。"""
+    last = i + cap
+    if last > n - 1:
+        return None
+    half, rf, dh = False, 0.0, None
+    for t in range(i + 1, last + 1):
+        if not half:
+            if c[t] <= entry * (1 + hard):
+                return c[t] / entry - 1.0, t - i, t - i
+            if h[t] >= entry * (1 + target):
+                rf = (o[t] / entry - 1.0) if o[t] >= entry * (1 + target) else target
+                half, dh = True, t - i
+                continue                       # 转卖半当天不再判剩半破线(次日起判)
+        elif not np.isnan(m5[t]) and c[t] < m5[t]:
+            r = 0.5 * rf + 0.5 * (c[t] / entry - 1.0)
+            sp = t - i
+            return r, sp, (dh + sp) / 2
+    cl = c[last]
+    r = (0.5 * rf + 0.5 * (cl / entry - 1.0)) if half else (cl / entry - 1.0)
+    return r, cap, (dh + cap) / 2 if half else cap
+
+
 def _sim_rally20(entry, o, h, c, m20, i, n, cap=15, hard=-0.07, target=0.15):
-    """回踩20MA缩量后突破昨高 真实出场: +15%卖半 / -7%止损 / 剩半破20线×0.97 / T+15清。"""
+    """[已弃用于胜率口径, v1.7.584 回踩MA20 改走 _sim_rally_ma5 对齐实盘] 旧: +15%卖半/-7%止损/剩半破20线×0.97/T+15。"""
     last = i + cap
     if last > n - 1:
         return None
