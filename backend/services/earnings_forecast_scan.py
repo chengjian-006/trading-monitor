@@ -76,9 +76,15 @@ async def run_earnings_forecast_scan() -> None:
     def _pct_cell(g) -> str:
         return _amp_txt(g.get("amp_lower"), g.get("amp_upper"))
 
+    def _date_cell(g) -> str:
+        # 公告发布日 MM-DD(回看窗内可能是今日/隔日, 逐条标各自发布日); 缺失回退 —
+        nd = g.get("notice_date")
+        return str(nd)[5:10] if nd and len(str(nd)) >= 10 else "—"
+
     def _mdtable(rows: list) -> str:
-        out = ["| 股票 | 净利变动 |", "| --- | --- |"]
-        out += [f"| {s} | {a} |" for s, a in rows]
+        # 三列各格都短(名称+类型/净利变动/发布MM-DD), 手机端不触发"单格塞多字段"截断
+        out = ["| 股票 | 净利变动 | 发布 |", "| --- | --- | --- |"]
+        out += [f"| {s} | {a} | {d} |" for s, a, d in rows]
         return "\n".join(out)
 
     elements = []
@@ -86,11 +92,11 @@ async def run_earnings_forecast_scan() -> None:
     head = f"{title}\n\n新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
     elements.append(md_element(head))
     if mine:
-        rows = [(_stock_cell(g, "🔴" if str(g["code"]) in hold_codes else "⭐"), _pct_cell(g)) for g in mine]
+        rows = [(_stock_cell(g, "🔴" if str(g["code"]) in hold_codes else "⭐"), _pct_cell(g), _date_cell(g)) for g in mine]
         elements.append(md_element(
             f"**🎯 你的自选/持仓命中 {len(mine)} 只**（🔴持仓 ⭐自选）\n\n" + _mdtable(rows)))
     if others:
-        rows = [(_stock_cell(g), _pct_cell(g)) for g in others]
+        rows = [(_stock_cell(g), _pct_cell(g), _date_cell(g)) for g in others]
         elements.append(md_element(
             f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）\n\n" + _mdtable(rows)))
 

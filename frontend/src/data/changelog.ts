@@ -12,6 +12,15 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.583',
+    date: '2026-07-05',
+    title: '预增榜补「发布」列: 每条正向业绩预告标注公告发布日',
+    changes: [
+      { text: '修复预增榜推送卡不显示公告发布时间: 回看窗3天内捞的预告可能是当日/隔日/周末补发, 原来看不出每条是哪天发布的。根因=forecasts_to_push 的 SQL 漏 select notice_date(库里其实有存), 推送函数拿不到发布日。', tag: 'fix' },
+      { text: '表格加第3列「发布」(MM-DD): 股票|净利变动|发布, 三列各格都短不触发手机端「单格塞多字段」截断; 关键值净利变动仍第2列前置手机直接可见。飞书模版预览页同步。', tag: 'improve' },
+    ],
+  },
+  {
     version: 'v1.7.582',
     date: '2026-07-05',
     title: '新增「尾盘破位警戒卡」: 持仓14:40跌破MA5/MA10/MA20带连续N日标注',
