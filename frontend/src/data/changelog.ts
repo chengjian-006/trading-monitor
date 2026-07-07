@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.592',
+    date: '2026-07-07',
+    title: '预警总览明细抽屉个股代码直跳同花顺分时/K线',
+    changes: [
+      { text: '预警总览页信号明细抽屉(矩阵格子/5日成功率两个入口共用)的代码列改为可点击: 点个股代码新标签页打开同花顺网页版个股页(分时+K线), 与涨停复盘页 v1.7.591 同口径, 虚线下划线提示可点。', tag: 'new' },
+    ],
+  },
+  {
     version: 'v1.7.591',
     date: '2026-07-07',
     title: '涨停复盘个股点击直跳同花顺分时/K线页',

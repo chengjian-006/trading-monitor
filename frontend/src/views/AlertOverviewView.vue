@@ -313,7 +313,14 @@ const drawerColumns: DataTableColumns<Signal> = [
   { title: '日期', key: 'triggered_at', width: 64,
     render: (row) => h('span', { style: { fontFamily: 'monospace', fontSize: '12px' } }, formatDay(row.triggered_at)) },
   { title: '代码', key: 'code', width: 72,
-    render: (row) => h('span', { style: { fontFamily: 'monospace', color: 'var(--primary)' } }, row.code) },
+    // v1.7.592: 点代码跳同花顺网页版个股页(分时+K线), 与涨停复盘页同口径
+    render: (row) => h('span', {
+      style: { fontFamily: 'monospace', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline dotted' },
+      title: `${row.name} ${row.code} · 打开同花顺分时/K线`,
+      role: 'link', tabindex: 0,
+      onClick: () => window.open(`https://stockpage.10jqka.com.cn/${row.code}/`, '_blank', 'noopener'),
+      onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter') window.open(`https://stockpage.10jqka.com.cn/${row.code}/`, '_blank', 'noopener') },
+    }, row.code) },
   { title: '名称', key: 'name', width: 84 },
   { title: '触发价', key: 'price', width: 64,
     render: (row) => h('span', { style: { fontFamily: 'monospace' } }, Number(row.price || 0).toFixed(2)) },
