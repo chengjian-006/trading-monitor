@@ -1314,9 +1314,17 @@ async def _run_migrations(conn):
                 "INSERT IGNORE INTO cfzy_sys_scheduled_tasks "
                 "(job_id, name, description, schedule_type, schedule_config, handler) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
-                ("attack_direction_0945", "资金进攻方向·09:45 AI 分析",
-                 "拉取盘中成交额前20 + 涨幅前50, 用 AI 归纳板块/题材/市值共性, 企微推送",
+                ("attack_direction_0945", "资金进攻方向·09:45",
+                 "开盘15分钟, 涨停扎堆题材(涨停池)+ 领涨行业(板块榜)双口径, 叠自选命中, 飞书卡推送",
                  "cron", _json.dumps({"hour": 9, "minute": 45}), "run_attack_direction_analysis"),
+            )
+            # v1.7.587: 该任务由 AI 版重构为确定性版, INSERT IGNORE 不改已存行, 补一条幂等 UPDATE 刷新标签
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET name=%s, description=%s "
+                "WHERE job_id=%s",
+                ("资金进攻方向·09:45",
+                 "开盘15分钟, 涨停扎堆题材(涨停池)+ 领涨行业(板块榜)双口径, 叠自选命中, 飞书卡推送",
+                 "attack_direction_0945"),
             )
         except Exception:
             pass

@@ -12,6 +12,16 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.587',
+    date: '2026-07-07',
+    title: '09:45「资金进攻方向」推送: AI版重构为确定性双口径 + 自选命中 + 飞书卡',
+    changes: [
+      { text: '重构 attack_direction_analyst: 原 AI 版直打 push2.eastmoney(生产IP已被东财封→静默取空跳过, 实际早已不推)、且 LLM 归纳不确定无自选命中。改为确定性双口径, 全走有备源数据链——🔥涨停扎堆题材(读 sector_rotation 3min 快照/涨停池同花顺备源, 资金真金白银) + 📊领涨行业(get_sector_ranking 腾讯备源), 题材名与领涨行业软匹配到即标🔥双确认(两口径共振=最强方向)。', tag: 'improve' },
+      { text: '叠加自选/持仓命中: concepts 命中题材(今日主攻)优先于 industry 命中领涨行业, 持仓优先排前; 无命中时明说"暂未命中"。无明显主线判定复用情绪快照 phase(冰点/退潮/数据降级)或题材涨停<3家且行业涨幅<2%, 触发即卡片顶部明说"资金分散·无明显主线, 观望为主"照推不漏。', tag: 'improve' },
+      { text: '推送改 send_dual_card 飞书原生表格卡(2列移动版式: 题材|涨停家数、行业|涨幅, 代表股移表下逐行防手机端截断)+ PushPlus, 即只推给自己; 丢弃 deepseek 依赖。共享东财取数工具 _fetch_em_top/_fmt_mcap/_enrich_with_concepts 保留(market_report/auction_summary 仍复用)。任务 attack_direction_0945 复用, 补幂等 UPDATE 刷新管理端旧标签。', tag: 'fix' },
+    ],
+  },
+  {
     version: 'v1.7.586',
     date: '2026-07-06',
     title: '尾盘破位警戒卡叠加「主力成本线」维度: 持仓跌破放量起涨点最低价即提示',
