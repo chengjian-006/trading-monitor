@@ -106,6 +106,10 @@ function bardgeType(h: number): 'default' | 'warning' | 'error' {
 function sealText(s: number | null | undefined) {
   return (typeof s === 'number') ? `${(s * 100).toFixed(0)}%` : '—'
 }
+// 跳同花顺网页版个股页(分时+K线; 手机端自动转 m.10jqka)
+function openThs(code: string) {
+  window.open(`https://stockpage.10jqka.com.cn/${code}/`, '_blank', 'noopener')
+}
 
 async function load(date?: string) {
   loading.value = true
@@ -177,7 +181,9 @@ onMounted(async () => {
       <template v-if="boards.length">
         <h2><span class="c">连板梯队</span><span class="n">{{ ladder.length }} 只（2板及以上）</span></h2>
         <div class="lu-ladder">
-          <div v-for="b in ladder" :key="b.code" class="lu-card">
+          <div v-for="b in ladder" :key="b.code" class="lu-card clickable" role="link" tabindex="0"
+            :title="`${b.name} ${b.code} · 打开同花顺分时/K线`"
+            @click="openThs(b.code)" @keydown.enter="openThs(b.code)">
             <div class="r1"><span class="nm">{{ b.name }}</span><span class="cd">{{ b.code }}</span>
               <span class="bd">{{ b.streak_label }}</span></div>
             <div class="rs">{{ (b.reason || '').split('+').slice(0, 3).join(' · ') }}</div>
@@ -209,7 +215,9 @@ onMounted(async () => {
               <span class="gc">{{ g.stocks.length }}<small>只</small></span>
             </div>
             <div class="gs">
-              <div v-for="b in g.stocks" :key="b.code" class="gi">
+              <div v-for="b in g.stocks" :key="b.code" class="gi" role="link" tabindex="0"
+                :title="`${b.name} ${b.code} · 打开同花顺分时/K线`"
+                @click="openThs(b.code)" @keydown.enter="openThs(b.code)">
                 <span class="nm">{{ b.name }}</span>
                 <span class="bd" :class="(b.height || 1) >= 3 ? 'h3' : (b.height || 1) >= 2 ? 'h2c' : 'h1'">{{ b.streak_label }}</span>
                 <span class="pc">{{ b.pct != null ? '+' + b.pct.toFixed(1) + '%' : '—' }}</span>
@@ -231,7 +239,9 @@ onMounted(async () => {
             <tbody>
               <tr v-for="b in sortedBoards" :key="b.code">
                 <td class="code">{{ b.code }}</td>
-                <td class="name">{{ b.name }}</td>
+                <td class="name"><span class="nm-link" role="link" tabindex="0"
+                  :title="`打开同花顺分时/K线`"
+                  @click="openThs(b.code)" @keydown.enter="openThs(b.code)">{{ b.name }}</span></td>
                 <td><NTag :type="bardgeType(b.height)" size="small" round :bordered="false">{{ b.streak_label }}</NTag></td>
                 <td class="pct">{{ b.pct != null ? '+' + b.pct.toFixed(2) + '%' : '—' }}</td>
                 <td><span v-if="b.open_times > 0" class="zb">{{ b.open_times }}</span><span v-else class="dash">—</span></td>
@@ -278,6 +288,8 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: #9c948a; font-weight
 .lu-card .cd { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: #9c948a; }
 .lu-card .bd { margin-left: auto; font-size: 12px; font-weight: 800; color: #d92b26; background: #fbe8e6; padding: 1px 7px; border-radius: 20px; }
 .lu-card .rs { font-size: 12.5px; color: #726b60; }
+.lu-card.clickable { cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.lu-card.clickable:hover { border-color: #d9c9a3; box-shadow: 0 2px 8px rgba(120, 90, 30, .10); }
 
 .lu-bars { display: flex; flex-direction: column; gap: 7px; max-width: 640px; }
 .lu-bar { display: grid; grid-template-columns: 100px 1fr 34px; align-items: center; gap: 11px; font-size: 13px; }
@@ -300,9 +312,10 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: #9c948a; font-weight
 .lu-cgroup .gc { margin-left: auto; font-size: 15px; font-weight: 800; color: #d92b26; font-variant-numeric: tabular-nums; }
 .lu-cgroup .gc small { font-size: 11px; font-weight: 600; color: #9c948a; margin-left: 1px; }
 .lu-cgroup .gs { padding: 4px 6px 6px; }
-.lu-cgroup .gi { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 7px; font-size: 13px; }
+.lu-cgroup .gi { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 7px; font-size: 13px; cursor: pointer; }
 .lu-cgroup .gi:hover { background: #faf8f3; }
-.lu-cgroup .gi .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lu-cgroup .gi:hover .nm { color: #b0812c; }
+.lu-cgroup .gi .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .15s; }
 .lu-cgroup .gi .bd { font-size: 11px; font-weight: 800; padding: 0 7px; border-radius: 20px; white-space: nowrap; }
 .lu-cgroup .gi .bd.h1 { color: #8a8276; background: #f0ece5; }
 .lu-cgroup .gi .bd.h2c { color: #b0812c; background: #f7ecd4; }
@@ -322,6 +335,8 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: #9c948a; font-weight
 .lu-tbl tbody tr:hover { background: #faf8f3; }
 .lu-tbl td.code { font-family: ui-monospace, Menlo, Consolas, monospace; color: #9c948a; font-variant-numeric: tabular-nums; }
 .lu-tbl td.name { font-weight: 700; white-space: nowrap; }
+.nm-link { cursor: pointer; border-bottom: 1px dotted #c9b98f; transition: color .15s; }
+.nm-link:hover { color: #b0812c; }
 .lu-tbl td.pct { font-variant-numeric: tabular-nums; font-weight: 700; color: #d92b26; text-align: right; }
 .zb { color: #159a6e; font-variant-numeric: tabular-nums; font-size: 12px; }
 .dash { color: #c4bdb2; }

@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.591',
+    date: '2026-07-07',
+    title: '涨停复盘个股点击直跳同花顺分时/K线页',
+    changes: [
+      { text: '涨停复盘页个股全部可点击跳转同花顺网页版个股页(stockpage.10jqka.com.cn, 分时+K线, 手机端自动转 m.10jqka): 覆盖按概念分组卡片的个股行、连板梯队卡、按个股表格的名称列(金色虚线下划线提示可点), 新标签页打开不打断复盘。', tag: 'new' },
+    ],
+  },
+  {
     version: 'v1.7.590',
     date: '2026-07-07',
     title: '涨停复盘按概念维度TAB + 模拟盘账户切换器美化',
