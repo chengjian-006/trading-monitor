@@ -16,6 +16,7 @@ const dates = ref<string[]>([])
 const activeDate = ref<string | undefined>(undefined)
 const sortKey = ref<keyof LimitUpStock>('height')
 const sortAsc = ref(false)
+const viewMode = ref<'stock' | 'concept'>('stock')
 
 // 概念归一(与后端一致)——热点分布计数用
 const MERGE: Record<string, string> = {
@@ -53,6 +54,36 @@ const conceptRanking = computed(() => {
   return Object.entries(cnt).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1]).slice(0, 12)
 })
 const rankMax = computed(() => conceptRanking.value.length ? conceptRanking.value[0][1] : 1)
+
+// 按概念维度归组: 拆 reason 的 '+' 多标签, 命中关键词的并入归一组(与热点分布同口径),
+// 未命中的用原始标签自成一组; ≥2只成组展示, 没进任何组的票兜底进「其他」
+interface ConceptGroup { name: string; stocks: LimitUpStock[] }
+const conceptGroups = computed<ConceptGroup[]>(() => {
+  const map = new Map<string, LimitUpStock[]>()
+  for (const b of boards.value) {
+    const tokens = String(b.reason || '').split(/[+＋]/).map(t => t.trim()).filter(Boolean)
+    const names = new Set<string>()
+    for (const t of tokens) {
+      let g: string | null = null
+      for (const kw of KEYWORDS) if (t.includes(kw)) { g = MERGE[kw] || kw; break }
+      names.add(g || t)
+    }
+    for (const n of names) {
+      if (!map.has(n)) map.set(n, [])
+      map.get(n)!.push(b)
+    }
+  }
+  const sortStocks = (arr: LimitUpStock[]) =>
+    [...arr].sort((a, b) => ((b.height || 1) - (a.height || 1)) || ((b.pct ?? 0) - (a.pct ?? 0)))
+  const groups: ConceptGroup[] = []
+  for (const [name, stocks] of map) if (stocks.length >= 2) groups.push({ name, stocks: sortStocks(stocks) })
+  groups.sort((a, b) => (b.stocks.length - a.stocks.length)
+    || ((b.stocks[0]?.height || 1) - (a.stocks[0]?.height || 1)))
+  const covered = new Set(groups.flatMap(g => g.stocks.map(s => s.code)))
+  const rest = boards.value.filter(b => !covered.has(b.code))
+  if (rest.length) groups.push({ name: '其他', stocks: sortStocks(rest) })
+  return groups
+})
 
 const sortedBoards = computed(() => {
   const k = sortKey.value, asc = sortAsc.value
@@ -162,8 +193,32 @@ onMounted(async () => {
           </div>
         </div>
 
-        <h2><span class="c">全部涨停</span><span class="n">{{ boards.length }} 只 · 点表头可排序</span></h2>
-        <div class="lu-tablewrap">
+        <h2>
+          <span class="c">全部涨停</span>
+          <span class="n">{{ boards.length }} 只 · {{ viewMode === 'stock' ? '点表头可排序' : '按涨停概念归组 · 一票多概念会重复出现' }}</span>
+          <div class="lu-seg" role="tablist">
+            <button role="tab" :aria-selected="viewMode === 'stock'" :class="{ on: viewMode === 'stock' }" @click="viewMode = 'stock'">按个股</button>
+            <button role="tab" :aria-selected="viewMode === 'concept'" :class="{ on: viewMode === 'concept' }" @click="viewMode = 'concept'">按概念</button>
+          </div>
+        </h2>
+
+        <div v-if="viewMode === 'concept'" class="lu-cgrid">
+          <div v-for="g in conceptGroups" :key="g.name" class="lu-cgroup" :class="{ other: g.name === '其他' }">
+            <div class="hd">
+              <span class="gn">{{ g.name }}</span>
+              <span class="gc">{{ g.stocks.length }}<small>只</small></span>
+            </div>
+            <div class="gs">
+              <div v-for="b in g.stocks" :key="b.code" class="gi">
+                <span class="nm">{{ b.name }}</span>
+                <span class="bd" :class="(b.height || 1) >= 3 ? 'h3' : (b.height || 1) >= 2 ? 'h2c' : 'h1'">{{ b.streak_label }}</span>
+                <span class="pc">{{ b.pct != null ? '+' + b.pct.toFixed(1) + '%' : '—' }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="lu-tablewrap">
           <table class="lu-tbl">
             <thead><tr>
               <th @click="setSort('code')">代码</th>
@@ -231,6 +286,33 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: #9c948a; font-weight
 .lu-bar .fl { height: 100%; background: linear-gradient(90deg, #b0812c, #d92b26); border-radius: 5px; }
 .lu-bar .ct { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 
+/* 按个股/按概念 分段切换 —— 沿用页面金/红暖色语言 */
+.lu-seg { margin-left: auto; display: inline-flex; background: #f0ece5; border: 1px solid #e5dfd4; border-radius: 20px; padding: 2px; gap: 2px; }
+.lu-seg button { appearance: none; border: 0; background: transparent; font: inherit; font-size: 12.5px; font-weight: 700; color: #8a8276; padding: 3px 14px; border-radius: 16px; cursor: pointer; transition: color .18s, background .18s, box-shadow .18s; }
+.lu-seg button:hover { color: #6b655c; }
+.lu-seg button.on { background: #fff; color: #b0812c; box-shadow: 0 1px 3px rgba(90, 70, 30, .14); }
+
+/* 概念分组卡片 */
+.lu-cgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 12px; align-items: start; }
+.lu-cgroup { background: var(--n-card-color, #fff); border: 1px solid #ece7df; border-radius: 12px; overflow: hidden; }
+.lu-cgroup .hd { display: flex; align-items: baseline; gap: 8px; padding: 9px 13px 8px; background: linear-gradient(180deg, #faf6ee, #f6f1e7); border-bottom: 1px solid #ece7df; }
+.lu-cgroup .gn { font-size: 14px; font-weight: 800; color: #7a5a1e; }
+.lu-cgroup .gc { margin-left: auto; font-size: 15px; font-weight: 800; color: #d92b26; font-variant-numeric: tabular-nums; }
+.lu-cgroup .gc small { font-size: 11px; font-weight: 600; color: #9c948a; margin-left: 1px; }
+.lu-cgroup .gs { padding: 4px 6px 6px; }
+.lu-cgroup .gi { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 8px; padding: 5px 7px; border-radius: 7px; font-size: 13px; }
+.lu-cgroup .gi:hover { background: #faf8f3; }
+.lu-cgroup .gi .nm { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lu-cgroup .gi .bd { font-size: 11px; font-weight: 800; padding: 0 7px; border-radius: 20px; white-space: nowrap; }
+.lu-cgroup .gi .bd.h1 { color: #8a8276; background: #f0ece5; }
+.lu-cgroup .gi .bd.h2c { color: #b0812c; background: #f7ecd4; }
+.lu-cgroup .gi .bd.h3 { color: #d92b26; background: #fbe8e6; }
+.lu-cgroup .gi .pc { font-variant-numeric: tabular-nums; font-weight: 700; color: #d92b26; font-size: 12.5px; }
+.lu-cgroup.other { opacity: .85; }
+.lu-cgroup.other .hd { background: #f6f4f0; }
+.lu-cgroup.other .gn { color: #8a8276; }
+.lu-cgroup.other .gc { color: #8a8276; }
+
 .lu-tablewrap { overflow-x: auto; border: 1px solid #ece7df; border-radius: 12px; }
 .lu-tbl { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 620px; }
 .lu-tbl thead th { position: sticky; top: 0; background: #f4f1ec; color: #726b60; font-weight: 700; text-align: left; padding: 9px 12px; font-size: 12px; border-bottom: 1px solid #ece7df; cursor: pointer; white-space: nowrap; user-select: none; }
@@ -251,5 +333,9 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: #9c948a; font-weight
   .lu-kpis { grid-template-columns: repeat(2, 1fr); }
   .lu-title h1 { font-size: 20px; }
   .lu-controls { width: 100%; }
+  h2 { flex-wrap: wrap; }
+  .lu-seg { margin-left: 0; width: 100%; }
+  .lu-seg button { flex: 1; }
+  .lu-cgrid { grid-template-columns: 1fr; }
 }
 </style>

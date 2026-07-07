@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, h } from 'vue'
-import { NCard, NDataTable, NButton, NInputNumber, NPopconfirm, NStatistic, NGrid, NGi, NTabs, NTabPane, NTag } from 'naive-ui'
+import { NCard, NDataTable, NButton, NInputNumber, NPopconfirm, NStatistic, NGrid, NGi, NTag } from 'naive-ui'
 import { usePaperStore } from '../stores/paper-trading'
 import { resetPaperAccount, updatePaperSettings, type AccountKey } from '../api/paper-trading'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -102,10 +102,24 @@ const modelCols = [
 
 <template>
   <div style="padding: 12px; display: flex; flex-direction: column; gap: 12px;">
-    <NTabs type="segment" :value="store.accountKey" @update:value="onSwitchAccount">
-      <NTabPane name="default" tab="模拟账户" />
-      <NTabPane name="unlimited" tab="无限子弹" />
-    </NTabs>
+    <!-- v1.7.590: 账户切换从铺满整行的 segment 改为「紧凑胶囊切换器 + 账户速览」工具栏 -->
+    <div class="pt-bar">
+      <div class="pt-seg" role="tablist">
+        <button role="tab" :aria-selected="store.accountKey === 'default'"
+          :class="{ on: store.accountKey === 'default' }" @click="onSwitchAccount('default')">
+          <span class="dot std"></span>模拟账户
+        </button>
+        <button role="tab" :aria-selected="store.accountKey === 'unlimited'" class="unl"
+          :class="{ on: store.accountKey === 'unlimited' }" @click="onSwitchAccount('unlimited')">
+          <span class="dot fire"></span>无限子弹
+        </button>
+      </div>
+      <div v-if="store.summary" class="pt-quick">
+        <div class="q"><span class="l">总资产</span><span class="v">{{ Math.round(store.summary.total_equity).toLocaleString() }}</span></div>
+        <div class="q"><span class="l">当日</span><span class="v" :style="{ color: pnlColor(store.summary.today_pnl) }">{{ fmtMoney(store.summary.today_pnl) }}</span></div>
+        <div class="q"><span class="l">总盈亏</span><span class="v" :style="{ color: pnlColor(store.summary.total_pnl) }">{{ fmtMoney(store.summary.total_pnl) }}{{ fmtPct(store.summary.total_return_pct) }}</span></div>
+      </div>
+    </div>
 
     <NCard size="small">
       <template #header>
@@ -168,3 +182,30 @@ const modelCols = [
     </NCard>
   </div>
 </template>
+
+<style scoped>
+/* 账户切换工具栏: 左=胶囊切换器 右=当前账户速览 */
+.pt-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: #fff; border: 1px solid #e8e6e1; border-radius: 10px; padding: 8px 14px; }
+.pt-seg { display: inline-flex; background: #f2f1ee; border: 1px solid #e6e4df; border-radius: 22px; padding: 3px; gap: 3px; }
+.pt-seg button { appearance: none; border: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 700; color: #8b877f; padding: 5px 18px; border-radius: 18px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: color .18s, background .18s, box-shadow .18s; white-space: nowrap; }
+.pt-seg button:hover { color: #5d594f; }
+.pt-seg button.on { background: #fff; color: #1a56a8; box-shadow: 0 1px 4px rgba(40, 60, 100, .16); }
+.pt-seg button.unl.on { color: #c2610a; box-shadow: 0 1px 4px rgba(160, 90, 10, .18); }
+.pt-seg .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.pt-seg .dot.std { background: #1a56a8; opacity: .35; }
+.pt-seg .dot.fire { background: linear-gradient(135deg, #f59e0b, #dc2626); opacity: .4; }
+.pt-seg button.on .dot { opacity: 1; }
+.pt-quick { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+.pt-quick .q { display: flex; align-items: baseline; gap: 7px; }
+.pt-quick .l { font-size: 12px; color: #9a958c; }
+.pt-quick .v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 768px) {
+  .pt-bar { padding: 8px 10px; }
+  .pt-seg { width: 100%; }
+  .pt-seg button { flex: 1; justify-content: center; }
+  .pt-quick { margin-left: 0; width: 100%; justify-content: space-between; gap: 10px; }
+  .pt-quick .q { flex-direction: column; gap: 1px; align-items: flex-start; }
+  .pt-quick .v { font-size: 14px; }
+}
+</style>
