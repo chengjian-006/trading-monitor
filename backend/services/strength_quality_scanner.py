@@ -6,7 +6,7 @@
 逻辑:
     1. 拉沪指近 N 日数据(用于抗跌判定 + G/H 维度)
     2. 拉板块涨幅榜(用于主流题材 + I 维度)
-    3. 扫所有 focused/hold 自选股(排除 ST)
+    3. 扫全池自选股(排除 ST/概念指数)
        对满足"近 5 日跑赢大盘 ≥ N 日"的票计算评分
        高分票(≥20)进一步拉笔级大单数据精算
     4. 排序 → 推送一条汇总企业微信
@@ -112,11 +112,11 @@ async def scan_strength_quality_snapshot(return_only: bool = False):
     except Exception:
         ranking = []
 
-    # 4. 自选股(focused 或 hold,排除 ST,按 code 去重)
+    # 4. 自选股(v1.7.589: 在池即扫不再要求关注; 排除 ST/概念指数, 按 code 去重)
     all_stocks = await repository.list_all_stocks()
     by_code: dict[str, dict] = {}
     for s in all_stocks:
-        if not (s.get("focused") or s.get("status") == "hold"):
+        if s.get("trade_type") == "index":
             continue
         if _is_st(s):
             continue

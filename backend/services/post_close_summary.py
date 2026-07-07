@@ -23,12 +23,12 @@ from backend.core.trading_calendar import is_workday as _is_workday  # 统一交
 
 
 async def collect_post_close_signals() -> tuple[dict, int]:
-    """扫 focused/hold 票, 收集 alert_timing=post_close 的信号, 按 signal_name 分组。
+    """扫全池自选票(v1.7.589: 在池即扫, 不再要求关注), 收集 alert_timing=post_close 的信号, 按 signal_name 分组。
     返回 (by_signal, total)。纯收集, 不推送。"""
     all_stocks = await repository.list_all_stocks()
     by_code: dict[str, dict] = {}
     for s in all_stocks:
-        if not (s.get("focused") or s.get("status") == "hold"):
+        if s.get("trade_type") == "index":
             continue
         if _is_st_stock(s):
             continue

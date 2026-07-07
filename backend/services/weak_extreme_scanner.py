@@ -6,7 +6,7 @@
     15:05  收盘汇总 — run_post_close_summary 仍带弱势极限小节(真实全天量复核)
 
 逻辑:
-    扫所有用户的"focused + hold"股票池,检测每只票是否命中 BUY_WEAK_EXTREME,
+    扫所有用户的全池自选股,检测每只票是否命中 BUY_WEAK_EXTREME,
     把命中清单汇总成一条企业微信消息推送(跟 scanner 实时单条推送互补)。
 """
 import asyncio
@@ -48,11 +48,11 @@ from backend.core.trading_calendar import is_workday as _is_workday  # 统一交
 
 
 async def collect_weak_extreme_hits() -> list[dict]:
-    """扫股票池(focused/hold, 排除 ST), 返回命中 BUY_WEAK_EXTREME 的票列表。纯收集, 不推送。"""
+    """扫股票池(v1.7.589: 在池即扫不再要求关注, 排除 ST/概念指数), 返回命中 BUY_WEAK_EXTREME 的票列表。纯收集, 不推送。"""
     all_stocks = await repository.list_all_stocks()
     by_code: dict[str, dict] = {}
     for s in all_stocks:
-        if not (s.get("focused") or s.get("status") == "hold"):
+        if s.get("trade_type") == "index":
             continue
         name = (s.get("name") or "").upper().strip()
         if "ST" in name:  # v1.7.16: 过滤 ST/*ST

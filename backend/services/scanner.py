@@ -338,14 +338,14 @@ async def _compute_regime_safe() -> dict:
 
 
 def _select_scan_targets(all_stocks: list[dict]) -> dict[str, list[dict]]:
-    """从全量股票池筛出 focused/hold, 按 code 聚合成 {code: [stock_entry_per_user, ...]}.
+    """从全量股票池选出扫描对象, 按 code 聚合成 {code: [stock_entry_per_user, ...]}.
+    v1.7.589: 在池即扫(watch/focused/hold 全收) — 加自选即默认预警, 不再要求"关注"。
     跳过 trade_type='index' 的概念指数(不参与模型计算和预警)."""
     by_code: dict[str, list[dict]] = defaultdict(list)
     for s in all_stocks:
         if s.get("trade_type") == "index":
             continue
-        if s.get("focused") or s.get("status") == "hold":
-            by_code[s["code"]].append(s)
+        by_code[s["code"]].append(s)
     return by_code
 
 
@@ -440,10 +440,10 @@ def _stop_confirm_ok(user_id: int, code: str, signal_id: str,
 
 
 async def _filter_valid_signals(signals, user_config: dict | None, *,
-                                 is_focused: bool, is_hold: bool,
+                                 is_hold: bool,
                                  code: str, user_id: int,
                                  sent_today: tuple[set, set] | None = None) -> list:
-    """过滤 — post_close 时机分流 + focused-watch 仅买点 + 当日去重(同信号 + 跨买点) + 多买点共振合并.
+    """过滤 — post_close 时机分流 + 非持仓仅买点 + 当日去重(同信号 + 跨买点) + 多买点共振合并.
 
     sent_today=(已推信号键集, 已推买点股集), 由调用方每轮预载一次, 替代逐信号 N+1 查询;
     传 None 时回退到逐条 DB 查询(兼容未预载的调用方)。
@@ -455,7 +455,8 @@ async def _filter_valid_signals(signals, user_config: dict | None, *,
         # v1.7.35: alert_timing=post_close 的信号交给 15:05 汇总任务
         if _alert_timing(sig.signal_id, user_config) == "post_close":
             continue
-        if is_focused and not is_hold and sig.direction != "buy":
+        # v1.7.589: 非持仓票只推买点(卖点对没持仓的票无意义, 成本类卖点也算不出)
+        if not is_hold and sig.direction != "buy":
             continue
         if sent_keys is not None:
             if (user_id, code, sig.signal_id) in sent_keys:
@@ -656,7 +657,7 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
                            sent_today: tuple[set, set] | None = None):
     """单只票全用户处理: 跳 ST → 各用户独立 detect/filter/emit/push.
 
-    一票上多用户的场景 (focused/hold 同 code 来自不同 user) 共享 df/rt.
+    一票上多用户的场景 (同 code 来自不同 user) 共享 df/rt.
     """
     for stock in stock_entries:
         if _is_st_stock(stock):
@@ -664,7 +665,6 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
         user_id = stock["user_id"]
         trade_type = stock["trade_type"]
         name = stock["name"]
-        is_focused = bool(stock.get("focused"))
         is_hold = stock.get("status") == "hold"
 
         user_config, entry_cost, entry_date, entry_model = await user_ctx.get(user_id, code, is_hold)
@@ -677,7 +677,7 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
 
         valid_sigs = await _filter_valid_signals(
             signals, user_config,
-            is_focused=is_focused, is_hold=is_hold,
+            is_hold=is_hold,
             code=code, user_id=user_id, sent_today=sent_today,
         )
         if not valid_sigs:
@@ -859,8 +859,8 @@ async def scan_stock_pool():
 
 async def manual_scan(user_id: int = 1) -> list[dict]:
     stocks = await repository.list_stocks(user_id)
-    # v1.7.16: ST/*ST 个股不参与手动扫描
-    stocks = [s for s in stocks if (s.get("focused") or s.get("status") == "hold") and not _is_st_stock(s)]
+    # v1.7.16: ST/*ST 个股不参与手动扫描; v1.7.589: 在池即扫(不再要求关注), 概念指数除外
+    stocks = [s for s in stocks if s.get("trade_type") != "index" and not _is_st_stock(s)]
     if not stocks:
         return []
 
@@ -884,7 +884,6 @@ async def manual_scan(user_id: int = 1) -> list[dict]:
 
     for stock in stocks:
         code = stock["code"]
-        is_focused = stock.get("focused")
         is_hold = stock.get("status") == "hold"
         try:
             df = kline_map.get(code)
@@ -899,7 +898,7 @@ async def manual_scan(user_id: int = 1) -> list[dict]:
                 entry_cost=entry_cost, entry_date=entry_date, entry_model=entry_model,
             )
             for sig in sigs:
-                if is_focused and not is_hold and sig.direction != "buy":
+                if not is_hold and sig.direction != "buy":
                     continue
                 indicators = _extract_indicators(df, rt, sig.used_indicators)
                 all_signals.append({
