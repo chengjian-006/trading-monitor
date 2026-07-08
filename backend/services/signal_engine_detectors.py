@@ -22,7 +22,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from backend.services.intraday_estimator import is_intraday
 from backend.utils.limit_calc import is_at_limit_up
 
 
@@ -118,22 +117,25 @@ def _nearest_ma_label(close: float, row: pd.Series) -> str:
 
 
 def _intraday_after(earliest_minute: int, now=None) -> bool:
-    """盘中早盘门槛:
-    - 工作日 09:00-09:30 集合竞价: 视为盘中早时间, 走 earliest_minute 门槛
-      (v1.7.106 修复: 此前 is_intraday()=False 误放行, 导致 S0/BUY_STRONG_START 在 09:25-09:30 被触发)
-    - 连续竞价 09:30-11:30 / 13:00-15:00: 走门槛
-    - 真盘后(午休/15:00+)/非交易日: 放行 True (供 EOD/回测路径)
+    """盘中时间门槛(实时扫描按 earliest_minute 卡点; EOD 复核/回测/周末放行):
+    - 工作日 09:00~15:00(集合竞价 09:00-09:30 / 连续竞价 09:30-11:30·13:00-15:00 / 午休 11:30-13:00):
+      一律走门槛, cur_min >= earliest_minute 才放行。
+      **午休也走门槛**(v1.7.596 修): 半场收盘(11:30)不是真收盘, 尾盘确认型(如中继平台突破 earliest=880)
+      在午休不得触发 —— 此前 `not is_intraday()` 把午休当真盘后放行, 导致 11:30:01~11:30:59 那几十秒
+      (扫描器按分钟串仍判开跑, is_intraday 却已翻 False)拿 11:30 半场快照当"收盘价"误发。
+      (v1.7.106: 09:00-09:30 集合竞价同样走门槛, 修 S0/STRONG_START 在 09:25-09:30 误触发)
+    - 工作日 15:00 之后 / 09:00 之前 / 周末节假日: 放行 True, 供 EOD 复核与回测路径。
 
     now: 测试注入用 (datetime). 不传则取 datetime.now().
     """
     from datetime import datetime as _dt
     _n = now if now is not None else _dt.now()
-    cur_min = _n.hour * 60 + _n.minute
-    if _n.weekday() < 5 and 9 * 60 <= cur_min < 9 * 60 + 30:
-        return cur_min >= int(earliest_minute)
-    if not is_intraday(_n):
+    if _n.weekday() >= 5:                         # 周末/非工作日: EOD/回测放行
         return True
-    return cur_min >= int(earliest_minute)
+    cur_min = _n.hour * 60 + _n.minute
+    if cur_min < 9 * 60 or cur_min >= 15 * 60:    # 真盘后(15:00+) / 开盘前(09:00-): EOD/回测放行
+        return True
+    return cur_min >= int(earliest_minute)        # 09:00~15:00 (含午休) 一律走门槛
 
 
 # ── 检测器 ──
@@ -518,7 +520,8 @@ def _detect_vol_breakout(d: pd.DataFrame, latest: pd.Series, sc: dict,
             f"站上{'&'.join(above)} | 当前成交额{est_amount / 1e8:.1f}亿")
 
 
-def _detect_platform_breakout(d: pd.DataFrame, latest: pd.Series, sc: dict) -> Optional[str]:
+def _detect_platform_breakout(d: pd.DataFrame, latest: pd.Series, sc: dict,
+                              code: str | None = None, name: str = "") -> Optional[str]:
     """检测"中继平台突破"买点 (右侧, 多日横盘窄平台后收盘突破上沿):
       [平台 setup] 今日之前 L 根横盘:
         ① 平台上沿 PH = 平台窗最高价; 收盘振幅 (maxClose-minClose)/minClose ≤ A (窄平台)
@@ -601,6 +604,17 @@ def _detect_platform_breakout(d: pd.DataFrame, latest: pd.Series, sc: dict) -> O
     est_amount = float(latest.get("amount_est", 0) or 0)
     if est_amount < float(sc.get("min_full_day_amount", 1_000_000_000)):
         return None
+
+    # ⑦ 排除"触发侧追涨停" (v1.7.596, 同 BUY_VOL_BREAKOUT v1.7.520 / BUY_STRONG_START v1.7.529):
+    #   收盘确认突破时若现价已封/逼近今日涨停板, 收盘价=涨停价挂不进(追板/炸板高位接盘), 不发。
+    #   板幅感知(主板10%/创业科创20%/北交所30%/ST5%): 现价距板 ≤ chase_limit_buffer_pct 视为接近涨停。
+    #   回测无 code(realtime=None)→ is_at_limit_up 返回 False 自动跳过, 与历史回测口径一致。
+    if bool(sc.get("chase_limit_skip", True)) and code and len(d) >= 2:
+        prev_close = float(d.iloc[-2]["close"] or 0)
+        if prev_close > 0:
+            cur_pct = (float(latest["close"]) - prev_close) / prev_close * 100
+            if is_at_limit_up(code, cur_pct, name, tol=float(sc.get("chase_limit_buffer_pct", 1.0))):
+                return None
 
     return (f"{prior_label}中继平台{L}日(振幅{amp * 100:.1f}%, {rise_label}上沿{PH:.2f}) → "
             f"收盘突破+{buf * 100:.1f}%(触发价{lvl:.2f}) {vol_label}| "

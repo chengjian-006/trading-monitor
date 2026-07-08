@@ -339,7 +339,7 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
     #   退潮/分化月走平由引擎层 regime 闸门(scanner 对所有买点套 adjusted_priority_for_buy)自动降级/停发, 此处不另判.
     sc_pb = cfg.get("BUY_PLATFORM_BREAKOUT", {})
     if sc_pb.get("enabled", True) and _intraday_after(sc_pb.get("intraday_earliest_minute", 890)):
-        pb_result = _detect_platform_breakout(d, latest, sc_pb)
+        pb_result = _detect_platform_breakout(d, latest, sc_pb, code=code, name=name)
         if pb_result:
             signals.append(Signal(
                 signal_id="BUY_PLATFORM_BREAKOUT",

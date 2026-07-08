@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """行情自检"恢复宽限窗"判定 (v1.7.562) — 开盘/午休回来前几分钟不判陈旧。"""
 from datetime import datetime
+from unittest.mock import patch
 
 from backend.services.data_sanity import _in_resume_grace
 
@@ -21,8 +22,14 @@ def test_lunch_resume_after_grace():
 
 
 def test_open_resume_in_grace():
-    # 09:25 开盘(含集合竞价撮合)后前 3 分钟 → 宽限
-    assert _in_resume_grace(_t(9, 25, 30)) is True
+    # 开盘(含集合竞价撮合)后前 3 分钟 → 宽限; 开盘时刻取自 config trading_hours(v1.7.594 起 09:15)。
+    # patch 固定 config 使断言不依赖部署环境的 config.json。
+    with patch("backend.core.config.load_config",
+               return_value={"trading_hours": [{"start": "09:15", "end": "11:30"},
+                                               {"start": "13:00", "end": "15:00"}]}):
+        assert _in_resume_grace(_t(9, 15, 30)) is True     # 开盘后 30s, 宽限内
+        assert _in_resume_grace(_t(9, 18, 30)) is False    # 开盘后 3.5min, 已过 3min 宽限
+        assert _in_resume_grace(_t(9, 25, 30)) is False    # 开盘后 10min, 早已过宽限
 
 
 def test_normal_intraday_not_grace():

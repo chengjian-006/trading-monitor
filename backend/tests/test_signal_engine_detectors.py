@@ -17,6 +17,7 @@ import pandas as pd
 import pytest
 
 from backend.services.signal_engine_detectors import (
+    _detect_platform_breakout,
     _detect_s0_weak_extreme,
     _detect_strong_start_right,
     _detect_vol_breakout,
@@ -137,9 +138,54 @@ class TestIntradayAfter:
         """周一 16:00 (盘后) → True 给 EOD 路径放行."""
         assert _intraday_after(600, now=datetime(2026, 1, 5, 16, 0)) is True
 
-    def test_lunch_break_returns_true(self):
-        """周一 12:00 (午休) → True 放行."""
+    def test_lunch_break_applies_gate_not_bypass(self):
+        """v1.7.596: 午休(11:30~13:00)走门槛, 不再无条件放行 —— 半场收盘非真收盘.
+        earliest=600 的信号 12:00(=720)已过门槛 → True; 但尾盘确认型 earliest=880(14:40)
+        在午休 12:00 → False (此前 bug: is_intraday=False 误当盘后放行, 拿11:30半场快照当收盘价误发)."""
         assert _intraday_after(600, now=datetime(2026, 1, 5, 12, 0)) is True
+        assert _intraday_after(880, now=datetime(2026, 1, 5, 12, 0)) is False
+
+    def test_lunch_edge_1130_seconds_blocks_late_gate(self):
+        """核心 bug 窗口: 周三 11:30:30 (扫描器按分钟串仍判开跑, 但已过11:30:00进午休).
+        尾盘门槛 880 必须 False —— 正是 0708 瑞芯微 11:30 中继平台突破误发的那几十秒."""
+        assert _intraday_after(880, now=datetime(2026, 7, 8, 11, 30, 30)) is False
+
+    def test_after_close_gate_bypass_for_eod(self):
+        """周一 15:05 (真盘后) + 尾盘门槛880 → True, 给 EOD 复核/回测放行."""
+        assert _intraday_after(880, now=datetime(2026, 1, 5, 15, 5)) is True
+
+
+# ── 中继平台突破 chase_limit (v1.7.596) ──
+
+class TestPlatformBreakoutChaseLimit:
+    """收盘确认突破时现价逼近涨停板不发 — 收盘价=涨停价挂不进(0708瑞芯微涨停仍推的次要坑)."""
+
+    _SC = {"L": 4, "REQ_PRIOR": False, "REQ_RISE": False, "REQ_VOL": False,
+           "REQ_HOLD": False, "A": 0.15, "BUF": 0.005, "min_full_day_amount": 0,
+           "chase_limit_skip": True, "chase_limit_buffer_pct": 1.0}
+
+    def _platform_df(self, today_close):
+        # 6 根: 索引1-4 = 窄平台(收盘/最高≈100), 索引5 = 今日突破
+        rows = [{"close": 100.0, "high": 100.0, "low": 99.0, "volume": 1000.0, "amount_est": 2e9}
+                for _ in range(5)]
+        rows.append({"close": today_close, "high": today_close, "low": 100.0,
+                     "volume": 1000.0, "amount_est": 2e9})
+        return pd.DataFrame(rows)
+
+    def test_breakout_not_at_limit_fires(self):
+        """今日 +0.5% 突破上沿(100×1.005) 未涨停 → 正常出信号."""
+        d = self._platform_df(100.5)
+        assert _detect_platform_breakout(d, d.iloc[-1], self._SC, code="600000", name="测试") is not None
+
+    def test_breakout_at_limit_blocked(self):
+        """今日 +10% 主板涨停封板, 收盘=涨停价挂不进 → chase_limit 拦下不发."""
+        d = self._platform_df(110.0)
+        assert _detect_platform_breakout(d, d.iloc[-1], self._SC, code="600000", name="测试") is None
+
+    def test_no_code_backtest_path_ignores_chase_limit(self):
+        """回测无 code → 不判 chase_limit(与历史回测口径一致), 涨停也照常触发."""
+        d = self._platform_df(110.0)
+        assert _detect_platform_breakout(d, d.iloc[-1], self._SC, code=None) is not None
 
     def test_pre_auction_below_threshold_blocked(self):
         """工作日 09:25 集合竞价 + earliest=600 → False (修复 v1.7.106 漏洞)."""

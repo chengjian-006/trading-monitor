@@ -26,7 +26,7 @@ _last_alert_at: float = 0.0
 
 
 def _in_resume_grace(now=None, grace: int = RESUME_GRACE_SEC) -> bool:
-    """是否处于交易时段刚恢复的宽限窗(开盘 09:25 / 午休回来 13:00 后的前几分钟)。
+    """是否处于交易时段刚恢复的宽限窗(开盘 / 午休回来 13:00 后的前几分钟)。开盘时刻取自 config trading_hours。
 
     v1.7.562: 午休/隔夜期间行情刷新暂停, 全池 quote_updated_at 天然停在上一时段末;
     恢复后头几分钟只要没把整池刷完, "陈旧>6min"就是必然读数而非真异常(0703 13:00
@@ -36,7 +36,7 @@ def _in_resume_grace(now=None, grace: int = RESUME_GRACE_SEC) -> bool:
     from backend.core.config import load_config
     n = now if now is not None else _dt.now()
     cur = n.hour * 3600 + n.minute * 60 + n.second
-    periods = load_config().get("trading_hours") or [{"start": "09:25"}, {"start": "13:00"}]
+    periods = load_config().get("trading_hours") or [{"start": "09:15"}, {"start": "13:00"}]
     for p in periods:
         try:
             hh, mm = str(p.get("start", "")).split(":")

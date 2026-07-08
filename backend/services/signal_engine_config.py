@@ -176,6 +176,8 @@ DEFAULT_SIGNAL_CONFIG: dict = {
         "REQ_VOL": True,                       # 要求突破放量
         "REQ_HOLD": False,                     # 要求平台不破MA20 (可选)
         "min_full_day_amount": 1_000_000_000,  # 今日全天成交额 ≥ 10亿
+        "chase_limit_skip": True,              # v1.7.596: 排除"触发侧追涨停" — 收盘确认突破时现价已封/逼近涨停板则不发(收盘价=涨停价挂不进); 回测无code自动跳过此闸
+        "chase_limit_buffer_pct": 1.0,         # 现价距涨停板 ≤ 此%(板幅感知: 主板10%/创业科创20%/北交所30%/ST5%) 视为接近涨停不触发
     },
     "BUY_AUCTION_STRENGTH": {
         # 竞价高开弱转强 (v1.7.275): 强势缩量回调次日竞价高开 + 大盘极端情绪 + 个股竞价额过亿
