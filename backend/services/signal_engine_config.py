@@ -105,6 +105,26 @@ DEFAULT_SIGNAL_CONFIG: dict = {
         "vol_mult_avg10": 1.5,                # v1.7.462: 当日(盘中外推全天)量 ≥ 近10日均量 ×1.5 = 放量确认
         "breakout_pct": 2.5,
     },
+    "BUY_RALLY_MA60": {
+        # 回踩60MA缩量后突破昨高(右侧) v1.7.593: 课件「中线六二法」60日档 — 同回踩MA20检测器,
+        # 锚点改MA60、容差±2%(慢线波动大, 比MA20的3%紧比MA10的1%宽)、主升窗放宽峰值≤60交易日(中线节奏)。
+        #   昨日: 主升浪(峰值≤60日) + 回踩60日线(±2%) + 缩量(<近10日均量×0.8)
+        #   今日: 盘中最高突破昨高×(1+2.5%) + 放量确认(当日量≥近10日均量×1.5) + 累计成交额≥5亿底线 → 买点
+        # 全市场双窗回测(0707, 出场B5=+7%卖半/剩半收盘破MA5清/-6%/T+10):
+        #   挖掘窗(2025-07~2026-07) 221笔 62.4%/+3.15%/PF3.25; 独立样本(2023-07~2025-06) 243笔 50.6%/+1.71%/PF1.96
+        #   出场对比: 剩半破MA10×0.98 独立样本PF1.39 / 剩半破MA20×0.97 PF1.19 / B5剩半破MA5 PF1.96 → 取B5(与回踩族一致)
+        "enabled": True,
+        "intraday_earliest_minute": 0,
+        "require_prior_rally": True,
+        "rally_peak_within_bars": 60,         # 中线: 主升浪峰值距今 ≤60 交易日(回踩MA10/MA20为30)
+        "touch_ma": "ma60",                   # 回踩锚点用MA60
+        "ma20_touch_pct": 2.0,                # 回踩容差±2%
+        "shrink_ratio": 0.8,
+        "amount_avg_window": 10,
+        "min_full_day_amount": 500_000_000,   # 累计额底线5亿(放量确认是主闸门)
+        "vol_mult_avg10": 1.5,                # 当日(盘中外推全天)量 ≥ 近10日均量 ×1.5 = 放量确认
+        "breakout_pct": 2.5,
+    },
     "BUY_VOL_BREAKOUT": {
         # 缩量突破昨高 (v1.7.248 新右侧买点): 昨日缩量整理 → 今日放量突破昨高, 不锚定均线、不要主升浪前置
         #   昨日: 昨量 < 近10日均量(截至昨日) × 0.8 (缩量整理)
@@ -182,8 +202,11 @@ DEFAULT_SIGNAL_CONFIG: dict = {
     # confirm_after_minute=870: MA5破位只在工作日14:30后判(尾盘确认, 早盘/午休噪音大) v1.7.403
     "SELL_BREAK_MA5": {"enabled": True, "anchor": "ma5",  "break_pct": 2.0, "emit_all": False,
                        "confirm_after_minute": 870},
-    "SELL_BREAK_MA10": {"enabled": True, "anchor": "ma10", "break_pct": 2.0},
-    "SELL_BREAK_MA20": {"enabled": True, "anchor": "ma20", "break_pct": 2.0},
+    # v1.7.594: MA10/MA20 破位加 9:26 确认闸(566=集合竞价撮合后) — 交易时段开盘提前到 09:15 后,
+    #   09:15~09:20 可撤单竞价的假跌破(挂单砸穿均线又在撮合前撤回)会误触发卖点; 撮合后(9:26)的
+    #   竞价成交价才是真价, 此时仍破才算。MA5 已有 14:30 闸不受影响; 盘后/周末放行供 EOD/回测。
+    "SELL_BREAK_MA10": {"enabled": True, "anchor": "ma10", "break_pct": 2.0, "confirm_after_minute": 566},
+    "SELL_BREAK_MA20": {"enabled": True, "anchor": "ma20", "break_pct": 2.0, "confirm_after_minute": 566},
     "SELL_TAKE_PROFIT": {
         "enabled": True,
         "target_pct": 7.0,

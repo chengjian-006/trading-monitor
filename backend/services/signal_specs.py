@@ -26,6 +26,7 @@ SIGNAL_GROUP_MAP: dict[str, str] = {
     "BUY_STRONG_START":    "entry",
     "BUY_RALLY_MA20":      "entry",
     "BUY_RALLY_MA10":      "entry",
+    "BUY_RALLY_MA60":      "entry",
     "BUY_VOL_BREAKOUT":    "entry",
     "BUY_PLATFORM_BREAKOUT": "entry",
     "BUY_AUCTION_STRENGTH": "entry",
@@ -43,6 +44,8 @@ SIGNAL_GROUP_MAP: dict[str, str] = {
     "SELL_RALLY_MA10":        "exit",   # 回踩10MA缩量后突破昨高 卖出(止损/清剩半/时间止损)
     "SELL_RALLY_MA20_HALF":   "exit",   # 回踩20MA缩量后突破昨高 +7%止盈减半
     "SELL_RALLY_MA10_HALF":   "exit",   # 回踩10MA缩量后突破昨高 +7%止盈减半
+    "SELL_RALLY_MA60":        "exit",   # 回踩60MA缩量后突破昨高 卖出(止损/清剩半/时间止损) v1.7.593
+    "SELL_RALLY_MA60_HALF":   "exit",   # 回踩60MA缩量后突破昨高 +7%止盈减半 v1.7.593
     # risk — 持仓风控浮亏分级
     "SELL_LOSS_5":  "risk",
     "SELL_LOSS_8":  "risk",
@@ -68,7 +71,7 @@ def group_of(signal_id: str) -> str:
 
 # 卖出信号归类(报告"卖出"段三分组用): profit 主动止盈 / loss 被动止损 / discipline 纪律清仓
 _SELL_PROFIT_IDS = {"SELL_TAKE_PROFIT", "SELL_RR_TARGET", "SELL_TRAIL_STOP",
-                    "SELL_RALLY_MA20_HALF", "SELL_RALLY_MA10_HALF"}
+                    "SELL_RALLY_MA20_HALF", "SELL_RALLY_MA10_HALF", "SELL_RALLY_MA60_HALF"}
 _SELL_DISCIPLINE_IDS = {"SELL_WEAK_TIME", "SELL_TIME_STOP"}   # 时间到/持满清仓(SELL_TIME_STOP名含"止损"但是纪律)
 _SELL_LOSS_IDS = {"SELL_LOSS_5", "SELL_LOSS_8", "SELL_LOSS_10", "SELL_WEAK_STOP",
                   "SELL_BREAK_MA5", "SELL_BREAK_MA10", "SELL_BREAK_MA20"}
@@ -125,13 +128,15 @@ PRIORITY_OVERRIDES: dict[str, int] = {
     # 弱势极限左侧出场 (清仓级, 强档推企微)
     "SELL_WEAK_STOP": 3, "SELL_WEAK_TIME": 3,
     # 回踩MA买点派生卖点 (rally_reminder 落库, 与其它 exit 卖点一致按强档; 出场参数走 rally_reminder.RALLY_MODELS, 不在 DEFAULT_SIGNAL_CONFIG)
-    "SELL_RALLY_MA20": 3, "SELL_RALLY_MA10": 3,
-    "SELL_RALLY_MA20_HALF": 3, "SELL_RALLY_MA10_HALF": 3,
+    "SELL_RALLY_MA20": 3, "SELL_RALLY_MA10": 3, "SELL_RALLY_MA60": 3,
+    "SELL_RALLY_MA20_HALF": 3, "SELL_RALLY_MA10_HALF": 3, "SELL_RALLY_MA60_HALF": 3,
     # 左侧弱势极限 (v1.7.147 升强档: 盘中命中即推 + 11:30/15:00 快照仍跑, 用户接受双推)
     "BUY_WEAK_EXTREME": 3,
     # 回踩20MA缩量后突破昨高 (盘中突破即买, 须及时, 故强档推企微; 中等质量, 嫌噪音可在配置页降档)
     "BUY_RALLY_MA20": 3,
     "BUY_RALLY_MA10": 3,
+    # 回踩60MA缩量后突破昨高 (v1.7.593 中线六二法60日档): 盘中突破即买, 与回踩MA10/MA20同强档
+    "BUY_RALLY_MA60": 3,
     # 缩量突破昨高 (v1.7.248): 盘中突破即买, 须及时, 强档推企微
     "BUY_VOL_BREAKOUT": 3,
     # 中继平台突破 (v1.7.323): 尾盘收盘确认突破即买, 强档推企微; 退潮/分化月由 regime 闸门自动降级

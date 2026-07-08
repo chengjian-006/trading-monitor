@@ -60,11 +60,12 @@ function initChart() {
     },
     grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
     // 左右轴必须用【完全相同】的 scaleMargins, 否则同一像素行在两轴上对应不同值 —
-    //   价格走右轴、涨跌幅%走左轴, 之前右轴漏设 scaleMargins 吃了默认 top0.2/bottom0.1,
-    //   把涨停价(最高点)压到距顶20%处, 左轴%却在距顶2%, 导致涨停(+9.95%)在左轴读成~+9.0%。
+    //   价格走左轴、涨跌幅%走右轴(v1.7.595 对调), 两轴 scaleMargins 必须一致,
+    //   否则涨停价(最高点)与右轴%读数错位(如涨停+9.95%被读成~+9.0%)。
     //   底部留 0.24 给成交量副图(top0.78), 价格线不压到量柱上。
-    rightPriceScale: { borderColor: '#e0e0e0', scaleMargins: { top: 0.04, bottom: 0.24 } },
-    // 左轴显示涨跌幅%(相对昨收), 与右轴价格刻度一一对齐(0.00%=昨收线)
+    // 右轴显示涨跌幅%(相对昨收), 与左轴价格刻度一一对齐(0.00%=昨收线)
+    rightPriceScale: { visible: true, borderColor: '#e0e0e0', scaleMargins: { top: 0.04, bottom: 0.24 } },
+    // 左轴显示价格
     leftPriceScale: { visible: true, borderColor: '#e0e0e0', scaleMargins: { top: 0.04, bottom: 0.24 } },
     timeScale: {
       visible: true,
@@ -82,7 +83,9 @@ function initChart() {
     handleScale: false,
   })
 
+  // 价格走左轴 (v1.7.595: 原走右轴, 与涨跌幅%对调)
   priceSeries = chart.addAreaSeries({
+    priceScaleId: 'left',
     lineColor,
     topColor: areaTop,
     bottomColor: areaBottom,
@@ -92,7 +95,9 @@ function initChart() {
     crosshairMarkerVisible: true,
   })
 
+  // 均价线同走左轴 (价格口径, 须与价格系列同轴)
   avgSeries = chart.addLineSeries({
+    priceScaleId: 'left',
     color: '#f59e0b',
     lineWidth: 1,
     lineStyle: 2,
@@ -101,9 +106,9 @@ function initChart() {
     crosshairMarkerVisible: false,
   })
 
-  // 涨跌幅%系列: 线本身透明(不画), 只为驱动左侧%刻度轴
+  // 涨跌幅%系列: 线本身透明(不画), 只为驱动右侧%刻度轴 (v1.7.595: 原驱动左轴, 与价格对调)
   const pctSeries = chart.addLineSeries({
-    priceScaleId: 'left',
+    priceScaleId: 'right',
     color: 'rgba(0,0,0,0)',
     lineWidth: 1,
     priceLineVisible: false,

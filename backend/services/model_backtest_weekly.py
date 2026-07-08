@@ -36,6 +36,7 @@ MODELS = [
     ("BUY_VOL_BREAKOUT", "缩量后放量突破"),
     ("BUY_RALLY_MA20", "回踩20MA缩量后突破昨高"),
     ("BUY_RALLY_MA10", "回踩10MA缩量后突破昨高"),
+    ("BUY_RALLY_MA60", "回踩60MA缩量后突破昨高"),
     ("BUY_STRONG_START", "强势起点"),
     ("BUY_WEAK_EXTREME", "弱势极限"),
     ("BUY_AUCTION_STRENGTH", "竞价弱转强"),
@@ -185,6 +186,7 @@ def _backtest_one(df, start_date):
     vol_avg10 = ind["volume"].rolling(10, min_periods=5).mean().values
     o = ind["open"].values; h = ind["high"].values; c = ind["close"].values
     v = ind["volume"].values
+    m5 = ind["ma5"].values
     m10 = ind["ma10"].values; m20 = ind["ma20"].values; m60 = ind["ma60"].values
     dts = ind["date"].values; ph = ind["high"].shift(1).values
     n = len(ind)
@@ -201,18 +203,25 @@ def _backtest_one(df, start_date):
         if dts[i] < start_date:
             continue
         latest = ind.iloc[i]; sub = ind.iloc[:i + 1]
+        # v1.7.593: 回踩MA10/MA20/缩量突破 出场统一 B5(_sim_rally_ma5, 剩半沿5日线飘) 对齐实盘 rally_reminder
+        #   与每日胜率重算(model_winrate_refresher v1.7.584 已切), 此前周回测仍旧口径造成同模型两处两说。
         if _detect_vol_breakout(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_VOL_BREAKOUT"]) and keep("缩量后放量突破", i):
             trig = ph[i] * 1.02; entry = o[i] if o[i] >= trig else trig
-            r = _sim_right(entry, o, h, c, m10, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: res["缩量后放量突破"].append((r[0] - FEE, r[1], r[2]))
         if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA20"]) and keep("回踩20MA缩量后突破昨高", i):
             trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
-            r = _sim_rally20(entry, o, h, c, m20, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: res["回踩20MA缩量后突破昨高"].append((r[0] - FEE, r[1], r[2]))
         if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA10"]) and keep("回踩10MA缩量后突破昨高", i):
             trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
-            r = _sim_right(entry, o, h, c, m10, i, n)
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: res["回踩10MA缩量后突破昨高"].append((r[0] - FEE, r[1], r[2]))
+        # v1.7.593 回踩MA60(中线六二法60日档): 同检测器锚MA60, 出场B5(OOS: 破MA5 PF1.96 > 破MA10 1.39 > 破MA20 1.19)
+        if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA60"]) and keep("回踩60MA缩量后突破昨高", i):
+            trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
+            if r: res["回踩60MA缩量后突破昨高"].append((r[0] - FEE, r[1], r[2]))
         if not np.isnan(m10[i]) and _detect_strong_start_right(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_STRONG_START"], WCFG) and keep("强势起点", i):
             r = _sim_right(c[i], o, h, c, m10, i, n)
             if r: res["强势起点"].append((r[0] - FEE, r[1], r[2]))

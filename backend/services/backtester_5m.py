@@ -31,12 +31,18 @@ FEE = 0.003
 # 模型注册表: 检测器 + 默认配置键 + 入场口径 + 各自真实出场规则(对齐模型图鉴生产口径)
 #   exit: hard止损 / target卖半(None=不卖半) / cap封顶交易日 / ma均线列(None=不按均线) / ma_mult
 _REG = [
+    # v1.7.593: 回踩MA10/MA20/缩量突破 出场对齐实盘 B5 口径(v1.7.584 剩半沿5日线飘: 剩半收盘破MA5清,
+    #   回踩MA20 同步从旧+15%/-7%/T15 统一到 +7%/-6%/T10) — 此前仅胜率重算(model_winrate_refresher)已切,
+    #   这里是模型回测页/skill 口径源, 补齐对齐(台账「图鉴统一更新清单③」)。
     {"id": "BUY_RALLY_MA10", "name": "回踩MA10", "det": _detect_rally_ma20_pullback, "use_s0": False,
-     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma10", "ma_mult": 0.98}},
+     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
     {"id": "BUY_RALLY_MA20", "name": "回踩MA20", "det": _detect_rally_ma20_pullback, "use_s0": False,
-     "entry": "breakout", "exit": {"hard": -0.07, "target": 0.15, "cap": 15, "ma": "ma20", "ma_mult": 0.97}},
+     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
+    # v1.7.593 回踩MA60(中线六二法60日档): 全市场双窗 挖掘221笔62.4%/PF3.25, 独立样本243笔50.6%/PF1.96
+    {"id": "BUY_RALLY_MA60", "name": "回踩MA60", "det": _detect_rally_ma20_pullback, "use_s0": False,
+     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
     {"id": "BUY_VOL_BREAKOUT", "name": "缩量突破", "det": _detect_vol_breakout, "use_s0": False,
-     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma10", "ma_mult": 0.98}},
+     "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
     {"id": "BUY_PLATFORM_BREAKOUT", "name": "平台突破", "det": _detect_platform_breakout, "use_s0": False,
      "entry": "close", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma10", "ma_mult": 0.98}},
     {"id": "BUY_STRONG_START", "name": "强势起点", "det": _detect_strong_start_right, "use_s0": True,

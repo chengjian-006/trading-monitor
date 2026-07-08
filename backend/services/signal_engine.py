@@ -306,6 +306,20 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
                 used_indicators=("ma10", "volume", "high"),
             ))
 
+    # BUY_RALLY_MA60: 回踩60MA缩量后突破昨高(右侧) — 课件中线六二法60日档, 同检测器锚MA60±2%/主升窗60日
+    sc_r60 = cfg.get("BUY_RALLY_MA60", {})
+    if sc_r60.get("enabled", True) and _intraday_after(sc_r60.get("intraday_earliest_minute", 600)):
+        r60_result = _detect_rally_ma20_pullback(d, latest, sc_r60)
+        if r60_result:
+            signals.append(Signal(
+                signal_id="BUY_RALLY_MA60",
+                signal_name="回踩60MA缩量后突破昨高",
+                direction="buy",
+                detail=f"{r60_result} | 交易计划: +7%卖半/剩半破MA5/-6%止损/T+10时停",
+                strength=3,
+                used_indicators=("ma60", "volume", "high"),
+            ))
+
     # BUY_VOL_BREAKOUT: 缩量突破昨高 (右侧, 不锚均线/不要主升浪) — 1日微型平台突破
     sc_vb = cfg.get("BUY_VOL_BREAKOUT", {})
     if sc_vb.get("enabled", True) and _intraday_after(sc_vb.get("intraday_earliest_minute", 600)):

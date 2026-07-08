@@ -31,6 +31,7 @@ BUY_SIGNAL_NAMES = {
     "BUY_STRONG_START": "强势起点(右侧)",
     "BUY_RALLY_MA20": "回踩20MA缩量后突破昨高(右侧)",
     "BUY_RALLY_MA10": "回踩10MA缩量后突破昨高(右侧)",
+    "BUY_RALLY_MA60": "回踩60MA缩量后突破昨高(右侧)",
 }
 
 KLINE_DAYS = 400    # 拉取历史K线根数 (覆盖约1年交易 + MA60/主升浪窗口预热)

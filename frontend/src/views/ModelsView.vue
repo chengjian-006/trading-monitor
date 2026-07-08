@@ -62,6 +62,7 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
   BUY_VOL_BREAKOUT: [{label:'前置条件',color:'#3b82f6',items:['昨量<均量×0.8','昨缩量整理','缩量日长下影线≥振幅0.4(承接)','昨日非涨停封板(排除假缩量)']},{label:'触发条件',color:'#16a34a',items:['放量≥2×昨量','≥1.5×均量','盘中最高>昨高×1.02','收盘站上MA10/20','外推全天额≥10亿','实时累计额≥5亿(不卡10点)','现价未逼近涨停板(距板≤1%不发)']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半沿5日线(破MA5清)','-6%止损','T+10时停']}],
   BUY_RALLY_MA20: [{label:'前置条件',color:'#3b82f6',items:['近30日≥15%主升浪','昨收贴MA20±3%','昨缩量<均量×0.8']},{label:'触发条件',color:'#16a34a',items:['盘中最高>昨高×1.025','放量确认≥近10日均量×1.5','累计额≥5亿底线','突破即触发(不卡10点)']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半沿5日线(破MA5清)','-6%止损','T+10时停']}],
   BUY_RALLY_MA10: [{label:'前置条件',color:'#3b82f6',items:['近30日≥15%主升浪','昨收贴MA10±1%','昨缩量<均量×0.8']},{label:'触发条件',color:'#16a34a',items:['盘中最高>昨高×1.025','放量确认≥近10日均量×1.5','累计额≥5亿底线','突破即触发(不卡10点)']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半沿5日线(破MA5清)','-6%止损','T+10时停']}],
+  BUY_RALLY_MA60: [{label:'前置条件',color:'#3b82f6',items:['近60日≥15%主升浪','昨收贴MA60±2%','昨缩量<均量×0.8']},{label:'触发条件',color:'#16a34a',items:['盘中最高>昨高×1.025','放量确认≥近10日均量×1.5','累计额≥5亿底线','突破即触发(不卡10点)']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半沿5日线(破MA5清)','-6%止损','T+10时停']}],
   BUY_STRONG_START: [{label:'前置条件',color:'#3b82f6',items:['满足弱势极限缩量地量基础']},{label:'触发条件',color:'#16a34a',items:['放量≥近期×2','涨幅≥2%','站上MA10/20','全天额≥10亿(外推)','实时累计额≥5亿(破即触发,不卡10点)','距弱势极限基准涨幅≤10%(挡晚到追高)','逼近涨停板(距板≤1%)不报(追不进)']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半破MA10×0.98','-6%止损','T+10时停']}],
   BUY_WEAK_EXTREME: [{label:'前置条件',color:'#3b82f6',items:['近30日≥15%主升浪','收>MA60>MA20','贴MA10/20±2%','前1日也满足']},{label:'触发条件',color:'#16a34a',items:['今量≤近10日最低×1.1','今量≤均量×0.70','10:00起']},{label:'出场规则',color:'#ea580c',items:['-12%硬止损','T+15清仓','不卖半·纯持有']}],
   BUY_AUCTION_STRENGTH: [{label:'前置条件',color:'#3b82f6',items:['收>MA20>MA60','近20日涨幅≥15%','昨缩量≤均×0.8','昨涨幅∈[-5%,+1%]','收>MA10']},{label:'触发·门控',color:'#16a34a',items:['竞价高开∈[3%,9%]','红盘≥3500或绿盘≥3500','竞价成交额≥5000万','9:26竞价起']},{label:'出场规则',color:'#ea580c',items:['+7%卖半','剩半破MA10×0.98','-6%止损','T+10时停']}],
@@ -142,6 +143,19 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
           <rect x="32" y="108" width="14" height="12" fill="#d1d5db" rx="1"/><rect x="62" y="105" width="14" height="15" fill="#d1d5db" rx="1"/><rect x="92" y="106" width="14" height="14" fill="#d1d5db" rx="1"/><rect x="122" y="107" width="14" height="13" fill="#d1d5db" rx="1"/><rect x="152" y="113" width="14" height="7" fill="#94a3b8" rx="1"/><rect x="182" y="116" width="14" height="4" fill="#94a3b8" rx="1"/><rect x="212" y="105" width="14" height="15" fill="#ef4444" rx="2"/><rect x="242" y="102" width="14" height="18" fill="#ef4444" rx="2"/><rect x="272" y="104" width="14" height="16" fill="#ef4444" rx="2"/><rect x="302" y="103" width="14" height="17" fill="#ef4444" rx="2"/>
           <circle cx="200" cy="58" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5"/><text x="155" y="74" font-size="8" fill="#f59e0b" font-weight="600">回踩MA10±1%</text><text x="155" y="84" font-size="7" fill="#94a3b8">昨日缩量&lt;均量×0.8</text>
           <text x="250" y="15" font-size="9" fill="#ef4444" font-weight="700">突破昨高×1.025</text><text x="250" y="25" font-size="7" fill="#ef4444">不卡10点 实时触发</text>
+        </svg>
+
+        <!-- ═══ 4b. 回踩60MA缩量后突破昨高(中线六二法) ═══ -->
+        <svg v-else-if="m.id==='BUY_RALLY_MA60'" viewBox="0 0 480 140" class="mp-kline">
+          <rect width="480" height="140" fill="#fbfcfd" rx="6"/>
+          <line x1="0" y1="30" x2="480" y2="30" stroke="#eef1f5" stroke-width="0.5"/><line x1="0" y1="60" x2="480" y2="60" stroke="#eef1f5" stroke-width="0.5"/>
+          <line x1="0" y1="100" x2="480" y2="100" stroke="#dde1e6" stroke-width="1"/>
+          <line x1="20" y1="80" x2="460" y2="68" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="5,4" opacity="0.5"/><text x="478" y="66" font-size="8" fill="#3b82f6" opacity="0.7" font-weight="600" text-anchor="end">MA60</text>
+          <polyline points="20,82 60,74 100,52 140,34 180,30 220,42 260,56 300,68 330,74 360,72 400,58 420,50" fill="none" stroke="#1e293b" stroke-width="1.6"/>
+          <rect x="32" y="110" width="14" height="10" fill="#d1d5db" rx="1"/><rect x="62" y="104" width="14" height="16" fill="#d1d5db" rx="1"/><rect x="92" y="102" width="14" height="18" fill="#d1d5db" rx="1"/><rect x="122" y="105" width="14" height="15" fill="#d1d5db" rx="1"/><rect x="152" y="108" width="14" height="12" fill="#d1d5db" rx="1"/><rect x="182" y="110" width="14" height="10" fill="#d1d5db" rx="1"/><rect x="212" y="112" width="14" height="8" fill="#d1d5db" rx="1"/><rect x="242" y="114" width="14" height="6" fill="#d1d5db" rx="1"/><rect x="272" y="116" width="14" height="4" fill="#94a3b8" rx="1"/><rect x="302" y="103" width="14" height="17" fill="#ef4444" rx="2"/><rect x="332" y="105" width="14" height="15" fill="#ef4444" rx="2"/>
+          <circle cx="345" cy="73" r="8" fill="none" stroke="#f59e0b" stroke-width="1.5"/><text x="290" y="90" font-size="8" fill="#f59e0b" font-weight="600">深回踩MA60±2%</text><text x="290" y="99" font-size="7" fill="#94a3b8">昨日缩量&lt;均量×0.8</text>
+          <text x="120" y="22" font-size="8" fill="#94a3b8">主升浪(峰值≤60日内)</text>
+          <line x1="395" y1="30" x2="395" y2="52" stroke="#ef4444" stroke-width="1.5"/><polygon points="390,34 395,24 400,34" fill="#ef4444"/><text x="330" y="15" font-size="9" fill="#ef4444" font-weight="700">放量突破昨高×1.025</text>
         </svg>
 
         <!-- ═══ 5. 强势起点 ═══ -->

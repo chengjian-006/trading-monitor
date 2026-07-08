@@ -40,6 +40,9 @@ RALLY_MODELS = {
                        "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
     "BUY_RALLY_MA10": {"name": "回踩10MA缩量后突破昨高", "ma_win": 5, "runner_tol": 0.0,
                        "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
+    # v1.7.593 回踩MA60(中线六二法60日档): 出场OOS对比 剩半破MA5 PF1.96 > 破MA10 1.39 > 破MA20 1.19, 与回踩族同口径
+    "BUY_RALLY_MA60": {"name": "回踩60MA缩量后突破昨高", "ma_win": 5, "runner_tol": 0.0,
+                       "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
     "BUY_VOL_BREAKOUT": {"name": "缩量后放量突破", "ma_win": 5, "runner_tol": 0.0,
                          "plan": "+7%卖半 / 剩半收盘破MA5清 / -6%收盘止损 / 满10交易日时停"},
     "BUY_PLATFORM_BREAKOUT": {"name": "中继平台突破", "ma_win": 10, "runner_tol": 0.02,

@@ -91,6 +91,11 @@ def _bt_one(df):
             trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
             r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
             if r: out.append(("回踩10MA缩量后突破昨高", day(i), r[0] - FEE))
+        # v1.7.593 回踩MA60(中线六二法60日档): 同检测器锚MA60, 出场B5(OOS: 破MA5 PF1.96 最优)
+        if _detect_rally_ma20_pullback(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_RALLY_MA60"]) and keep("回踩60MA缩量后突破昨高", i):
+            trig = ph[i] * 1.025; entry = o[i] if o[i] >= trig else trig
+            r = _sim_rally_ma5(entry, o, h, c, m5, i, n)
+            if r: out.append(("回踩60MA缩量后突破昨高", day(i), r[0] - FEE))
         if not np.isnan(m10[i]) and _detect_strong_start_right(sub, latest, DEFAULT_SIGNAL_CONFIG["BUY_STRONG_START"], WCFG) and keep("强势起点", i):
             r = _sim_right(c[i], o, h, c, m10, i, n)
             if r: out.append(("强势起点", day(i), r[0] - FEE))

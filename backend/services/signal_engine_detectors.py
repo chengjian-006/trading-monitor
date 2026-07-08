@@ -395,7 +395,7 @@ def _detect_rally_ma20_pullback(d: pd.DataFrame, latest: pd.Series, sc: dict) ->
             return None
         rally_label = f"主升浪(+{rally.peak_gain_pct:.0%},距峰{bars}日) → "
 
-    _anchor_lbl = "MA10" if sc.get("touch_ma", "ma20") == "ma10" else "MA20"
+    _anchor_lbl = str(sc.get("touch_ma", "ma20")).upper()   # ma10/ma20/ma60 → MA10/MA20/MA60
     vol_tag = ""
     if vol_mult > 0:
         vol_tag = f" | 今日放量{float(latest.get('volume') or 0) / avg10v:.2f}倍(近10日均量)"

@@ -31,6 +31,7 @@ BUY_NAMES = {
     "BUY_WEAK_EXTREME": "弱势极限",
     "BUY_RALLY_MA10": "回踩10MA缩量后突破昨高",
     "BUY_RALLY_MA20": "回踩20MA缩量后突破昨高",
+    "BUY_RALLY_MA60": "回踩60MA缩量后突破昨高",
     "BUY_STRONG_START": "强势起点",
     "BUY_VOL_BREAKOUT": "缩量后放量突破",
     "BUY_PLATFORM_BREAKOUT": "中继平台突破",   # 尾盘14:40收盘确认才触发, 但接近档全天报"逼近上沿" (v1.7.446)
@@ -41,6 +42,7 @@ BUY_NAMES = {
 WE_NEAR_PCT = 2.0    # 弱势极限锚点(MA10∪MA20)触发±2% → 近≤2%(原3.0)
 R10_NEAR_PCT = 1.5   # 回踩10MA缩量后突破昨高 → 近≤1.5%(原2.0)
 R20_NEAR_PCT = 3.0   # 回踩20MA缩量后突破昨高 触发±3% → 近≤3%(原4.5)
+R60_NEAR_PCT = 2.0   # 回踩60MA缩量后突破昨高 触发±2% → 近≤2%(v1.7.593, 贴线带=触发容差本身)
 PB_NEAR_PCT = 2.0    # 中继平台突破: 现价距突破价(上沿×1.005)还差≤2% = 逼近上沿(原3.0)
 
 
@@ -107,7 +109,7 @@ def _eval_weak_extreme(d: pd.DataFrame, sc: dict) -> dict:
 
 def _eval_rally(d: pd.DataFrame, sc: dict, anchor: str, near_pct: float) -> dict:
     """回踩MAxx接近度(把今日当 setup, 等明日突破; 与 _detect_rally_ma20_pullback 同口径)。
-    anchor='ma10'/'ma20'。"""
+    anchor='ma10'/'ma20'/'ma60'。"""
     latest = d.iloc[-1]
     close = float(latest["close"])
     maval = float(latest.get(anchor) or 0)
@@ -271,6 +273,7 @@ def evaluate(df: pd.DataFrame, rt: dict | None, cfg: dict) -> dict | None:
         "BUY_WEAK_EXTREME": _eval_weak_extreme(d, cfg.get("BUY_WEAK_EXTREME", {})),
         "BUY_RALLY_MA10": _eval_rally(d, cfg.get("BUY_RALLY_MA10", {}), "ma10", R10_NEAR_PCT),
         "BUY_RALLY_MA20": _eval_rally(d, cfg.get("BUY_RALLY_MA20", {}), "ma20", R20_NEAR_PCT),
+        "BUY_RALLY_MA60": _eval_rally(d, cfg.get("BUY_RALLY_MA60", {}), "ma60", R60_NEAR_PCT),
         "BUY_PLATFORM_BREAKOUT": _eval_platform_breakout(d, cfg.get("BUY_PLATFORM_BREAKOUT", {})),
     }
 
