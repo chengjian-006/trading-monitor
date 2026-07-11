@@ -175,12 +175,14 @@ async def _fetch_kl(client, sym):
         return None
 
 
-def _backtest_one(df, start_date):
-    """对一只票跑5模型, 返回 {model_name: [(ret_after_fee, span, eff), ...]}。纯CPU。"""
+def _backtest_one(df, start_date, code=""):
+    """对一只票跑各模型, 返回 {model_name: [(ret_after_fee, span, eff), ...]}。纯CPU。
+
+    注意: 本周回测仍是 EOD 日线口径(用全天数据检测), 有已知的乐观前视; 推送/图鉴用的
+    每日胜率(model_winrate_refresher)已切 5分钟诚实口径, 面板周报仅作趋势参考。"""
     res = {name: [] for _, name in MODELS}
     if df is None or len(df) < MIN_BARS + 5:
         return res
-    code = ""
     ind = compute_indicators(df)
     ind["amount_est"] = ind["volume"] * ind["close"]
     vol_avg10 = ind["volume"].rolling(10, min_periods=5).mean().values
@@ -233,7 +235,9 @@ def _backtest_one(df, start_date):
             r = _sim_right(c[i], o, h, c, m10, i, n)
             if r: res["中继平台突破"].append((r[0] - FEE, r[1], r[2]))
         # 竞价弱转强: T-1 强势缩量小回调 + T 高开≥3%, 入场=T开盘价, 出场同右侧族
-        if i >= MIN_BARS and keep("竞价弱转强", i):
+        # v1.7.598: keep() 从条件判断前移到真触发时 —— 旧写法每天都消耗去重窗口(不管是否触发),
+        # 等于每11天只有1天有资格被检测, 样本被随机欠采样。
+        if i >= MIN_BARS:
             prev = ind.iloc[i - 1]; pc = float(prev["close"])
             pv = float(prev["volume"]); po = float(prev["open"])
             pm10 = float(prev.get("ma10", 0) or 0); pm20 = float(prev.get("ma20", 0) or 0)
@@ -247,8 +251,10 @@ def _backtest_one(df, start_date):
                 above_m10 = pc > pm10
                 if strong and shrink and pullback and above_m10:
                     gap = o[i] / pc - 1.0
-                    lim = 0.20 if str(ind["date"].iloc[i])[:2] in ("30", "68") else 0.10
-                    if 0.03 <= gap < lim - 0.01:
+                    # v1.7.598 修笔误: 板幅按股票代码判(旧代码误用日期前两位, 恒"20"→lim恒0.10,
+                    # 创业/科创板高开8%~19%的样本全被错误剔除)
+                    lim = 0.20 if str(code)[:2] in ("30", "68") else 0.10
+                    if 0.03 <= gap < lim - 0.01 and keep("竞价弱转强", i):
                         r = _sim_right(o[i], o, h, c, m10, i, n)
                         if r: res["竞价弱转强"].append((r[0] - FEE, r[1], r[2]))
     return res
@@ -296,7 +302,7 @@ async def run_model_backtest_weekly():
             df = await _fetch_kl(client, sym)
         if df is not None:
             try:
-                for name, rows in _backtest_one(df, start_date).items():
+                for name, rows in _backtest_one(df, start_date, code=code).items():
                     if rows:
                         acc[name].extend(rows)
             except Exception:

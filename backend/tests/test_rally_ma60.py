@@ -50,9 +50,13 @@ def _make_ma60_kline(touch_close: float | None = None) -> pd.DataFrame:
         np.array([2_000_000.0]),    # 今日放量
     ])
     n = len(closes)
+    # freq="B" 在周末会把末根滚回周五, _ensure_today_bar 见末根≠今天就追加假"今日"行,
+    # 把构造好的触发行挤成昨日 → 周末跑测试必挂。末根强制=今天(检测器按位置算, 日期只是标签)。
     dates = pd.date_range(end=datetime.now().strftime("%Y-%m-%d"), periods=n, freq="B")
+    date_strs = list(dates.strftime("%Y-%m-%d"))
+    date_strs[-1] = datetime.now().strftime("%Y-%m-%d")
     df = pd.DataFrame({
-        "date": dates.strftime("%Y-%m-%d"),
+        "date": date_strs,
         "open": closes * 0.995,
         "high": closes * 1.005,
         "low": closes * 0.99,

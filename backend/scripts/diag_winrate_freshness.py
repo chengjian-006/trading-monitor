@@ -84,25 +84,8 @@ async def main():
 
         if "--dryrun" in sys.argv:
             print("=" * 70)
-            print("5) DRY-RUN: 新逻辑重算(不写库), 看锚点+刷新后的数字")
-            import asyncio as _a
-            from datetime import datetime, timedelta
-            from backend.services.model_winrate_refresher import (
-                _anchor_date, _crunch, LOAD_DAYS,
-            )
-            load_from = (datetime.now() - timedelta(days=LOAD_DAYS)).strftime("%Y-%m-%d")
-            async with conn.cursor(aiomysql.DictCursor) as cur:
-                await cur.execute(
-                    "SELECT code, trade_date, open, high, low, close, volume "
-                    "FROM cfzy_sys_kline_cache WHERE trade_date >= %s "
-                    "ORDER BY code, trade_date", (load_from,))
-                rows = await cur.fetchall()
-            anchor = _anchor_date(rows)
-            print(f"  锚点 today_str = {anchor}  (旧逻辑 rows[-1] = {str(rows[-1]['trade_date'])[:10]})")
-            out = await _a.to_thread(_crunch, rows, anchor)
-            for r in sorted(out, key=lambda x: x["model_name"]):
-                print(f"  {r['model_name']:<22} 3月{r['win_rate_3m']}%/{r['n_3m']}笔 "
-                      f"6月{r['win_rate_6m']}%/{r['n_6m']}笔 rank={r['rank_3m']}/{r['rank_n']}")
+            print("5) DRY-RUN 已随 v1.7.599 移除: 胜率重算已切5分钟诚实口径(逐票按需加载, 无整表_crunch),")
+            print("   要真跑一轮请用 python -m backend.scripts.run_winrate_refresh_once (会写库)。")
     pool.close()
     await pool.wait_closed()
 

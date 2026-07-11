@@ -239,6 +239,10 @@ async def run_backtest(
                 continue
 
             df = compute_indicators(df_raw, cfg)
+            # 右侧 BUY_STRONG_START 检测器需 amount_est(盘中估算全天成交额); 回测无盘中,
+            # 用 EOD 近似 量×收盘 注入, 否则该信号在回测里恒不触发 (对齐 run_holding_curve).
+            if "amount_est" not in df.columns:
+                df["amount_est"] = df["volume"] * df["close"]
 
             stocks = await repository.list_all_stocks(include_deleted=True)
             name_map = {s["code"]: s["name"] for s in stocks}
@@ -247,12 +251,12 @@ async def run_backtest(
             # 确定回测起始位置（倒推 lookback_days 个交易日）
             start_idx = max(60, len(df) - lookback_days)
 
-            in_trade = False
+            last_exit_date = None  # 上一笔交易的出场日; 出场前不再开新仓
             for idx in range(start_idx, len(df)):
-                if in_trade:
+                row = df.iloc[idx]
+                if last_exit_date is not None and row["date"] <= last_exit_date:
                     continue
 
-                row = df.iloc[idx]
                 # 截取到当前位置的子集用于信号检测
                 window = df.iloc[:idx + 1]
                 detail = _detect_buy_signal(signal_id, window, row, cfg, signal_cfg)
@@ -265,14 +269,9 @@ async def run_backtest(
                         trade["signal_detail"] = detail
                         all_trades.append(trade)
 
-                        # 标记持仓期间，避免重复触发
+                        # 记录出场日, 持仓期间(信号日 <= 出场日)不再重复开仓
                         if trade["actions"]:
-                            last_date = trade["actions"][-1]["date"]
-                            for j in range(idx, len(df)):
-                                if df.iloc[j]["date"] == last_date:
-                                    in_trade = False
-                                    break
-                                in_trade = True
+                            last_exit_date = trade["actions"][-1]["date"]
 
         except Exception as e:
             logger.error(f"[backtest] {code} 回测失败: {e}")

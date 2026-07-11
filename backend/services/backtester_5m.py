@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-"""5 分钟真实可成交口径回测引擎(后端服务) —— 网页 API 与选股回测 skill 共用同一份。
+"""5 分钟真实可成交口径回测引擎(后端服务) —— 网页 API、每日胜率重算 与 选股回测 skill 共用同一份。
 
-口径约定:
+口径约定(v1.7.598 诚实化):
   - 形态前提(均线/主升浪/缩量/前高): 日线(模型本就定义在日线上, 无5分钟均线主升浪)
-  - 触发判定 + 可成交性 + 入场价: 触发那一刻真实累计量/额过闸(U型外推全天量); 入场用日线前复权
+  - 触发判定: fire_5m 逐根注入「该时刻已知」信息 —— close=当bar现价 / high=游程最高 /
+    量额=累计+U型外推 / MA随现价增量修正 —— 复刻实时扫描器 _extract_indicators 的构造,
+    彻底去掉「用全天收盘/全天最高筛交易」的前视偏差(旧口径系统性剔除盘中触发后走弱的失败样本)
+  - 入场价: breakout族=昨高×(1+突破%)(开盘跳空则开盘价); 收盘确认族=触发时刻现价
   - 出场: 当日盘中最高/最低触及止损/卖半(盘中极值), 破均线按日收盘
-关键: 日线表 cfzy_sys_kline_cache 是前复权, 5分钟表 cfzy_sys_kline_5m 是后复权 —— 价格统一用日线前复权,
-      5分钟只取复权中性的「量/额」做触发闸门, 避免 scale 错配。
+  - 贴板不追(chase_limit): 回测传 code 后与实盘同拦(is_at_limit_up 纯函数, 板幅按代码)
+关键: 日线表 cfzy_sys_kline_cache 是前复权, 5分钟表 cfzy_sys_kline_5m 是后复权(因子随分红除权变化) ——
+      5分钟bar价格按日重定标(factor=当日日线收盘/当日末根5m收盘)到前复权刻度再用; 量/额复权中性直接用。
 """
 from collections import defaultdict
 from datetime import datetime
@@ -42,13 +46,19 @@ _REG = [
     {"id": "BUY_RALLY_MA60", "name": "回踩MA60", "det": _detect_rally_ma20_pullback, "use_s0": False,
      "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
     {"id": "BUY_VOL_BREAKOUT", "name": "缩量突破", "det": _detect_vol_breakout, "use_s0": False,
+     "code_aware": True,
      "entry": "breakout", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma5", "ma_mult": 1.0}},
     {"id": "BUY_PLATFORM_BREAKOUT", "name": "平台突破", "det": _detect_platform_breakout, "use_s0": False,
+     "code_aware": True,
      "entry": "close", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma10", "ma_mult": 0.98}},
     {"id": "BUY_STRONG_START", "name": "强势起点", "det": _detect_strong_start_right, "use_s0": True,
+     "code_aware": True,
      "entry": "close", "exit": {"hard": -0.06, "target": 0.07, "cap": 10, "ma": "ma10", "ma_mult": 0.98}},
+    # eod_honest: 收盘价入场+收盘检测的左侧模型 —— 无盘中触发抢跑, "诚实5分钟版"≡日线EOD版,
+    # 故走快速EOD路径(不逐根5分钟扫描), 既省算力又是正确口径(前视偏差只存在于盘中触发的突破型)。
     {"id": "BUY_WEAK_EXTREME", "name": "弱势极限", "det": _detect_s0_weak_extreme, "use_s0": False,
-     "entry": "close", "exit": {"hard": -0.12, "target": None, "cap": 15, "ma": None, "ma_mult": 0.98}},
+     "entry": "close", "eod_honest": True,
+     "exit": {"hard": -0.12, "target": None, "cap": 15, "ma": None, "ma_mult": 0.98}},
 ]
 _REG_BY_ID = {m["id"]: m for m in _REG}
 MODEL_IDS = [m["id"] for m in _REG]
@@ -71,8 +81,13 @@ def build_model(model_id, temp_config=None):
     return {**reg, "cfg": cfg, "s0": s0}
 
 
-def _call(det, sub, latest, cfg, s0):
-    return det(sub, latest, cfg) if s0 is None else det(sub, latest, cfg, s0)
+def _call(det, sub, latest, cfg, s0, code=None, name="", code_aware=False):
+    """调检测器; code_aware 检测器(缩量突破/强势起点/平台突破)可传 code 启用贴板不追拦截,
+    与实盘对称。code=None 时 is_at_limit_up 返回 False, 与旧回测口径兼容。"""
+    args = (sub, latest, cfg) if s0 is None else (sub, latest, cfg, s0)
+    if code_aware and code:
+        return det(*args, code=code, name=name)
+    return det(*args)
 
 
 def daily_could_fire(model, sub, row):
@@ -118,10 +133,7 @@ async def load_daily_many(codes, chunk=200):
     return out
 
 
-async def load_5m_one(code):
-    """code → {date: [(分钟,high,low,close,volume,amount), ...]}"""
-    rows = await _fetchall(
-        "SELECT dt,high,low,close,volume,amount FROM cfzy_sys_kline_5m WHERE code=%s ORDER BY dt", (code,))
+def _rows_to_byday(rows):
     byday = defaultdict(list)
     for r in rows:
         dt = r["dt"]
@@ -129,6 +141,25 @@ async def load_5m_one(code):
             (dt.hour * 60 + dt.minute, float(r["high"] or 0), float(r["low"] or 0),
              float(r["close"] or 0), float(r["volume"] or 0), float(r["amount"] or 0)))
     return byday
+
+
+async def load_5m_one(code):
+    """code → {date: [(分钟,high,low,close,volume,amount), ...]}"""
+    rows = await _fetchall(
+        "SELECT dt,high,low,close,volume,amount FROM cfzy_sys_kline_5m WHERE code=%s ORDER BY dt", (code,))
+    return _rows_to_byday(rows)
+
+
+async def load_5m_days(code, days):
+    """按候选日精准加载一只票的5分钟bar(单次往返, code 走 PK 前缀, 只回传命中日) —— 全市场
+    胜率重算按需加载用, 避免每晚整表(5500万行)搬运。days: ['YYYY-MM-DD', ...]。"""
+    if not days:
+        return {}
+    ph = ",".join(["%s"] * len(days))
+    rows = await _fetchall(
+        f"SELECT dt,high,low,close,volume,amount FROM cfzy_sys_kline_5m "
+        f"WHERE code=%s AND DATE(dt) IN ({ph}) ORDER BY dt", (code, *days))
+    return _rows_to_byday(rows)
 
 
 async def load_names(codes):
@@ -170,29 +201,126 @@ async def universe_codes(spec):
 
 
 # ---------- 5 分钟触发 ----------
-def fire_5m(model, sub, base_latest, day_bars, prev_close):
-    """逐根注入盘中累计量/额(+U型外推全天量), 返回 (是否触发, 触发时真实累计额, 触发理由)。"""
+def rescale_day_bars(day_bars, daily_close):
+    """后复权5分钟bar → 日线前复权刻度。factor = 当日日线收盘 / 当日末根5m收盘。
+
+    后复权因子随分红除权累积(如600519约7.5x), 直接混用会让突破/站位条件被虚高价击穿。
+    价格字段×factor; 量/额复权中性不动。返回 (scaled_bars, factor)。"""
+    bars = sorted(day_bars)
+    if not bars:
+        return [], 1.0
+    last_close = float(bars[-1][3] or 0)
+    if last_close <= 0 or not daily_close or daily_close <= 0:
+        return bars, 1.0
+    f = float(daily_close) / last_close
+    return [(mn, bh * f, bl * f, bc * f, bv, ba) for (mn, bh, bl, bc, bv, ba) in bars], f
+
+
+_MA_COLS = (("ma5", 5), ("ma10", 10), ("ma20", 20), ("ma60", 60))
+_COARSE_STEP_MIN = 15   # 无价格下限的模型(弱势极限)按15分钟评估一次(累计仍每5m)
+
+
+def _price_floor(model, sub):
+    """当前bar游程最高 < 此价 时检测器必返 None(硬必要条件), 可跳过昂贵的检测器调用。
+
+    突破/平台/强势起点的触发都要求"盘中最高(或涨幅)达到某价"——在到价之前逐根跑
+    detect_main_rally 等全窗计算纯属浪费。返回 None 表示该模型无干净价格下限(弱势极限)。
+    价格用前复权刻度, 与 rescale 后的 bar 同 scale。"""
+    cfg = model["cfg"]
+    mid = model["id"]
+    if model.get("entry") == "breakout":
+        ph = float(sub["high"].iloc[-2]) if len(sub) >= 2 else 0.0
+        return ph * (1 + float(cfg.get("breakout_pct", 2.0)) / 100) if ph > 0 else None
+    if mid == "BUY_PLATFORM_BREAKOUT":
+        L = int(cfg.get("L", 8))
+        if len(sub) < L + 1:
+            return None
+        PH = float(sub["high"].iloc[-(L + 1):-1].max())
+        return PH * (1 + float(cfg.get("BUF", 0.005))) if PH > 0 else None
+    if mid == "BUY_STRONG_START":
+        pc = float(sub["close"].iloc[-2]) if len(sub) >= 2 else 0.0
+        return pc * (1 + float(cfg.get("min_pct_change", 2.0)) / 100) if pc > 0 else None
+    return None   # 弱势极限: 量能地量为主, 无价格下限 → 粗步长评估
+
+
+def fire_5m_detail(model, sub, base_latest, day_bars, prev_close):
+    """逐根注入「该时刻已知」信息(复刻实时扫描器构造), 返回
+    (是否触发, 触发时真实累计额, 触发理由, 触发时现价(前复权), 触发分钟)。
+
+    每根bar把 latest 改写成实时口径:
+      close=当bar现价 / high=游程最高(含开盘) / volume·amount_est=U型外推 / amount_now=真实累计 /
+      pct_change=现价涨幅 / MA5·10·20·60 增量修正 ma_k + (现价-全天收盘)/k
+    sub 末行同步补丁(close/high/volume/amount_est), 供检测器的窗口统计(近N日量/主升浪)读到一致口径。
+    旧口径的两处前视已除: close/MA 用全天收盘(v1.7.598前)、high 混入全天最高+后复权未重定标。
+
+    性能(v1.7.599): 未到价格下限的bar直接跳过检测器(突破/平台/强势起点); 无下限的弱势极限
+    按15分钟粗步长评估。据此把全市场重算从~8h压到可接受区间, 触发结果与逐根等价(下限是硬必要条件)。"""
     det, cfg, s0 = model["det"], model["cfg"], model["s0"]
     earliest = int(cfg.get("intraday_earliest_minute", 0) or 0)
-    cum_vol = cum_amt = run_high = 0.0
+    code = model.get("_code") or None
+    code_aware = bool(model.get("code_aware"))
+    c_full = float(base_latest.get("close") or 0)
+    day_open = float(base_latest.get("open") or 0)
+    bars, _f = rescale_day_bars(day_bars, c_full)
+    ma_full = {}
+    for k, _w in _MA_COLS:
+        v = base_latest.get(k)
+        ma_full[k] = float(v) if v is not None and pd.notna(v) else None
+    # _eval_all=True → 精确模式: 逐根评估不跳过(研究/单测用); 生产默认走价格下限+粗步长快路。
+    floor = None if model.get("_eval_all") else _price_floor(model, sub)
+    eval_all = bool(model.get("_eval_all"))
+    psub = sub.copy()
+    rowpos = len(psub) - 1
+    cols = psub.columns
+    c_i = cols.get_loc("close"); h_i = cols.get_loc("high"); v_i = cols.get_loc("volume")
+    a_i = cols.get_loc("amount_est") if "amount_est" in cols else -1
+    cum_vol = cum_amt = 0.0
+    run_high = day_open
     peak = 0.0
-    for (mn, bh, bl, bc, bv, ba) in sorted(day_bars):
+    last_eval_mn = -10 ** 9
+    for (mn, bh, bl, bc, bv, ba) in bars:
         cum_vol += bv
         cum_amt += ba
         run_high = max(run_high, bh)
         peak = cum_amt
         if mn < earliest:
             continue
+        if not eval_all:
+            if floor is not None:
+                if run_high < floor:             # 未到触发价, 检测器必不触发, 跳过
+                    continue
+            elif mn - last_eval_mn < _COARSE_STEP_MIN and mn != bars[-1][0]:
+                continue                         # 无价格下限: 15分钟粗步长(末根必评)
+        last_eval_mn = mn
         ndt = datetime(2000, 1, 1, mn // 60, mn % 60)
+        vol_proj = project_full_day_volume(cum_vol, ndt) or cum_vol
+        amt_proj = project_full_day_volume(cum_amt, ndt) or cum_amt
         latest = base_latest.copy()
-        latest["high"] = max(run_high, float(base_latest.get("high") or 0))
-        latest["volume"] = project_full_day_volume(cum_vol, ndt) or cum_vol
+        latest["close"] = bc
+        latest["high"] = run_high
+        latest["volume"] = vol_proj
         latest["amount_now"] = cum_amt
-        latest["amount_est"] = project_full_day_volume(cum_amt, ndt) or cum_amt
-        reason = _call(det, sub, latest, cfg, s0)
+        latest["amount_est"] = amt_proj
+        if prev_close and prev_close > 0:
+            latest["pct_change"] = bc / prev_close - 1.0
+        for k, w in _MA_COLS:
+            if ma_full[k] is not None:
+                latest[k] = ma_full[k] + (bc - c_full) / w
+        psub.iat[rowpos, c_i] = bc
+        psub.iat[rowpos, h_i] = run_high
+        psub.iat[rowpos, v_i] = vol_proj
+        if a_i >= 0:
+            psub.iat[rowpos, a_i] = amt_proj
+        reason = _call(det, psub, latest, cfg, s0, code=code, code_aware=code_aware)
         if reason is not None:
-            return True, cum_amt, (reason if isinstance(reason, str) else "")
-    return False, peak, ""
+            return True, cum_amt, (reason if isinstance(reason, str) else ""), bc, mn
+    return False, peak, "", None, None
+
+
+def fire_5m(model, sub, base_latest, day_bars, prev_close):
+    """兼容旧签名(选股 skill 直用): 返回 (是否触发, 触发时真实累计额, 触发理由)。"""
+    fired, amt, reason, _px, _mn = fire_5m_detail(model, sub, base_latest, day_bars, prev_close)
+    return fired, amt, reason
 
 
 def entry_price(model, ind, i):
@@ -289,6 +417,163 @@ def simulate_exit(entry, i, ind, exit_cfg):
     return None if d is None else d["ret"]
 
 
+# ---------- 诚实5分钟扫描(候选日粗筛 + 逐根精判) ----------
+def _candidate_day(model, cfg, i, h_arr, l_arr, c_arr, m10, m20, m60):
+    """当日是否可能盘中触发 —— 只用「必要条件」粗筛(宁多勿漏, 精判交给 fire_5m_detail)。
+
+    去掉旧的 daily_could_fire EOD 闸(它用全天收盘判站位/涨幅, 会漏掉盘中触发尾盘走弱的
+    失败样本 = 前视偏差根源)。这里的条件全部是盘中触发的数学必要条件(或带宽容差的近似):
+      breakout族: 盘中高点条件单调 → 当日最高 ≥ 昨高×(1+突破%) 是精确必要条件
+      平台突破:   当日最高 ≥ 前L日平台上沿×(1+BUF)
+      强势起点:   当日最高涨幅 ≥ min_pct_change
+      弱势极限:   当日区间须触到锚线带(±容差再放宽1.5%抵消MA盘中漂移) 且 高点在MA60·MA20上方附近
+    """
+    mid = model["id"]
+    if model.get("entry") == "breakout":
+        bp = float(cfg.get("breakout_pct", 2.0)) / 100
+        ph = h_arr[i - 1]
+        return ph > 0 and h_arr[i] >= ph * (1 + bp)
+    if mid == "BUY_PLATFORM_BREAKOUT":
+        L = int(cfg.get("L", 8))
+        if i < L + 1:
+            return False
+        PH = float(np.nanmax(h_arr[i - L:i]))
+        return PH > 0 and h_arr[i] >= PH * (1 + float(cfg.get("BUF", 0.005)))
+    if mid == "BUY_STRONG_START":
+        pc = c_arr[i - 1]
+        return pc > 0 and h_arr[i] / pc - 1.0 >= float(cfg.get("min_pct_change", 2.0)) / 100
+    if mid == "BUY_WEAK_EXTREME":
+        ma60 = m60[i]; ma20 = m20[i]; ma10 = m10[i]
+        if np.isnan(ma60) or ma60 <= 0 or np.isnan(ma20) or ma20 <= 0:
+            return False
+        if h_arr[i] < ma60 * 0.985 or h_arr[i] < ma20 * 0.985:   # close>MA60且>MA20 的必要近似
+            return False
+        slack_hi, slack_lo = 1.035, 0.965                          # ±2%带宽 + 1.5%漂移容差
+        band10 = (not np.isnan(ma10)) and ma10 > 0 and \
+            l_arr[i] <= ma10 * slack_hi and h_arr[i] >= ma10 * slack_lo
+        band20 = l_arr[i] <= ma20 * slack_hi and h_arr[i] >= ma20 * slack_lo
+        return band10 or band20
+    return True
+
+
+def candidate_days(model, ind, start, end):
+    """一只票在 [start,end] 内该模型的候选触发日列表(YYYY-MM-DD) —— 供按需加载5分钟bar。"""
+    dates = ind["date"].astype(str).values
+    h_arr = ind["high"].values; l_arr = ind["low"].values; c_arr = ind["close"].values
+    m10 = ind["ma10"].values; m20 = ind["ma20"].values; m60 = ind["ma60"].values
+    cfg = model["cfg"]
+    out = []
+    for i in range(MIN_BARS, len(ind)):
+        dstr = dates[i][:10]
+        if dstr < start or dstr > end:
+            continue
+        if _candidate_day(model, cfg, i, h_arr, l_arr, c_arr, m10, m20, m60):
+            out.append(dstr)
+    return out
+
+
+def eod_trades(model, ind, start, end, code="", name=""):
+    """收盘价入场模型(弱势极限)的快速EOD日线扫描 —— 收盘检测+收盘入场, 无盘中前视, 与旧口径等价。
+
+    不加载/不遍历5分钟bar: 逐日用全天数据判检测器, 触发即以收盘价入场, 出场走 _REG 规则。
+    与 scan_trades_5m 返回同构 trade 明细。"""
+    m = dict(model)
+    dates = ind["date"].astype(str).values
+    n = len(ind)
+    trades = []
+    last_dt = None
+    for i in range(MIN_BARS, n):
+        dstr = dates[i][:10]
+        if dstr < start or dstr > end:
+            continue
+        sub = ind.iloc[:i + 1]; row = ind.iloc[i]
+        latest = row.copy()
+        latest["amount_now"] = float(row.get("amount_est", 0) or 0)
+        reason = _call(m["det"], sub, latest, m["cfg"], m["s0"],
+                       code=code or None, code_aware=bool(m.get("code_aware")))
+        if reason is None:
+            continue
+        pdt = pd.Timestamp(dstr)
+        if last_dt is not None and (pdt - last_dt).days <= DEDUP_DAYS:
+            last_dt = pdt
+            continue
+        last_dt = pdt
+        ep = float(row["close"])
+        det = simulate_exit_detail(ep, i, ind, m["exit"], dates)
+        if det is None:
+            continue
+        trades.append({
+            "code": code, "name": name,
+            "buy_date": dstr, "model": m["name"],
+            "detail": reason if isinstance(reason, str) else "",
+            "buy_price": round(ep, 3),
+            "exit_reason": det["reason"], "exit_date": det["exit_date"],
+            "exit_price": round(det["exit_price"], 3),
+            "hold_days": det["hold_days"], "ret_pct": round(det["ret"] * 100, 2),
+            "took_half": det["took_half"], "legs": det.get("legs", []),
+            "mfe_pct": det["mfe_pct"], "mfe_day": det["mfe_day"],
+            "mae_pct": det["mae_pct"], "mae_day": det["mae_day"],
+            "ret": det["ret"],
+        })
+    return trades
+
+
+def scan_trades_5m(model, ind, day5m, start, end, code="", name=""):
+    """一只票单模型 5分钟诚实口径扫描 → 交易明细列表(与 run_model_backtest trades 同构)。
+
+    day5m: {YYYY-MM-DD: [(mn,h,l,c,vol,amt), ...]} 后复权bar(内部按日重定标)。
+    入场: breakout族=昨高×(1+突破%)(跳空则开盘); 收盘确认族=触发时刻现价。
+    去重: 同模型 DEDUP_DAYS 内不重复开仓(与旧口径一致)。"""
+    m = dict(model)
+    m["_code"] = code or None
+    dates = ind["date"].astype(str).values
+    h_arr = ind["high"].values; l_arr = ind["low"].values; c_arr = ind["close"].values
+    m10 = ind["ma10"].values; m20 = ind["ma20"].values; m60 = ind["ma60"].values
+    cfg = m["cfg"]
+    n = len(ind)
+    trades = []
+    last_dt = None
+    for i in range(MIN_BARS, n):
+        dstr = dates[i][:10]
+        if dstr < start or dstr > end:
+            continue
+        bars = day5m.get(dstr)
+        if not bars:
+            continue
+        if not _candidate_day(m, cfg, i, h_arr, l_arr, c_arr, m10, m20, m60):
+            continue
+        sub = ind.iloc[:i + 1]
+        prev_close = float(c_arr[i - 1]) if i > 0 else 0.0
+        fired, _amt, reason, trig_px, _mn = fire_5m_detail(m, sub, ind.iloc[i].copy(), bars, prev_close)
+        if not fired:
+            continue
+        pdt = pd.Timestamp(dstr)
+        if last_dt is not None and (pdt - last_dt).days <= DEDUP_DAYS:
+            last_dt = pdt
+            continue
+        last_dt = pdt
+        if m.get("entry") == "breakout":
+            ep = entry_price(m, ind, i)
+        else:
+            ep = trig_px if trig_px and trig_px > 0 else float(ind["close"].iloc[i])
+        det = simulate_exit_detail(ep, i, ind, m["exit"], dates)
+        if det is None:
+            continue
+        trades.append({
+            "code": code, "name": name,
+            "buy_date": dstr, "model": m["name"], "detail": reason,
+            "buy_price": round(float(ep), 3),
+            "exit_reason": det["reason"], "exit_date": det["exit_date"],
+            "exit_price": round(det["exit_price"], 3),
+            "hold_days": det["hold_days"], "ret_pct": round(det["ret"] * 100, 2),
+            "took_half": det["took_half"], "legs": det.get("legs", []),
+            "mfe_pct": det["mfe_pct"], "mfe_day": det["mfe_day"],
+            "mae_pct": det["mae_pct"], "mae_day": det["mae_day"],
+            "ret": det["ret"],
+        })
+    return trades
+
+
 # ---------- 统计 ----------
 def stat(rets):
     if not rets:
@@ -356,8 +641,22 @@ async def run_model_backtest(model_id, codes, start, end, temp_config=None, mont
         ind["amount_est"] = ind["volume"] * ind["close"]
         dates = ind["date"].astype(str).values
         n = len(ind)
-        day5m = await load_5m_one(code) if use_5m else None
-        if use_5m and not day5m:
+        if use_5m:
+            # 诚实口径(v1.7.598): 候选日粗筛 + 逐根真实注入, 不再走 EOD 日线闸(前视偏差根源);
+            # 传 code 使贴板不追与实盘对称。收盘入场的弱势极限无盘中前视 → 走快速EOD路径不加载5分钟。
+            if model.get("eod_honest"):
+                emitted = eod_trades(model, ind, start, end, code=code, name=names.get(code, ""))
+            else:
+                day5m = await load_5m_one(code)
+                if not day5m:
+                    continue
+                emitted = scan_trades_5m(model, ind, day5m, start, end,
+                                         code=code, name=names.get(code, ""))
+            for t in emitted:
+                ret = t.pop("ret")
+                rets_all.append(ret)
+                monthly_b[t["buy_date"][:7]].append(ret)
+                trades.append(t)
             continue
         last_dt = None
         for i in range(MIN_BARS, n):
@@ -365,23 +664,13 @@ async def run_model_backtest(model_id, codes, start, end, temp_config=None, mont
             if dstr < start or dstr > end:
                 continue
             sub = ind.iloc[:i + 1]; row = ind.iloc[i]
-            # 日线口径: 检测器通过即触发(并取触发理由); 5分钟口径: 再过盘中真实量/额闸门
+            # 日线口径(快, 乐观): 检测器用全天数据, 通过即触发
             latest_daily = row.copy()
             latest_daily["amount_now"] = float(row.get("amount_est", 0) or 0)
             daily_reason = _call(model["det"], sub, latest_daily, model["cfg"], model["s0"])
             if daily_reason is None:
                 continue
             reason = daily_reason if isinstance(daily_reason, str) else ""
-            if use_5m:
-                bars = day5m.get(dstr)
-                if not bars:
-                    continue
-                prev_close = float(ind["close"].iloc[i - 1])
-                fired, _amt, _r = fire_5m(model, sub, row.copy(), bars, prev_close)
-                if not fired:
-                    continue
-                if _r:
-                    reason = _r
             pdt = pd.Timestamp(dstr)
             if last_dt is not None and (pdt - last_dt).days <= DEDUP_DAYS:
                 last_dt = pdt
