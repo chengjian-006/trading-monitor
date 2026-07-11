@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import time as _time
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,22 @@ PANIC_TH = 0.10      # 全市场大跌占比 ≥10% = 恐慌普跌日, 本卡不
 EXCESS_TH = 0.20     # 行业大跌占比 - 全市场 ≥20pp = 板块共振(回测最差抄底语境)
 MIN_MEMBERS = 8      # 行业成员数下限(太小两三只跌停就100%, 无统计意义)
 DOWN_PCT = -5.0      # "大跌"口径: 当日跌幅 ≤ -5%(与回测事件口径一致)
+
+# 盘中实时: 每票每天只报一次(内存去重), 板块下杀期间新破位的票增量推, 不刷屏
+_SCANNED_DATE = ""
+_FIRED_TODAY: set[str] = set()
+
+
+def _in_window(now_t: _time) -> bool:
+    """盘中 09:45~15:00 运行。太早(开盘竞价)行业占比噪音大, 且个股破位判定需成型走势。"""
+    return _time(9, 45) <= now_t <= _time(15, 0)
+
+
+def _reset_if_new_day(today: str):
+    global _SCANNED_DATE, _FIRED_TODAY
+    if today != _SCANNED_DATE:
+        _SCANNED_DATE = today
+        _FIRED_TODAY = set()
 
 
 # ══════════════ 纯函数(可单测) ══════════════
@@ -237,10 +254,19 @@ async def _broken_candidates(candidates: list[dict], quote_map: dict[str, float]
 
 
 async def run_sector_cocrash_watch():
-    """交易日尾盘14:30: 全市场涨跌幅 → 板块共振判定 → 自选池命中则推禁补仓提示卡。"""
+    """盘中实时(每3分钟): 全市场涨跌幅 → 板块共振判定 → 自选池破位命中则推禁补仓提示卡。
+
+    每票每天只报一次(内存去重); 板块下杀期间新破位的票增量推; 恐慌普跌日/无破位命中不发。
+    """
+    from datetime import datetime
     from backend.core.trading_calendar import is_workday
     if not is_workday():
         return
+    now = datetime.now()
+    if not _in_window(now.time()):
+        return
+    _reset_if_new_day(now.date().isoformat())
+
     from backend.models import repository
     from backend.services import notifier
 
@@ -275,16 +301,21 @@ async def run_sector_cocrash_watch():
     if not candidates:
         logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业但自选池无命中, 不发")
         return
-    broken_codes = await _broken_candidates(candidates, quote_map)
+    # 只判今天还没报过的候选(每票每天一次), 省掉已报票的日线拉取
+    fresh = [c for c in candidates if c["code"] not in _FIRED_TODAY]
+    if not fresh:
+        return
+    broken_codes = await _broken_candidates(fresh, quote_map)
     hits = pick_pool_hits(pool_rows, res["sectors"], ind_map, quote_map, holding_codes,
                           broken_codes=broken_codes)
     if not hits:
-        logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业, 自选命中{len(candidates)}只 "
+        logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业, 自选新命中{len(fresh)}只 "
                     f"但无一处于破位下跌, 不发(强势票跟跌不提示)")
         return
     title, body = build_cocrash_card(res["panic"], res["sectors"], hits)
     try:
         await notifier.send_dual(body, lark_title=title, template="orange")
-        logger.info(f"[sector_cocrash] 已推送: {title}, 命中{len(hits)}只")
+        _FIRED_TODAY.update(h["code"] for h in hits)   # 推成功才标记, 每票当天不再重报
+        logger.info(f"[sector_cocrash] 已推送: {title}, 新命中{len(hits)}只")
     except Exception as e:
         logger.warning(f"[sector_cocrash] 推送失败: {e}")

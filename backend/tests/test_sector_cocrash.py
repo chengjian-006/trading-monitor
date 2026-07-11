@@ -13,7 +13,22 @@ from backend.services.sector_cocrash_guard import (
     is_broken_down,
     pick_pool_hits,
 )
+from backend.services.sector_cocrash_guard import _in_window
 from backend.services.industry_map_refresher import rows_from_wencai_df
+
+from datetime import time as _t
+
+
+class TestWindow:
+    def test_in_window(self):
+        assert _in_window(_t(9, 45)) is True
+        assert _in_window(_t(11, 30)) is True
+        assert _in_window(_t(15, 0)) is True
+
+    def test_out_of_window(self):
+        assert _in_window(_t(9, 44)) is False   # 开盘竞价噪音期不跑
+        assert _in_window(_t(9, 30)) is False
+        assert _in_window(_t(15, 1)) is False
 
 
 def _quotes(spec: list[tuple[str, float]]) -> list[dict]:
