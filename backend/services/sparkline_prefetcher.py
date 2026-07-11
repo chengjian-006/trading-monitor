@@ -19,15 +19,16 @@ from backend.core.trading_calendar import is_trading_time as _is_trading_time, i
 
 
 async def prefetch_intraday_sparklines():
-    """盘中预拉所有 focused/hold 票的分时走势, 保持缓存常热。"""
+    """盘中预拉全自选池的分时走势, 保持缓存常热。
+
+    v1.7.597: 范围从"focused/hold"放宽到【全池·在池即扫】(补齐 v1.7.589 其它扫描器的一致性,
+    focused 不再当逻辑闸门, 用户0708确认); 概念指数不排除(有分时, 拉进来无妨)。
+    这份缓存也是「二波过前高」实时扫描器的数据源, 故须覆盖全部自选。"""
     if not _is_trading_time():
         return
 
     all_stocks = await repository.list_all_stocks()
-    codes = sorted({
-        s["code"] for s in all_stocks
-        if (s.get("focused") or s.get("status") == "hold") and s.get("code")
-    })
+    codes = sorted({s["code"] for s in all_stocks if s.get("code")})
     if not codes:
         return
 

@@ -1,5 +1,6 @@
 """Registry mapping handler name strings to actual async functions."""
 
+import asyncio
 import logging
 import time
 from datetime import datetime
@@ -33,6 +34,9 @@ from backend.services.rally_reminder import rally_reminder_tick, rally_reminder_
 from backend.services.holding_guard import holding_guard_tick
 from backend.services.stop_escalation import stop_escalation_tick
 from backend.services.ma_break_watch import run_ma_break_watch
+from backend.services.second_surge_scanner import run_second_surge_scan
+from backend.services.sector_cocrash_guard import run_sector_cocrash_watch
+from backend.services.industry_map_refresher import run_industry_map_refresh
 from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday, market_risk_realtime
 from backend.services.data_cross_checker import run_cross_check
 from backend.services.blogger_post_scanner import scan_blogger_posts
@@ -41,6 +45,7 @@ from backend.services.near_buy_refresher import refresh_near_buy_snapshot
 from backend.services.theme_heat_refresher import refresh_theme_heat
 from backend.services.sector_strength_scanner import refresh_sector_strength
 from backend.services.model_winrate_refresher import refresh_model_winrate
+from backend.services.kline_5m_appender import append_kline_5m
 from backend.services.auction_pool_refresher import record_auction_pool_snapshot
 from backend.services.auction_strength_selfcheck import run_auction_strength_selfcheck
 from backend.services.model_backtest_weekly import run_model_backtest_weekly
@@ -113,6 +118,9 @@ TASK_HANDLERS: dict[str, object] = {
     "holding_guard_tick": holding_guard_tick,
     "stop_escalation_tick": stop_escalation_tick,
     "run_ma_break_watch": run_ma_break_watch,
+    "run_second_surge_scan": run_second_surge_scan,
+    "run_sector_cocrash_watch": run_sector_cocrash_watch,
+    "run_industry_map_refresh": run_industry_map_refresh,
     "market_risk_eod": market_risk_eod,
     "market_risk_intraday": market_risk_intraday,
     "market_risk_realtime": market_risk_realtime,
@@ -123,6 +131,7 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_theme_heat": refresh_theme_heat,
     "refresh_sector_strength": refresh_sector_strength,
     "refresh_model_winrate": refresh_model_winrate,
+    "append_kline_5m": append_kline_5m,
     "record_auction_pool_snapshot": record_auction_pool_snapshot,
     "run_auction_strength_selfcheck": run_auction_strength_selfcheck,
     "run_model_backtest_weekly": run_model_backtest_weekly,
@@ -151,6 +160,28 @@ TASK_HANDLERS: dict[str, object] = {
     "run_disclosure_reminder": run_disclosure_reminder,
     "run_earnings_forecast_scan": run_earnings_forecast_scan,
 }
+
+
+# 任务执行统一超时保护: 单 worker 架构下某任务僵死(外部接口挂起等)会永久占坑
+# (max_instances=1 只防重入不防僵死), 用 asyncio.wait_for 兜底中止。
+# 超时 = 一次失败, 走既有 失败落库/连续失败计数/告警 链路。
+DEFAULT_TASK_TIMEOUT = 30 * 60       # 普通任务默认 30 分钟
+LONG_TASK_TIMEOUT = 3 * 60 * 60      # 已知长任务放宽到 3 小时(宁长勿短, 误杀正常任务比放过僵死更糟)
+OVERNIGHT_TIMEOUT = 6 * 60 * 60      # 通宵级(21:00起跑, 次日9点前无竞争, 小ECS慢也够跑完)
+
+# 已知长任务清单 (handler 名 -> 超时秒数)
+LONG_TASK_TIMEOUTS: dict[str, int] = {
+    "run_model_backtest_weekly": LONG_TASK_TIMEOUT,    # 模型周回测(全市场多模型)
+    "refresh_model_winrate": OVERNIGHT_TIMEOUT,        # 胜率重算(每晚21:00, 5分钟诚实口径全市场逐票, 小ECS约2-4h)
+    "refresh_holding_state_fwd": LONG_TASK_TIMEOUT,    # 持仓态前向分布刷新(每周全市场扫描)
+    "backfill_signal_outcomes": LONG_TASK_TIMEOUT,     # 信号闭环收益回填(逐信号拉K线)
+    "append_kline_5m": OVERNIGHT_TIMEOUT,              # 5分钟K线每日追加(baostock逐票串行, 首夜补1月缺口更慢)
+}
+
+
+def get_task_timeout(handler_name: str) -> float:
+    """按 handler 名查执行超时秒数: 长任务表命中给宽松值, 否则默认 30 分钟。"""
+    return LONG_TASK_TIMEOUTS.get(handler_name, DEFAULT_TASK_TIMEOUT)
 
 
 # v1.7.x: 调度任务失败告警阈值
@@ -187,15 +218,20 @@ async def _maybe_alert_task_failure(job_id: str, handler_name: str, count: int, 
         logger.warning(f"[task_alert] {job_id} 告警推送失败: {e}")
 
 
-async def wrapped_handler(job_id: str, handler_name: str):
+async def wrapped_handler(job_id: str, handler_name: str, timeout: float | None = None):
     from backend.models import repository
 
     handler = TASK_HANDLERS.get(handler_name)
     if not handler:
         logger.error(f"Unknown handler: {handler_name}")
         return
+    effective_timeout = timeout if timeout is not None else get_task_timeout(handler_name)
     try:
-        await handler()
+        try:
+            await asyncio.wait_for(handler(), timeout=effective_timeout)
+        except asyncio.TimeoutError:
+            # 转成可读信息, 作为一次普通失败走下方既有 失败落库/计数/告警 链路
+            raise TimeoutError(f"任务 {handler_name} 超时({effective_timeout:g}s)被中止") from None
         await repository.update_task_run_status(job_id, datetime.now(), "success")
     except Exception as e:
         logger.exception(f"Task {job_id} failed: {e}")

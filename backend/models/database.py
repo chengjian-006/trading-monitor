@@ -834,6 +834,15 @@ SCHEMA_STATEMENTS = [
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
     """,
+    # 全市场行业映射 (v1.7.598) — 问财口径「所属同花顺行业」(三级), industry_map_refresh 每周日刷新,
+    # 供板块共振·禁补仓提示(sector_cocrash_guard 14:30)算各行业大跌占比。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_industry_map (
+        code VARCHAR(10) NOT NULL PRIMARY KEY,
+        industry VARCHAR(64) NOT NULL DEFAULT '',
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """,
     # 模型回测长任务(全市场/5分钟)的 DB 态 job (v1.7.x) — 方案C: 每个长 job 用 systemd-run 拉独立临时
     # systemd 单元跑(部署/重启主服务杀不死), 进度/结果落此表供前端轮询。短任务(自选+日线)仍走内存态不入此表。
     # status: running/done/error。runner: systemd=独立单元 / inproc=无 systemd 时内存态回退占位。
@@ -1174,6 +1183,22 @@ async def _run_migrations(conn):
             ("ma_break_watch_1440", "尾盘破位警戒·14:40",
              "交易日尾盘对真实持仓逐票贴线判跌破MA5/MA10/MA20(现价<均线即算), 标注连续N日尾盘破位, 合并一张警戒卡, 收复自动消失",
              "cron", _json.dumps({"hour": 14, "minute": 40}), "run_ma_break_watch"),
+            # v1.7.597: 分时二波过前高实时提醒 — 每30s纯读分时预热缓存, 全自选逐票判"第一波放量冲高→
+            # 回落缩量→第二波放量拉升创当日新高"(确认后报), 每股每天一次; 只提醒不落信号库; surge_snooze逐票静音
+            ("second_surge_scan", "二波过前高·实时提醒",
+             "盘中(09:45~15:00)每30秒纯读分时缓存, 对全自选池判分时二波过前高形态(第一波放量冲高→回落降温→二波放量拉升创当日新高), 命中实时提醒, 每股每天一次",
+             "interval", _json.dumps({"seconds": 30}), "run_second_surge_scan"),
+            # v1.7.598: 板块共振·禁补仓提示 — 尾盘14:30拉全市场涨跌幅, 判"板块共振跌"(大盘正常<10%
+            # 但某行业大跌占比超出大盘≥20pp、成员≥8), 自选池命中才推; 回测背书该语境抄底/补仓期望为负;
+            # 恐慌普跌日不适用不发(该语境历史抄底为正); 不落信号库
+            ("sector_cocrash_1430", "板块共振·禁补仓提示·14:30",
+             "交易日尾盘14:30拉全市场涨跌幅(新浪列表页), 判板块共振跌(全市场大跌占比<10%且某行业超出大盘≥20pp、成员≥8), 自选池有票命中则合并推一张禁抄底/禁补仓提示卡",
+             "cron", _json.dumps({"hour": 14, "minute": 30}), "run_sector_cocrash_watch"),
+            # v1.7.598: 全市场行业映射·每周刷新 — 问财拉「全部A股所属同花顺行业」(三级行业, 全覆盖)
+            # upsert 进 cfzy_sys_industry_map; 行业归属极少变动, 周频=少撞风控; 失败保留旧映射
+            ("industry_map_refresh", "全市场行业映射·周日19:20",
+             "每周日19:20用问财(pywencai)拉全部A股所属同花顺行业, upsert进cfzy_sys_industry_map, 供板块共振禁补仓提示算行业大跌占比; 拉取失败保留旧映射",
+             "cron", _json.dumps({"day_of_week": "sun", "hour": 19, "minute": 20}), "run_industry_map_refresh"),
             # 日志保留 30 天 — 每日凌晨3:30 删除 30 天前的操作日志(DB)与轮转日志文件
             ("cleanup_old_logs", "日志清理·每日03:30",
              "每日凌晨删除30天前的操作日志(cfzy_biz_operation_logs)与轮转日志文件 app.log.*, 控制表与磁盘体积",
@@ -1325,6 +1350,19 @@ async def _run_migrations(conn):
                 ("资金进攻方向·09:45",
                  "开盘15分钟, 涨停扎堆题材(涨停池)+ 领涨行业(板块榜)双口径, 叠自选命中, 飞书卡推送",
                  "attack_direction_0945"),
+            )
+        except Exception:
+            pass
+
+        # v1.7.599: 胜率重算切5分钟诚实口径 — 存量行改到每晚21:00(等20:00的5分钟追加完成), 刷新标签
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET schedule_config=%s, name=%s, description=%s "
+                "WHERE job_id=%s",
+                (_json.dumps({"hour": 21, "minute": 0}),
+                 "模型胜率·每日重算(5分钟诚实口径)",
+                 "每晚21:00(等20:00的5分钟K线追加完成后)按5分钟真实可成交口径重算全部买入模型 近3月/近6月 胜率+单笔均收益, 写 cfzy_biz_model_winrate, 供买入提醒带全市场回测战绩",
+                 "model_winrate_refresh"),
             )
         except Exception:
             pass
@@ -1564,9 +1602,13 @@ async def _seed_scheduled_tasks(conn):
             ("sector_next_day_predict", "次日板块预测",
              "每交易日14:30用 theme_heat 多日涨停序列+今日质地做次日预测(弱转强候选/强转弱候选/强势延续/疑似终结), 推送+写 cfzy_sys_sector_rotation.predict_data; 启发式未回测", "cron",
              {"hour": 14, "minute": 30}, "predict_sector_next_day"),
-            ("model_winrate_refresh", "模型胜率·每日重算",
-             "每日17:30从本地全市场库(kline_cache)重算5个买入模型 近3月/近6月 胜率+单笔均收益, 写 cfzy_biz_model_winrate, 供买入提醒带全市场回测战绩", "cron",
-             {"hour": 17, "minute": 30}, "refresh_model_winrate"),
+            ("model_winrate_refresh", "模型胜率·每日重算(5分钟诚实口径)",
+             "每晚21:00(等20:00的5分钟K线追加完成后)按5分钟真实可成交口径重算全部买入模型 近3月/近6月 胜率+单笔均收益, 写 cfzy_biz_model_winrate, 供买入提醒带全市场回测战绩", "cron",
+             {"hour": 21, "minute": 0}, "refresh_model_winrate"),
+            # v1.7.599: 5分钟K线每日追加 — 胜率5分钟诚实口径的数据前提(表此前为一次性回填停在06-18)
+            ("kline_5m_append", "5分钟K线·每日追加20:00",
+             "每晚20:00用baostock逐票增量追加5分钟K线(后复权)到 cfzy_sys_kline_5m: 库内票续尾, 新入池票回补近一年; 幂等upsert, 当晚数据未出次日自动补齐", "cron",
+             {"hour": 20, "minute": 0}, "append_kline_5m"),
             # v1.7.x: 持仓态前向分布·每周重算 — 全市场五年扫描很重且分布周与周几乎不变, 周日19:00跑一次,
             # 写 cfzy_biz_holding_state_fwd, 供持仓研判晚报(20:00)给每只持仓挂「同类形态历史次日/3日真实分布」客观概率
             ("holding_state_fwd_refresh", "持仓态前向分布·每周重算",
