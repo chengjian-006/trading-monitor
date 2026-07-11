@@ -147,6 +147,11 @@ from backend.models.repo.stock_names import (  # noqa: F401
     get_names as get_stock_names,
     count as count_stock_names,
 )
+from backend.models.repo.industry_map import (  # noqa: F401
+    upsert_many as upsert_industry_map,
+    load_all as load_industry_map,
+    count as count_industry_map,
+)
 from backend.models.repo import backtest_jobs_db  # noqa: F401
 from backend.models.repo.paper_trading import (  # noqa: F401
     get_or_create_account as paper_get_or_create_account,
