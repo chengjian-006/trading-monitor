@@ -4,6 +4,7 @@
 /api/quick/prefs 需登录, 给前端管理页列当前生效设置 / 撤销
 """
 import logging
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -41,6 +42,7 @@ _KIND_LABEL = {
     "ack": "标记已处理",
     "stop_snooze": "止损提醒静音",
     "ma_watch_snooze": "破位警戒静音",
+    "surge_snooze": "二波提醒静音",
 }
 
 
@@ -67,13 +69,19 @@ async def quick_set(
     k: str = Query(...),
     t: str = Query(""),
     d: int = Query(0),
+    exp: int | None = Query(None),
     sig: str = Query(""),
 ):
-    """快捷设置入口: 校验签名 → 落库 → 回确认页. 公开端点, 仅认签名不认登录态."""
+    """快捷设置入口: 校验签名(含 exp 时效) → 落库 → 回确认页. 公开端点, 仅认签名不认登录态.
+
+    exp=签发时的过期时间戳(unix秒), 纳入 HMAC 原文防篡改续命; 无 exp 的旧链接一律拒绝.
+    """
     if k not in pref_svc.VALID_KINDS:
         return _confirm_page("无效操作", "未知的设置类型。", ok=False)
-    if not pref_svc.verify_params(u, k, t, d, sig):
-        return _confirm_page("链接已失效", "签名校验未通过(可能链接被改动或过期)。", ok=False)
+    if not pref_svc.verify_params(u, k, t, d, exp, sig):
+        return _confirm_page("链接已失效", "签名校验未通过(可能链接被改动或版本过旧)。", ok=False)
+    if exp < time.time():
+        return _confirm_page("链接已过期", "链接已过期，请从最新推送卡片操作。", ok=False)
 
     # 恢复今日免打扰: 撤销当日 mute, 不新增偏好
     if k == "unmute":
@@ -100,6 +108,8 @@ async def quick_set(
         detail = f"已静音 {t} 的止损升级提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
     elif k == "ma_watch_snooze":
         detail = f"已静音 {t} 的尾盘破位警戒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "surge_snooze":
+        detail = f"已静音 {t} 的二波过前高提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
     else:  # ack
         detail = "该信号已标记处理，当日不再重复提醒。"
     return _confirm_page(f"已设置：{label}", detail)

@@ -1,3 +1,4 @@
+import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -10,14 +11,67 @@ from backend.services import notifier
 router = APIRouter(prefix="/api/config", tags=["config"])
 
 
+# ── 敏感字段打码 ──
+# GET 不回传明文密钥: 键名命中敏感词的字符串叶子统一打码成固定哨兵;
+# PUT 收到哨兵 → 保留服务器现值不覆盖(递归合并), 前端"GET→原样PUT回去"不破坏任何密钥。
+MASK_SENTINEL = "••••••"
+# 词边界匹配, 防误伤 hotkey/monkey 之类; api_?key 兼容 apikey/api_key; 宁可多打码不可漏。
+_SENSITIVE_KEY_RE = re.compile(
+    r"secret|password|passwd|token|cookie|api_?key|private|dsn|(?:^|[_\-])key(?:[_\-]|$)",
+    re.IGNORECASE,
+)
+
+
+def _is_sensitive_key(key) -> bool:
+    return bool(_SENSITIVE_KEY_RE.search(str(key)))
+
+
+def mask_secrets(node, key=None):
+    """递归整棵配置树: 敏感键名下的非空字符串叶子 → 哨兵; 其余原样。"""
+    if isinstance(node, dict):
+        return {k: mask_secrets(v, k) for k, v in node.items()}
+    if isinstance(node, list):
+        return [mask_secrets(v, key) for v in node]
+    if isinstance(node, str) and node and key is not None and _is_sensitive_key(key):
+        return MASK_SENTINEL
+    return node
+
+
+def _contains_sentinel(node) -> bool:
+    if isinstance(node, str):
+        return node == MASK_SENTINEL
+    if isinstance(node, dict):
+        return any(_contains_sentinel(v) for v in node.values())
+    if isinstance(node, list):
+        return any(_contains_sentinel(v) for v in node)
+    return False
+
+
+def restore_sentinels(new, old):
+    """PUT 兼容打码: 值为哨兵 → 用服务器现值; dict 递归、list 同长逐项对齐。
+    list 长度变了且新值里仍有哨兵(无法对位还原) → 整段保留服务器现值, 宁可丢改动不可写坏密钥。"""
+    if new == MASK_SENTINEL:
+        return old if old is not None else ""
+    if isinstance(new, dict):
+        old_d = old if isinstance(old, dict) else {}
+        return {k: restore_sentinels(v, old_d.get(k)) for k, v in new.items()}
+    if isinstance(new, list):
+        old_l = old if isinstance(old, list) else []
+        if len(new) == len(old_l):
+            return [restore_sentinels(nv, ov) for nv, ov in zip(new, old_l)]
+        return old if _contains_sentinel(new) else new
+    return new
+
+
 @router.get("")
 async def get_config(_: Annotated[dict, Depends(require_admin)]):
-    return load_config()
+    return mask_secrets(load_config())
 
 
 @router.post("")
 async def update_config(data: dict, admin: Annotated[dict, Depends(require_admin)]):
     existing = load_config()
+    data = restore_sentinels(data, existing)   # 哨兵字段还原为服务器现值, 不覆盖真实密钥
     changed_old = {}
     changed_new = {}
     for k, v in data.items():

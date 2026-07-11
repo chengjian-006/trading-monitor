@@ -135,25 +135,60 @@ async def get_pool_row(code: str) -> dict | None:
     )
 
 
+# 批量 UPDATE 单往返化 (v1.7.x): 生产 DB 跨云 44ms 往返, aiomysql 的 executemany 只对
+# INSERT...VALUES 合并多值, UPDATE 会退化为逐条 execute → N 行 = N 次往返 (80 只/块 ≈ 3.5s
+# 纯往返, 盘中行情刷新 2.8s 超时常态的主要根因). 改为单条
+#   UPDATE ... SET col = CASE code WHEN %s THEN %s ... END ... WHERE code IN (...)
+# 每块一次往返. 选 CASE 而非 INSERT...ON DUPLICATE KEY UPDATE: 主键是 (code,user_id),
+# 按 code 更新的函数不知道各用户行, ODKU 会把不在池的 (code,user_id) 插成 name='' 幽灵行.
+_BATCH_CHUNK = 500  # 单条 CASE 批量 UPDATE 最大行数, 超出分块(防 SQL 过长)
+
+
+def _case_code(n: int) -> str:
+    """`CASE code WHEN %s THEN %s ... END` 表达式(n 行, 全参数化, 不拼值)."""
+    return "CASE code " + " ".join(["WHEN %s THEN %s"] * n) + " END"
+
+
+def _case_params(chunk: list[dict], getters: list) -> list:
+    """按 SET 子句出现顺序展开参数: 每列依次 (code, value)*n 对, 末尾接 WHERE IN 的 codes."""
+    params: list = []
+    for get in getters:
+        for u in chunk:
+            params.append(u["code"])
+            params.append(get(u))
+    params.extend(u["code"] for u in chunk)
+    return params
+
+
 async def batch_update_quotes(updates: list[dict]):
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.executemany(
-                "UPDATE cfzy_biz_stock_pool SET price=%s, pct_change=%s, amount=%s, "
-                "speed=COALESCE(%s,speed), "
-                "industry=COALESCE(NULLIF(%s,''),industry), "
-                "volume_ratio=COALESCE(NULLIF(%s,0),volume_ratio), "
-                "free_cap=COALESCE(NULLIF(%s,0),free_cap), "
-                "turnover=COALESCE(NULLIF(%s,0),turnover), "
-                "popularity_rank=%s, "
-                "ma20=%s, ma10=%s, ma60=%s, "
-                "quote_updated_at=NOW() WHERE code=%s",
-                [(u["price"], u["pct_change"], u["amount"], u["speed"],
-                  u.get("industry", ""), u.get("volume_ratio"), u.get("free_cap"),
-                  u.get("turnover"), u.get("popularity_rank"),
-                  u.get("ma20"), u.get("ma10"), u.get("ma60"), u["code"]) for u in updates],
-            )
+    if not updates:
+        return
+    getters = [
+        lambda u: u["price"], lambda u: u["pct_change"], lambda u: u["amount"],
+        lambda u: u["speed"],
+        lambda u: u.get("industry", ""), lambda u: u.get("volume_ratio"),
+        lambda u: u.get("free_cap"), lambda u: u.get("turnover"),
+        lambda u: u.get("popularity_rank"),
+        lambda u: u.get("ma20"), lambda u: u.get("ma10"), lambda u: u.get("ma60"),
+    ]
+    for i in range(0, len(updates), _BATCH_CHUNK):
+        chunk = updates[i:i + _BATCH_CHUNK]
+        case = _case_code(len(chunk))
+        in_ph = ",".join(["%s"] * len(chunk))
+        await _execute(
+            "UPDATE cfzy_biz_stock_pool SET "
+            f"price={case}, pct_change={case}, amount={case}, "
+            f"speed=COALESCE({case},speed), "
+            f"industry=COALESCE(NULLIF({case},''),industry), "
+            f"volume_ratio=COALESCE(NULLIF({case},0),volume_ratio), "
+            f"free_cap=COALESCE(NULLIF({case},0),free_cap), "
+            f"turnover=COALESCE(NULLIF({case},0),turnover), "
+            f"popularity_rank={case}, "
+            f"ma20={case}, ma10={case}, ma60={case}, "
+            "quote_updated_at=NOW() "
+            f"WHERE code IN ({in_ph})",
+            _case_params(chunk, getters),
+        )
 
 
 async def batch_update_core_quotes(updates: list[dict]):
@@ -161,14 +196,18 @@ async def batch_update_core_quotes(updates: list[dict]):
     给 quote_refresher 在取到行情后"先快速落库"用, 避免后续慢的东财 extra 超时导致整轮不写、价/涨跌幅长期不刷。"""
     if not updates:
         return
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.executemany(
-                "UPDATE cfzy_biz_stock_pool SET price=%s, pct_change=%s, amount=%s, "
-                "quote_updated_at=NOW() WHERE code=%s",
-                [(u["price"], u["pct_change"], u["amount"], u["code"]) for u in updates],
-            )
+    getters = [lambda u: u["price"], lambda u: u["pct_change"], lambda u: u["amount"]]
+    for i in range(0, len(updates), _BATCH_CHUNK):
+        chunk = updates[i:i + _BATCH_CHUNK]
+        case = _case_code(len(chunk))
+        in_ph = ",".join(["%s"] * len(chunk))
+        await _execute(
+            "UPDATE cfzy_biz_stock_pool SET "
+            f"price={case}, pct_change={case}, amount={case}, "
+            "quote_updated_at=NOW() "
+            f"WHERE code IN ({in_ph})",
+            _case_params(chunk, getters),
+        )
 
 
 async def fetch_kline_close_batch(codes: list, n: int = 20) -> dict:
@@ -215,28 +254,39 @@ async def batch_update_board_strength(updates: list[dict]):
     按 code 更新(板块强弱与 user 无关, 同 code 各用户一致)。"""
     if not updates:
         return
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.executemany(
-                "UPDATE cfzy_biz_stock_pool SET board_name=%s, board_rank=%s, board_total=%s "
-                "WHERE code=%s",
-                [(u.get("board_name", ""), u.get("board_rank"), u.get("board_total"), u["code"])
-                 for u in updates],
-            )
+    getters = [lambda u: u.get("board_name", ""), lambda u: u.get("board_rank"),
+               lambda u: u.get("board_total")]
+    for i in range(0, len(updates), _BATCH_CHUNK):
+        chunk = updates[i:i + _BATCH_CHUNK]
+        case = _case_code(len(chunk))
+        in_ph = ",".join(["%s"] * len(chunk))
+        await _execute(
+            "UPDATE cfzy_biz_stock_pool SET "
+            f"board_name={case}, board_rank={case}, board_total={case} "
+            f"WHERE code IN ({in_ph})",
+            _case_params(chunk, getters),
+        )
 
 
 async def batch_update_sort_order(user_id: int, codes: list[str]):
-    """按给定 codes 顺序写 sort_order(下标即顺序), 用于股票池手动拖拽排序。"""
+    """按给定 codes 顺序写 sort_order(下标即顺序), 用于股票池手动拖拽排序。
+    与上面按 code 全用户刷的行情类函数不同: 手动排序是单用户操作, WHERE 必须限定 user_id。"""
     if not codes:
         return
-    pool = get_pool()
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.executemany(
-                "UPDATE cfzy_biz_stock_pool SET sort_order = %s WHERE code = %s AND user_id = %s",
-                [(i, code, user_id) for i, code in enumerate(codes)],
-            )
+    for i in range(0, len(codes), _BATCH_CHUNK):
+        chunk = codes[i:i + _BATCH_CHUNK]
+        case = _case_code(len(chunk))
+        in_ph = ",".join(["%s"] * len(chunk))
+        params: list = []
+        for j, code in enumerate(chunk):
+            params += [code, i + j]   # i+j = 全局下标, 分块后顺序不重数
+        params.append(user_id)
+        params.extend(chunk)
+        await _execute(
+            f"UPDATE cfzy_biz_stock_pool SET sort_order={case} "
+            f"WHERE user_id=%s AND code IN ({in_ph})",
+            params,
+        )
 
 
 async def batch_update_stock_tags(updates: list[dict]):

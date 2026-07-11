@@ -1,3 +1,4 @@
+import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -11,6 +12,59 @@ from backend.models import repository
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+# ── 登录失败锁定 (应用层速率限制, 进程内存实现·单 worker 足够) ──
+# 按 IP+用户名 计数: 10分钟窗口内失败 ≥5 次 → 锁 15 分钟(429), 成功登录清零该键。
+LOGIN_FAIL_WINDOW = 10 * 60          # 失败计数窗口(秒)
+LOGIN_FAIL_MAX = 5                   # 窗口内失败上限
+LOGIN_LOCK_SECONDS = 15 * 60         # 锁定时长(秒)
+_login_failures: dict[str, list[float]] = {}   # key → 窗口内失败时间戳
+_login_locks: dict[str, float] = {}            # key → 锁定截止时间戳
+_CLEANUP_INTERVAL = 60               # 过期清理最小间隔(秒), 防字典无限膨胀
+_last_cleanup = 0.0
+
+
+def _client_ip(request: Request) -> str:
+    """取客户端 IP: 生产走 nginx 反代, 优先 X-Forwarded-For 首段(与登录日志口径一致)。"""
+    if not request.client:
+        return "unknown"
+    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+
+
+def _cleanup_login_guard(now: float) -> None:
+    """惰性清理过期条目(每次登录最多触发一次, 间隔 ≥60s), 防内存无限膨胀。"""
+    global _last_cleanup
+    if now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
+    for key in [k for k, until in _login_locks.items() if until <= now]:
+        _login_locks.pop(key, None)
+    cutoff = now - LOGIN_FAIL_WINDOW
+    for key in [k for k, ts in _login_failures.items() if not ts or ts[-1] <= cutoff]:
+        _login_failures.pop(key, None)
+
+
+def _check_login_lock(key: str, now: float) -> None:
+    """锁定期内直接 429(带 Retry-After), 不碰 DB 不验密码。"""
+    locked_until = _login_locks.get(key, 0.0)
+    if locked_until > now:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="尝试次数过多，请15分钟后再试",
+            headers={"Retry-After": str(max(int(locked_until - now), 1))},
+        )
+
+
+def _record_login_failure(key: str, now: float) -> None:
+    """记一次失败; 窗口内累计达上限 → 上锁并清空计数。"""
+    fails = [t for t in _login_failures.get(key, []) if t > now - LOGIN_FAIL_WINDOW]
+    fails.append(now)
+    if len(fails) >= LOGIN_FAIL_MAX:
+        _login_locks[key] = now + LOGIN_LOCK_SECONDS
+        _login_failures.pop(key, None)
+    else:
+        _login_failures[key] = fails
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
@@ -18,9 +72,20 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(req: LoginRequest, request: Request):
+    client_ip = _client_ip(request)
+    guard_key = f"{client_ip}|{req.username}"
+    now = time.time()
+    _cleanup_login_guard(now)
+    _check_login_lock(guard_key, now)     # 锁定判断在验证密码之前
+
     user = await repository.get_user_by_username(req.username)
     if not user or not verify_password(req.password, user["password_hash"], user["salt"]):
+        _record_login_failure(guard_key, now)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
+
+    # 登录成功: 清零该 IP+用户名 的失败计数与锁
+    _login_failures.pop(guard_key, None)
+    _login_locks.pop(guard_key, None)
 
     cfg = load_config()
     sso_enabled = cfg.get("sso_enabled", True)
@@ -33,7 +98,6 @@ async def login(req: LoginRequest, request: Request):
 
     token = create_token(user["id"], user["username"], user["role"], tv)
 
-    client_ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host if request.client else "unknown"
     user_agent = request.headers.get("user-agent", "unknown")
     login_detail = {
         "ip": client_ip,

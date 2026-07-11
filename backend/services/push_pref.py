@@ -13,6 +13,7 @@
 """
 import hashlib
 import hmac
+import time
 from datetime import date, timedelta
 from urllib.parse import quote, urlencode
 
@@ -20,14 +21,18 @@ from backend.core.auth import SECRET_KEY
 
 _SIGN_KEY = ("pushpref:" + SECRET_KEY).encode()
 
+# 快捷链接有效期: 签发后 48 小时(覆盖「当天推送+晚间复盘」), 过期链接不可再操作(防重放)。
+QUICK_LINK_TTL_SECONDS = 48 * 3600
+
 VALID_KINDS = ("mute", "snooze", "model_off", "ack", "unmute",  # unmute=恢复今日免打扰(撤销, 非新增偏好)
                "stop_snooze",     # stop_snooze=止损强制升级专用静音(target=code), 仅升级检查消费, 不压这只票的其它推送
-               "ma_watch_snooze")  # ma_watch_snooze=尾盘破位警戒专用静音(target=code), 仅警戒卡消费, 同上不串台
+               "ma_watch_snooze",  # ma_watch_snooze=尾盘破位警戒专用静音(target=code), 仅警戒卡消费, 同上不串台
+               "surge_snooze")     # surge_snooze=二波过前高提醒专用静音(target=code), 仅二波扫描器消费, 同上不串台
 
 
-def _canonical(user_id, kind: str, target: str, days) -> str:
-    """签名原文: 五要素拼成定长串, 任一被篡改签名即不符."""
-    return f"{user_id}|{kind}|{target}|{days}"
+def _canonical(user_id, kind: str, target: str, days, exp) -> str:
+    """签名原文: 六要素拼成定长串(含过期时间戳 exp), 任一被篡改签名即不符."""
+    return f"{user_id}|{kind}|{target}|{days}|{exp}"
 
 
 def sign(payload: str) -> str:
@@ -38,25 +43,30 @@ def verify(payload: str, sig: str | None) -> bool:
     return hmac.compare_digest(sign(payload), sig or "")
 
 
-def sign_params(user_id, kind: str, target: str, days) -> str:
-    return sign(_canonical(user_id, kind, target, days))
+def sign_params(user_id, kind: str, target: str, days, exp) -> str:
+    return sign(_canonical(user_id, kind, target, days, exp))
 
 
-def verify_params(user_id, kind: str, target: str, days, sig: str | None) -> bool:
-    return verify(_canonical(user_id, kind, target, days), sig)
+def verify_params(user_id, kind: str, target: str, days, exp, sig: str | None) -> bool:
+    """exp 纳入 HMAC 原文: 无 exp 的旧链接一律拒绝(旧卡片自然淘汰); exp 被篡改签名即不符.
+    注意本函数只验真伪, exp 是否已过期由调用方(routers/quick.py)另行判定并给友好提示."""
+    if exp is None or str(exp) == "":
+        return False
+    return verify(_canonical(user_id, kind, target, days, exp), sig)
 
 
-def build_quick_link(site: str, user_id, kind: str, target: str = "", days=0) -> str:
-    """拼一条带签名的快捷链接, 指向 /api/quick/set."""
-    sig = sign_params(user_id, kind, target, days)
-    q = urlencode({"u": user_id, "k": kind, "t": target, "d": days, "sig": sig})
+def build_quick_link(site: str, user_id, kind: str, target: str = "", days=0, exp=None) -> str:
+    """拼一条带签名的快捷链接, 指向 /api/quick/set. 默认签发后 48 小时过期(防永久重放)."""
+    exp = int(exp) if exp is not None else int(time.time()) + QUICK_LINK_TTL_SECONDS
+    sig = sign_params(user_id, kind, target, days, exp)
+    q = urlencode({"u": user_id, "k": kind, "t": target, "d": days, "exp": exp, "sig": sig})
     return f"{site.rstrip('/')}/api/quick/set?{q}"
 
 
 def until_for(kind: str, days, today: date | None = None) -> date:
     """各 kind 的生效截止日(含当日). 今日域(mute/model_off/ack)=今日; snooze族=今日+N-1."""
     today = today or date.today()
-    if kind in ("snooze", "stop_snooze", "ma_watch_snooze"):
+    if kind in ("snooze", "stop_snooze", "ma_watch_snooze", "surge_snooze"):
         n = max(int(days or 0), 1)
         return today + timedelta(days=n - 1)
     return today
@@ -82,6 +92,15 @@ def ma_watch_snooze_active(prefs: list[dict], code: str) -> bool:
     独立于 decide(): 点了警戒静音, 这只票的买卖点/异动照常推。"""
     for p in prefs:
         if p.get("kind") == "ma_watch_snooze" and code and (p.get("target") or "") == code:
+            return True
+    return False
+
+
+def surge_snooze_active(prefs: list[dict], code: str) -> bool:
+    """二波过前高提醒专用: 生效偏好里是否有这只票的 surge_snooze。
+    独立于 decide(): 点了二波静音, 这只票的买卖点/异动照常推。"""
+    for p in prefs:
+        if p.get("kind") == "surge_snooze" and code and (p.get("target") or "") == code:
             return True
     return False
 
@@ -144,4 +163,16 @@ def build_ma_watch_actions_md(site: str, user_id, code: str, today: date | None 
     week_days = days_until_week_end(today)
     today_link = build_quick_link(site, user_id, "ma_watch_snooze", target=code, days=1)
     week_link = build_quick_link(site, user_id, "ma_watch_snooze", target=code, days=week_days)
+    return f"[🔕 当日不提醒]({today_link})　·　[🔕 本周不提醒]({week_link})"
+
+
+def build_surge_actions_md(site: str, user_id, code: str, today: date | None = None) -> str:
+    """二波过前高提醒卡逐票两开关: 当日不提醒 / 本周不提醒。走 surge_snooze(target=code),
+    只静音这只票的二波提醒, 不影响其它推送。site 为空则不给链接(本地/非生产)。"""
+    site = (site or "").rstrip("/")
+    if not site:
+        return ""
+    week_days = days_until_week_end(today)
+    today_link = build_quick_link(site, user_id, "surge_snooze", target=code, days=1)
+    week_link = build_quick_link(site, user_id, "surge_snooze", target=code, days=week_days)
     return f"[🔕 当日不提醒]({today_link})　·　[🔕 本周不提醒]({week_link})"
