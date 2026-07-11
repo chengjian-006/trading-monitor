@@ -10,6 +10,7 @@ import pandas as pd
 from backend.services.sector_cocrash_guard import (
     build_cocrash_card,
     detect_cocrash_sectors,
+    is_broken_down,
     pick_pool_hits,
 )
 from backend.services.industry_map_refresher import rows_from_wencai_df
@@ -70,6 +71,37 @@ class TestDetect:
         assert res["sectors"] == {}
 
 
+class TestIsBrokenDown:
+    """个股破位下跌闸: 距120日峰≤-15% + 收MA20下 + MA20拐头, 三条全中才算破位。"""
+
+    def _rising_then_falling(self):
+        # 前100根 100→199 上涨, 后60根 198→139 下跌(距峰约-30%)
+        up = [100.0 + i for i in range(100)]
+        down = [199.0 - i for i in range(1, 61)]
+        return up + down
+
+    def test_broken_true(self):
+        closes = self._rising_then_falling()
+        assert is_broken_down(closes, 136.0) is True   # 深跌+收均线下+均线拐头
+
+    def test_strong_uptrend_false(self):
+        closes = [100.0 + i * 0.5 for i in range(160)]
+        assert is_broken_down(closes, 181.0) is False  # 一路涨, 现价创新高, 距峰≈0
+
+    def test_shallow_pullback_false(self):
+        # 涨到200只小回到188(距峰-6%), 未达-15%
+        closes = [100.0 + i for i in range(100)] + [199.0 - i * 0.2 for i in range(1, 61)]
+        assert is_broken_down(closes, 188.0) is False
+
+    def test_deep_but_reclaimed_ma_false(self):
+        # 深跌后强反弹, 现价站回MA20上方 → 不算破位
+        closes = self._rising_then_falling()
+        assert is_broken_down(closes, 175.0) is False  # 175 > 近期均线
+
+    def test_insufficient_history_false(self):
+        assert is_broken_down([100.0] * 50, 80.0) is False
+
+
 class TestPoolHits:
     IND = {"300390": "电池化学品", "301292": "电池化学品", "002192": "锂", "600519": "白酒"}
     SECTORS = {"电池化学品": {"down": 27, "total": 38, "ratio": 0.71},
@@ -86,6 +118,24 @@ class TestPoolHits:
         assert "600519" not in codes
         assert codes[0] == "300390"          # 跌最深在前
         assert hits[0]["held"] is True and hits[1]["held"] is False
+
+    def test_broken_codes_filter(self):
+        """传 broken_codes 时只保留破位票(均线上方的强势票即便跟跌也剔除)。"""
+        pool = [{"code": "300390", "name": "天华新能"},
+                {"code": "301292", "name": "海科新源"},
+                {"code": "002192", "name": "融捷股份"}]
+        qmap = {"300390": -15.8, "301292": -7.0, "002192": -10.0}
+        hits = pick_pool_hits(pool, self.SECTORS, self.IND, qmap,
+                              holding_codes=set(), broken_codes={"300390", "002192"})
+        codes = {h["code"] for h in hits}
+        assert codes == {"300390", "002192"}   # 301292 未破位被剔
+
+    def test_broken_codes_none_keeps_all(self):
+        """broken_codes=None(默认)不做破位过滤, 行业命中全留(向后兼容)。"""
+        pool = [{"code": "300390", "name": "天华新能"}, {"code": "301292", "name": "海科新源"}]
+        qmap = {"300390": -15.8, "301292": -7.0}
+        hits = pick_pool_hits(pool, self.SECTORS, self.IND, qmap, holding_codes=set())
+        assert {h["code"] for h in hits} == {"300390", "301292"}
 
     def test_no_quote_stock_skipped(self):
         pool = [{"code": "300390", "name": "天华新能"}]

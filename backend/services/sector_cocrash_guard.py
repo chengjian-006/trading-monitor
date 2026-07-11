@@ -63,12 +63,44 @@ def detect_cocrash_sectors(quotes: list[dict], ind_map: dict[str, str], *,
     return {"panic": round(panic, 4), "sectors": sectors}
 
 
+DD_TH = -0.15        # 距峰回撤 ≤ -15% = 已确实跌入下跌段(非见顶第一天)
+MA_WIN = 20          # 判"收在MA20下 + MA20拐头"
+PEAK_WIN = 120       # 距峰回看窗(约半年, 与回测 bt_avoid_rules2 同口径)
+
+
+def is_broken_down(closes: list[float], price: float, *,
+                   dd_th: float = DD_TH, ma_win: int = MA_WIN,
+                   peak_win: int = PEAK_WIN) -> bool:
+    """该股是否"破位下跌"—— 三条全中: 距 peak_win 日峰≤dd_th + 收盘(现价)<MA20 + MA20拐头向下。
+
+    与回测 bt_avoid_rules2 的"破位大跌日"个股前提一致: 板块共振跌禁抄底的结论建立在此语境上,
+    只有命中票本身处于该语境才推(均线上方的强势票即便跟随行业跌一下也不提示)。
+    closes: 不含今日的历史收盘价(升序, 最新在末位); price: 今日尾盘现价。数据不足→False(不判)。
+    """
+    m = len(closes)
+    if m < peak_win or price <= 0:
+        return False
+    # 距峰: 近 peak_win 根(近 peak_win-1 历史 + 今日)最高价
+    peak = max(max(closes[-(peak_win - 1):]), price)
+    if price / peak - 1.0 > dd_th:
+        return False
+    # 收在 MA20 下: 今日 MA20 = (近19历史 + 今日现价)/20
+    ma_today = (sum(closes[-(ma_win - 1):]) + price) / ma_win
+    if price >= ma_today:
+        return False
+    # MA20 拐头: 今日 MA20 < 5 交易日前 MA20(用历史收盘算, closes[-24:-4])
+    ma_5ago = sum(closes[-(ma_win + 4):-4]) / ma_win
+    return ma_today < ma_5ago
+
+
 def pick_pool_hits(pool_rows: list[dict], sectors: dict, ind_map: dict[str, str],
-                   quote_map: dict[str, float], holding_codes: set[str]) -> list[dict]:
+                   quote_map: dict[str, float], holding_codes: set[str],
+                   broken_codes: set[str] | None = None) -> list[dict]:
     """自选池里踩中触发行业的票, 按当日跌幅升序(跌最深在前)。
 
     pool_rows 每项含 code/name; quote_map = {code: 当日涨跌%}(无行情的票跳过);
-    holding_codes 标 💼持仓。返回 [{code,name,pct,industry,held}]。
+    holding_codes 标 💼持仓。broken_codes 非 None 时只保留其中的票(个股破位下跌闸,
+    见 is_broken_down); None(默认)不做破位过滤。返回 [{code,name,pct,industry,held}]。
     """
     hits: list[dict] = []
     seen: set[str] = set()
@@ -81,6 +113,8 @@ def pick_pool_hits(pool_rows: list[dict], sectors: dict, ind_map: dict[str, str]
             continue
         pct = quote_map.get(code)
         if pct is None:
+            continue
+        if broken_codes is not None and code not in broken_codes:
             continue
         seen.add(code)
         hits.append({"code": code, "name": str(row.get("name") or code),
@@ -112,6 +146,7 @@ def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]) -> tuple[s
     body = ("\n".join(lines).rstrip()
             + "\n\n大盘正常但行业集体大跌=行业逻辑受损。全市场回测(2023~2026): 此语境抄底/补仓"
               " T+5~T+20 期望为负、日胜率仅33%~47% — 行业停止超额大跌前别抄底、别补仓(💼=当前持仓)。"
+              "仅纳入本身已破位下跌(距峰≤-15%+收MA20下+MA20拐头)的票, 均线上方的强势票即便跟跌也不提示。"
               "恐慌普跌日(全市场大跌占比≥10%)不适用本提示。")
     return title, body
 
@@ -170,6 +205,37 @@ async def _fetch_market_pct() -> list[dict]:
     return out
 
 
+async def _broken_candidates(candidates: list[dict], quote_map: dict[str, float]) -> set[str]:
+    """对行业命中候选逐票拉日线, 返回其中"个股本身破位下跌"的 code 集合(见 is_broken_down)。
+
+    今日一律用现价(quote_map 的当日涨跌%由现价换算, 剔日线里可能带的当日半根bar)。
+    拉日线失败/数据不足的票不算破位(不推), 宁可漏报不误报。
+    """
+    from datetime import date as _date
+    from backend import data_fetcher
+
+    today = _date.today().isoformat()
+    broken: set[str] = set()
+    for c in candidates:
+        code = c["code"]
+        try:
+            df = await data_fetcher.get_daily_kline(code, days=PEAK_WIN + 30)
+        except Exception as e:
+            logger.warning(f"[sector_cocrash] 取日K失败({code}): {e}")
+            continue
+        if df is None or df.empty:
+            continue
+        d = df[df["date"].astype(str).str.slice(0, 10) < today]
+        closes = [float(x) for x in d["close"].tolist() if x and float(x) > 0]
+        if len(closes) < PEAK_WIN:
+            continue
+        # 今日现价: 用最近历史收盘 × (1+当日涨跌%) 复原(尾盘14:30 ≈ 收盘)
+        price = closes[-1] * (1.0 + quote_map.get(code, 0.0) / 100.0)
+        if is_broken_down(closes, price):
+            broken.add(code)
+    return broken
+
+
 async def run_sector_cocrash_watch():
     """交易日尾盘14:30: 全市场涨跌幅 → 板块共振判定 → 自选池命中则推禁补仓提示卡。"""
     from backend.core.trading_calendar import is_workday
@@ -204,9 +270,17 @@ async def run_sector_cocrash_watch():
     except Exception:
         holding_codes = set()
     quote_map = {q["code"]: q["pct"] for q in quotes}
-    hits = pick_pool_hits(pool_rows, res["sectors"], ind_map, quote_map, holding_codes)
-    if not hits:
+    # 先取行业命中候选(要拉日线判破位的票), 再逐票判"个股本身破位下跌", 只推破位的
+    candidates = pick_pool_hits(pool_rows, res["sectors"], ind_map, quote_map, holding_codes)
+    if not candidates:
         logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业但自选池无命中, 不发")
+        return
+    broken_codes = await _broken_candidates(candidates, quote_map)
+    hits = pick_pool_hits(pool_rows, res["sectors"], ind_map, quote_map, holding_codes,
+                          broken_codes=broken_codes)
+    if not hits:
+        logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业, 自选命中{len(candidates)}只 "
+                    f"但无一处于破位下跌, 不发(强势票跟跌不提示)")
         return
     title, body = build_cocrash_card(res["panic"], res["sectors"], hits)
     try:
