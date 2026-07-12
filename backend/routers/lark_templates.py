@@ -662,7 +662,7 @@ register("盘后提醒", "预增榜·当日正向业绩预告", "盘后把当日
 
 # ── 快捷设置动作行: 个股买入/卖出信号卡底部统一追加(与真实推送 1:1, 实推由 push_pref.build_quick_actions_md 生成) ──
 # 预览里链接做视觉展示(指向 # ), 真实推送是带 HMAC 签名的 /api/quick/set 链接
-_QUICK_ACTIONS_DEMO = "[🔕 今日免打扰](#)"
+_QUICK_ACTIONS_DEMO = "[🔕 今日免打扰](#)　·　[🔕 静音此股](#)"
 
 for _tpl in TEMPLATES:
     if _tpl["category"] in ("买入信号", "卖出信号"):

@@ -543,6 +543,20 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
             logger.info(f"[push_pref] 抑制推送({_verdict['reason']}): {name}({code}) {signal_name}")
             return False
         mute_lark = _verdict["mute_lark"]
+        # 条件型静音「直到再次突破」: 上一交易日也触发=连续→压住; 昨没触发=新一轮突破→撤销静音放行
+        _rt_probe = _pref_svc.retrigger_verdict(_prefs, code, signal_id, False)
+        if _rt_probe["has_snooze"] and code and signal_id:
+            from backend.core.trading_calendar import prev_trading_day
+            from backend.models.repo import signals as _sig_repo
+            _prev = prev_trading_day()
+            _prev_hit = await _sig_repo.signal_triggered_on(code, signal_id, _prev.isoformat(), user_id or 1)
+            _rt = _pref_svc.retrigger_verdict(_prefs, code, signal_id, _prev_hit)
+            if _rt["suppress"]:
+                logger.info(f"[push_pref] 抑制推送(直到再突破·连续触发中): {name}({code}) {signal_name}")
+                return False
+            if _rt["revoke_id"] is not None:
+                await _pref_repo.revoke(user_id or 1, _rt["revoke_id"])
+                logger.info(f"[push_pref] 新一轮突破, 撤销条件静音放行: {name}({code}) {signal_name}")
     except Exception as e:
         logger.warning(f"[push_pref] 闸门异常, 放行: {e}")
 

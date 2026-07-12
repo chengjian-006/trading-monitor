@@ -131,6 +131,16 @@ async def get_signal_days_for_code(code: str, user_id: int = 1, limit: int = 30)
     return [str(r["d"]) for r in rows]
 
 
+async def signal_triggered_on(code: str, signal_id: str, day: str, user_id: int = 1) -> bool:
+    """某票某模型在指定交易日(YYYY-MM-DD)是否触发过 — 供条件型静音(直到再突破)判连续/新一轮。"""
+    rows = await _fetchall(
+        "SELECT 1 FROM cfzy_biz_signals WHERE code=%s AND signal_id=%s AND trigger_date=%s "
+        "AND user_id=%s LIMIT 1",
+        (code, signal_id, day, user_id),
+    )
+    return bool(rows)
+
+
 def _history_where(user_id: int, date: str | None, start_date: str | None, end_date: str | None,
                    signal_id: str | None = None):
     """构造历史信号 WHERE 子句 + 参数。date 精确单日(优先); 否则按 start/end 闭区间; 可加 signal_id 过滤。"""

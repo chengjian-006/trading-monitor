@@ -36,6 +36,17 @@ def is_workday(now: datetime | None = None) -> bool:
     return not _is_legal_holiday(now.date())
 
 
+def prev_trading_day(d=None):
+    """d(date, 默认今日)之前最近的一个交易日(周一~周五且非法定节假日). 返回 date."""
+    from datetime import date as _date, timedelta
+    cur = (d or _date.today()) - timedelta(days=1)
+    for _ in range(15):   # 最长连假回退上限, 够覆盖春节
+        if cur.weekday() < 5 and not _is_legal_holiday(cur):
+            return cur
+        cur -= timedelta(days=1)
+    return cur
+
+
 def is_trading_time(now: datetime | None = None) -> bool:
     """配置 trading_hours 内 (默认 09:25-11:30 / 13:00-15:00). 含集合竞价撮合.
 

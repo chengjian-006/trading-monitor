@@ -31,6 +31,7 @@ async function loadPushPrefs() {
 function prefDesc(p: PushPref): string {
   if (p.kind === 'mute') return '今天剩余飞书推送已静音'
   if (p.kind === 'snooze') return `个股 ${p.target} 静音至 ${p.until_date.slice(5)}`
+  if (p.kind === 'snooze_until_retrigger') return `个股 ${p.target.split('|')[0]} 静音 · 直到再次突破`
   if (p.kind === 'model_off') return `模型 ${p.target} 今日关推送`
   if (p.kind === 'ack') return `信号已标记处理（${p.target}）`
   return p.kind_label

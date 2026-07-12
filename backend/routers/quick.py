@@ -43,6 +43,7 @@ _KIND_LABEL = {
     "stop_snooze": "止损提醒静音",
     "ma_watch_snooze": "破位警戒静音",
     "surge_snooze": "二波提醒静音",
+    "snooze_until_retrigger": "个股静音·直到再突破",
 }
 
 
@@ -110,9 +111,30 @@ async def quick_set(
         detail = f"已静音 {t} 的尾盘破位警戒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
     elif k == "surge_snooze":
         detail = f"已静音 {t} 的二波过前高提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "snooze_until_retrigger":
+        _code = t.split("|", 1)[0]
+        detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
     else:  # ack
         detail = "该信号已标记处理，当日不再重复提醒。"
     return _confirm_page(f"已设置：{label}", detail)
+
+
+@router.get("/snooze-options")
+async def snooze_options(
+    u: int = Query(...),
+    t: str = Query(...),          # code|signal_id
+    n: str = Query(""),           # 股票名(展示用)
+    exp: int | None = Query(None),
+    sig: str = Query(""),
+):
+    """个股信号静音落地页: 校验签名(kind=snooze 占位) → 渲染三档(仅今日/本周/直到再突破)按钮页。"""
+    if not pref_svc.verify_params(u, "snooze", t, 0, exp, sig):
+        return _confirm_page("链接已失效", "签名校验未通过。", ok=False)
+    if exp is None or exp < time.time():
+        return _confirm_page("链接已过期", "链接已过期，请从最新推送卡片操作。", ok=False)
+    code, _, signal_id = t.partition("|")
+    site = (load_config().get("site_url", "") or "").rstrip("/")
+    return HTMLResponse(pref_svc.render_snooze_options_page(site, u, code, n, signal_id))
 
 
 @router.get("/prefs")
@@ -122,12 +144,16 @@ async def list_prefs(user: Annotated[dict, Depends(get_current_user)]):
     out = []
     for r in rows:
         until = r["until_date"]
+        # 条件型静音无固定到期日(远期占位), 展示"直到再次突破"而非误导性的 2036 日期
+        until_label = ("直到再次突破" if r["kind"] == "snooze_until_retrigger"
+                       else (until.isoformat() if hasattr(until, "isoformat") else str(until)))
         out.append({
             "id": r["id"],
             "kind": r["kind"],
             "kind_label": _KIND_LABEL.get(r["kind"], r["kind"]),
             "target": r["target"],
             "until_date": until.isoformat() if hasattr(until, "isoformat") else str(until),
+            "until_label": until_label,
         })
     return {"prefs": out}
 
