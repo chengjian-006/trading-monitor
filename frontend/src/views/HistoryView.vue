@@ -6,12 +6,14 @@ import { fetchSignalHistory, fetchSignalStats, fetchSignalOutcomeStats, type Sig
 import { upsertSignalExecution, deleteSignalExecution, fetchSignalExecutions, type SignalExecution } from '../api/signal-executions'
 import { fetchIntraday, type IntradayPoint } from '../api/kline'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
+import { useResponsive } from '../composables/useResponsive'
 import IntradayChart from '../components/chart/IntradayChart.vue'
 import ResponsiveTable from '../components/common/ResponsiveTable.vue'
 import { MODELS } from '../data/models'
 import type { Signal } from '../types'
 
 const message = useGlobalMessage()
+const { isMobile } = useResponsive()
 const allSignals = ref<Signal[]>([])
 const loading = ref(false)
 
@@ -88,6 +90,107 @@ const signals = computed(() => {
   }
   return list
 })
+
+// triggered_at 兼容 "2026-07-11T09:30:00" 与 "2026-07-11 09:30:00" 两种写法
+function parseTriggeredTs(raw: string): number | null {
+  if (!raw) return null
+  const t = new Date(raw.replace(' ', 'T')).getTime()
+  return isNaN(t) ? null : t
+}
+
+// 相对时间(刚刚/分钟前/小时前/昨天/N天前), 与 FreshnessBadge 同口径
+function relativeTime(raw: string): string {
+  const t = parseTriggeredTs(raw)
+  if (t == null) return ''
+  const diff = Math.floor((Date.now() - t) / 1000)
+  if (diff < 60) return '刚刚'
+  if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`
+  const days = Math.floor(diff / 86400)
+  if (days === 1) return '昨天'
+  if (days < 30) return `${days}天前`
+  return formatDate(t)
+}
+
+function firstReason(detail: string): string {
+  return (detail || '').split('|')[0].trim()
+}
+
+// filterRange 内的交易日数(跳周末), 用于"近 N 日"标签
+const rangeDayLabel = computed(() => {
+  const range = filterRange.value
+  if (!range) return '近期'
+  let n = 0
+  const d = new Date(range[0]); d.setHours(0, 0, 0, 0)
+  const end = new Date(range[1]); end.setHours(0, 0, 0, 0)
+  while (d <= end) {
+    const wd = d.getDay()
+    if (wd !== 0 && wd !== 6) n++
+    d.setDate(d.getDate() + 1)
+  }
+  return n > 0 ? `近 ${n} 日` : '近期'
+})
+
+// ── 按模型聚合概览 ── 仅按 filterRange 日期筛(不管 filterModel/关键词/方向), 按 signal_id 分组
+interface ModelGroup {
+  key: string          // signal_id || signal_name — 与 filterModel 判定口径一致
+  signal_id: string
+  signal_name: string
+  direction: string
+  count: number
+  recent: Signal[]     // 最近 3 条触发
+  outcome: SignalOutcomeStatsItem | null
+}
+
+const modelGroups = computed<ModelGroup[]>(() => {
+  let list = allSignals.value
+  const range = filterRange.value
+  if (range) {
+    const startTs = new Date(range[0]).setHours(0, 0, 0, 0)
+    const endTs = new Date(range[1]).setHours(23, 59, 59, 999)
+    list = list.filter((s) => {
+      const t = parseTriggeredTs(s.triggered_at)
+      return t == null || (t >= startTs && t <= endTs)
+    })
+  }
+  const map = new Map<string, ModelGroup>()
+  for (const s of list) {
+    const key = s.signal_id || s.signal_name
+    if (!key) continue
+    let g = map.get(key)
+    if (!g) {
+      g = {
+        key, signal_id: s.signal_id, signal_name: s.signal_name || key,
+        direction: s.direction, count: 0, recent: [],
+        outcome: outcomeStats.value[s.signal_id] ?? null,
+      }
+      map.set(key, g)
+    }
+    g.count++
+    g.recent.push(s)
+  }
+  const arr = Array.from(map.values())
+  for (const g of arr) {
+    g.recent.sort((a, b) => (parseTriggeredTs(b.triggered_at) ?? 0) - (parseTriggeredTs(a.triggered_at) ?? 0))
+    g.recent = g.recent.slice(0, 3)
+  }
+  arr.sort((a, b) => b.count - a.count)
+  return arr
+})
+
+const activeModelName = computed(() => {
+  if (!filterModel.value) return ''
+  const g = modelGroups.value.find((x) => x.key === filterModel.value)
+  return g ? g.signal_name : filterModel.value
+})
+
+// 点模型卡: 设/取消主列表的模型筛选(复用现有 filterModel 逻辑)
+function toggleModelFilter(key: string) {
+  filterModel.value = filterModel.value === key ? null : key
+}
+
+// 概览区默认展开; 手机默认折叠(省空间)
+const overviewExpanded = ref(!isMobile.value)
 
 function formatDate(ts: number): string {
   const d = new Date(ts)
@@ -497,6 +600,43 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
             </div>
           </div>
         </div>
+        <!-- 按模型聚合概览: 可折叠, 点卡片即筛选主列表 -->
+        <div v-if="modelGroups.length" class="overview-bar">
+          <div class="overview-title" :class="{ expanded: overviewExpanded }" role="button" tabindex="0" :aria-expanded="overviewExpanded" @click="overviewExpanded = !overviewExpanded" @keydown.enter="overviewExpanded = !overviewExpanded">
+            <NIcon class="chevron" :size="12"><ChevronForwardOutline /></NIcon>
+            <span>按模型聚合 · {{ rangeDayLabel }}</span>
+            <span class="overview-title-hint">{{ modelGroups.length }} 个模型 · 点击{{ overviewExpanded ? '折叠' : '展开' }}</span>
+            <span v-if="filterModel" class="overview-title-active">已筛选：{{ activeModelName }}</span>
+          </div>
+          <div v-show="overviewExpanded" class="overview-grid">
+            <div
+              v-for="g in modelGroups" :key="g.key"
+              class="overview-card" :class="[`ov-${g.direction}`, { selected: filterModel === g.key }]"
+              role="button" tabindex="0" :aria-pressed="filterModel === g.key"
+              @click="toggleModelFilter(g.key)" @keydown.enter="toggleModelFilter(g.key)"
+            >
+              <div class="ov-head">
+                <span class="ov-name">{{ g.signal_name }}</span>
+                <NTag size="tiny" :type="dirType[g.direction] ?? 'info'" :bordered="false">
+                  {{ dirLabel[g.direction] ?? g.direction }}
+                </NTag>
+              </div>
+              <div class="ov-meta">
+                <span class="ov-count">{{ rangeDayLabel }}触发 <b>{{ g.count }}</b> 笔</span>
+                <span v-if="g.outcome && g.outcome.evaluated > 0" class="ov-wr">命中率 <b>{{ g.outcome.success_rate }}%</b></span>
+              </div>
+              <div class="ov-recent">
+                <div v-for="r in g.recent" :key="r.id" class="ov-snap">
+                  <span class="ov-snap-code">{{ r.code }}</span>
+                  <span class="ov-snap-name">{{ r.name }}</span>
+                  <span class="ov-snap-price">{{ Number(r.price).toFixed(2) }}</span>
+                  <span class="ov-snap-reason" :title="firstReason(r.detail)">{{ firstReason(r.detail) }}</span>
+                  <span class="ov-snap-time">{{ relativeTime(r.triggered_at) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="table-summary">共 {{ signals.length }} 条信号</div>
         <!-- 桌面/平板: 表格; 手机: 卡片(含触发后表现, 不砍信息) -->
         <ResponsiveTable
@@ -770,4 +910,158 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
 .hc-price { font-family: monospace; color: var(--text1); margin-left: auto; font-variant-numeric: tabular-nums; }
 .hc-perf { font-size: 12px; margin-bottom: 4px; }
 .hc-detail { font-size: 11px; color: var(--text2); line-height: 1.4; }
+
+/* ── 按模型聚合概览 ── */
+.overview-bar {
+  background: var(--surface);
+  border-radius: 6px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  padding: 8px 12px;
+  margin-bottom: 10px;
+}
+.overview-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text1);
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 0;
+  transition: color 0.15s;
+  touch-action: manipulation;
+  flex-wrap: wrap;
+}
+.overview-title:hover {
+  color: var(--primary);
+}
+.overview-title .chevron {
+  color: var(--text3);
+  transition: transform 0.2s ease;
+}
+.overview-title.expanded .chevron {
+  transform: rotate(90deg);
+  color: var(--primary);
+}
+.overview-title-hint {
+  font-weight: 400;
+  color: var(--text3);
+  font-size: 11px;
+}
+.overview-title-active {
+  font-weight: 600;
+  color: var(--primary);
+  font-size: 11px;
+  margin-left: 4px;
+}
+.overview-grid {
+  margin-top: 6px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+}
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.025);
+  border-radius: 5px;
+  border-left: 3px solid var(--text3);
+  cursor: pointer;
+  transition: background 0.12s, box-shadow 0.12s, border-color 0.12s;
+  min-width: 0;
+}
+.overview-card:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+.overview-card.ov-buy { border-left-color: #16a34a; }
+.overview-card.ov-add { border-left-color: #16a34a; }
+.overview-card.ov-sell { border-left-color: #dc2626; }
+.overview-card.ov-reduce { border-left-color: #d97706; }
+.overview-card.selected {
+  background: rgba(24, 118, 210, 0.08);
+  box-shadow: 0 0 0 1px var(--primary) inset;
+}
+.ov-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ov-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--text2);
+}
+.ov-meta b { color: var(--text1); font-weight: 700; }
+.ov-wr b { color: var(--primary); }
+.ov-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 2px;
+}
+.ov-snap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text2);
+  line-height: 1.4;
+  min-width: 0;
+}
+.ov-snap-code {
+  font-family: monospace;
+  color: var(--primary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.ov-snap-name { color: var(--text1); flex-shrink: 0; }
+.ov-snap-price {
+  font-family: monospace;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.ov-snap-reason {
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.ov-snap-time {
+  color: var(--text3);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+@media (max-width: 768px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+  .overview-card {
+    padding: 8px;
+  }
+  .ov-snap-reason {
+    flex-basis: 100%;
+    order: 5;
+  }
+  .ov-snap-time {
+    margin-left: 0;
+  }
+}
 </style>
