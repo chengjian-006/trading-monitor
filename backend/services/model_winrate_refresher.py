@@ -52,6 +52,11 @@ def _is_stock(code: str) -> bool:
     return str(code)[:2] in _STOCK_PREFIX
 
 
+def _cut3(anchor: str) -> str:
+    """近3月窗口起始日(YYYY-MM-DD): 锚点前 WIN_3M 自然日。"""
+    return (datetime.strptime(anchor, "%Y-%m-%d") - timedelta(days=WIN_3M)).strftime("%Y-%m-%d")
+
+
 def _anchor_date(rows: list[dict]) -> str:
     """全市场最大交易日(YYYY-MM-DD)。
 
@@ -135,8 +140,40 @@ def _crunch_one(code: str, ind: pd.DataFrame, day5m: dict, start: str, end: str)
     return out
 
 
+def _monthly_series(pairs: list[tuple[str, float]]) -> list[dict]:
+    """近6月交易 [(触发日, 扣费净收益)] → 逐月 [{ym, win_rate, n, net}] 升序; 空月不补。"""
+    from collections import defaultdict
+    buckets: dict[str, list[float]] = defaultdict(list)
+    for d, r in pairs:
+        buckets[str(d)[:7]].append(r)
+    out = []
+    for ym in sorted(buckets):
+        arr = buckets[ym]
+        out.append({
+            "ym": ym,
+            "win_rate": round(sum(1 for x in arr if x > 0) / len(arr) * 100, 1),
+            "n": len(arr),
+            "net": round(sum(arr) / len(arr) * 100, 2),
+        })
+    return out
+
+
+def _max_drawdown(pairs: list[tuple[str, float]]) -> float | None:
+    """逐笔权益曲线最大回撤(百分点正数): 按触发日升序, 等权累计净收益曲线(不复利, 与胜率口径一致),
+    取峰到谷最大跌幅。起点权益=0(即首笔前无浮盈), 故连亏序列回撤=累计亏损。样本<5笔 → None。"""
+    if len(pairs) < 5:
+        return None
+    rets = [r for _, r in sorted(pairs)]
+    equity = peak = max_dd = 0.0
+    for r in rets:
+        equity += r * 100
+        peak = max(peak, equity)
+        max_dd = max(max_dd, peak - equity)
+    return round(max_dd, 1)
+
+
 def _aggregate(acc: dict, anchor: str) -> list[dict]:
-    """按近3月/近6月桶聚合 + 近3月胜率排名(与旧口径同构, 表结构不变)。"""
+    """按近3月/近6月桶聚合 + 逐月胜率序列 + 逐笔权益曲线最大回撤 + 近3月胜率排名。"""
     sid_of = {name: sid for sid, name in MODELS}
 
     def agg(lst):
@@ -147,11 +184,16 @@ def _aggregate(acc: dict, anchor: str) -> list[dict]:
 
     out = []
     for _, name in MODELS:
-        wr3, nt3, c3 = agg(acc[name]["3m"])
-        wr6, nt6, c6 = agg(acc[name]["6m"])
+        pairs6 = acc[name]["6m"]                       # [(date, ret)]
+        rets3 = [r for d, r in pairs6 if d >= _cut3(anchor)]
+        rets6 = [r for _, r in pairs6]
+        wr3, nt3, c3 = agg(rets3)
+        wr6, nt6, c6 = agg(rets6)
         out.append({"signal_id": sid_of[name], "model_name": name,
                     "win_rate_3m": wr3, "net_3m": nt3, "n_3m": c3,
-                    "win_rate_6m": wr6, "net_6m": nt6, "n_6m": c6})
+                    "win_rate_6m": wr6, "net_6m": nt6, "n_6m": c6,
+                    "monthly": _monthly_series(pairs6),
+                    "max_drawdown": _max_drawdown(pairs6)})
 
     ranked = sorted([o for o in out if o["n_3m"] and o["win_rate_3m"] is not None],
                     key=lambda x: x["win_rate_3m"], reverse=True)
@@ -183,7 +225,8 @@ async def refresh_model_winrate():
         return
     logger.info(f"[model_winrate] 5分钟诚实口径重算: {len(codes)}只 窗口{cut6}~{anchor}")
 
-    acc = {name: {"3m": [], "6m": []} for _, name in MODELS}
+    # 每模型存近6月的 (触发日, 净收益) 对; 近3月由日期过滤派生, 月度/回撤也从这份算(_aggregate)。
+    acc = {name: {"6m": []} for _, name in MODELS}
     sem = asyncio.Semaphore(_CONCURRENCY)
     done = [0]
 
@@ -198,9 +241,7 @@ async def refresh_model_winrate():
             trades = await asyncio.to_thread(_crunch_one, code, ind, day5m, cut6, anchor)
             for name, d, ret in trades:
                 if d >= cut6:
-                    acc[name]["6m"].append(ret)
-                    if d >= cut3:
-                        acc[name]["3m"].append(ret)
+                    acc[name]["6m"].append((d, ret))
         except Exception:
             logger.exception(f"[model_winrate] {code} 重算失败, 跳过")
         finally:

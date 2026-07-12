@@ -5,7 +5,7 @@ import { useResponsive } from '../composables/useResponsive'
 import {
   fetchModelBacktest, fetchSignalOutcomeStats, fetchModelWinrate,
   type ModelBacktest, type ModelBacktestRow, type SignalOutcomeStatsItem,
-  type ModelWinrate,
+  type ModelWinrate, type ModelMonthlyPoint,
 } from '../api/signals'
 
 const bt = ref<ModelBacktest>({ run_date: null, window_start: null, models: [] })
@@ -17,6 +17,24 @@ const { isPhone } = useResponsive()
 
 const winrateRanked = computed(() => winrate.value.models.filter(r => r.rank_3m != null))
 function fmtNet(v: number | null): string { return v == null ? '—' : v >= 0 ? `+${v.toFixed(1)}%` : `${v.toFixed(1)}%` }
+// 逐月胜率迷你折线(inline SVG, 不引 echarts): 归一化到 64×20 视窗; <2月返空(显 —)
+const SPARK_W = 64, SPARK_H = 20, SPARK_PAD = 2
+function sparkPoints(monthly?: ModelMonthlyPoint[]): string {
+  if (!monthly || monthly.length < 2) return ''
+  const vals = monthly.map(m => m.win_rate)
+  const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1
+  const n = vals.length
+  return vals.map((v, i) => {
+    const x = SPARK_PAD + (SPARK_W - 2 * SPARK_PAD) * (i / (n - 1))
+    const y = SPARK_PAD + (SPARK_H - 2 * SPARK_PAD) * (1 - (v - min) / span)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+}
+function sparkTitle(monthly?: ModelMonthlyPoint[]): string {
+  if (!monthly || !monthly.length) return '暂无逐月数据'
+  return monthly.map(m => `${m.ym} ${m.win_rate}%(${m.n}笔)`).join('  ')
+}
+function ddLabel(v?: number | null): string { return v == null ? '—' : `-${v.toFixed(1)}%` }
 function fmtDelta3v6(r: any): string {
   if (r.net_3m == null || r.net_6m == null) return '—'
   const d = r.net_3m - r.net_6m
@@ -76,7 +94,7 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
 <div class="mp-main">
   <div class="mp-head"><h2>买点模型图鉴</h2><span class="mp-sub">一页看懂每个买点性格、适用、规则、战绩 · 战绩自动更新</span><span class="mp-date" v-if="bt.run_date">全市场回测 {{ bt.run_date }}</span><button class="mp-viz-btn" :class="{ on: showVisual }" @click="showVisual = !showVisual">{{ showVisual ? '📋 详情' : '📊 可视化' }}</button></div>
 
-  <div class="mp-card" v-if="winrateRanked.length"><div class="mp-card-t">🏆 近3月胜率榜<span class="mp-rk-sub">全市场 · 5分钟真实可成交口径 · 真实出场/扣费 · 每晚21:00更新<span v-if="winrate.run_date"> · 截至 {{ winrate.run_date }}</span></span></div><div class="mp-tw"><table class="mp-tbl mp-rk"><thead><tr><th>排名</th><th>模型</th><th>近3月<br>胜率</th><th>近3月<br>单笔均收益</th><th class="sep3">近3月<br>样本</th><th class="bg6">近6月<br>胜率</th><th class="bg6">近6月<br>单笔均收益</th><th class="bg6">近6月<br>样本</th><th>对比收益<br>(3月-6月)</th><th>年化效率</th><th>盈利因子</th></tr></thead><tbody><tr v-for="r in winrateRanked" :key="r.signal_id"><td><span class="mp-rank-badge" :class="{ gold: r.rank_3m === 1 }">{{ r.rank_3m }}</span></td><td class="cell-name" @click="scrollTo(r.signal_id)">{{ r.model_name }}</td><td>{{ r.win_rate_3m?.toFixed(1) }}%</td><td :class="(r.net_3m || 0) >= 0 ? 'cell-up' : 'cell-down'">{{ fmtNet(r.net_3m) }}</td><td class="sep3">{{ r.n_3m }}笔</td><td class="bg6">{{ r.win_rate_6m != null ? r.win_rate_6m.toFixed(1) + '%' : '—' }}</td><td class="bg6" :class="(r.net_6m || 0) >= 0 ? 'cell-up' : 'cell-down'">{{ fmtNet(r.net_6m) }}</td><td class="bg6">{{ r.n_6m || 0 }}笔</td><td :class="(r.net_3m||0) >= (r.net_6m||0) ? 'cell-up' : 'cell-down'">{{ fmtDelta3v6(r) }}</td><td class="cell-up"><template v-if="btOf(r.signal_id)">+{{ btOf(r.signal_id)!.annualized }}%</template><span v-else>—</span></td><td><template v-if="btOf(r.signal_id)">{{ btOf(r.signal_id)!.pf }}</template><span v-else>—</span></td></tr></tbody></table></div><p class="mp-sec-foot">全市场回测模型参与排名 · 近3月不含最近约2周触发 · 盘中触发的突破型(缩量突破/回踩MA/平台/强势起点/竞价)按5分钟真实可成交口径(不再用全天收盘筛交易),弱势极限为收盘价入场故按收盘口径 · 年化效率/盈利因子来自周度日线回测仅供趋势参考</p></div>
+  <div class="mp-card" v-if="winrateRanked.length"><div class="mp-card-t">🏆 近3月胜率榜<span class="mp-rk-sub">全市场 · 5分钟真实可成交口径 · 真实出场/扣费 · 每晚21:00更新<span v-if="winrate.run_date"> · 截至 {{ winrate.run_date }}</span></span></div><div class="mp-tw"><table class="mp-tbl mp-rk"><thead><tr><th>排名</th><th>模型</th><th>近3月<br>胜率</th><th>近3月<br>单笔均收益</th><th class="sep3">近3月<br>样本</th><th class="bg6">近6月<br>胜率</th><th class="bg6">近6月<br>单笔均收益</th><th class="bg6">近6月<br>样本</th><th>对比收益<br>(3月-6月)</th><th>年化效率</th><th>盈利因子</th><th class="bg6">逐月胜率<br>(近6月)</th><th class="bg6">最大<br>回撤</th></tr></thead><tbody><tr v-for="r in winrateRanked" :key="r.signal_id"><td><span class="mp-rank-badge" :class="{ gold: r.rank_3m === 1 }">{{ r.rank_3m }}</span></td><td class="cell-name" @click="scrollTo(r.signal_id)">{{ r.model_name }}</td><td>{{ r.win_rate_3m?.toFixed(1) }}%</td><td :class="(r.net_3m || 0) >= 0 ? 'cell-up' : 'cell-down'">{{ fmtNet(r.net_3m) }}</td><td class="sep3">{{ r.n_3m }}笔</td><td class="bg6">{{ r.win_rate_6m != null ? r.win_rate_6m.toFixed(1) + '%' : '—' }}</td><td class="bg6" :class="(r.net_6m || 0) >= 0 ? 'cell-up' : 'cell-down'">{{ fmtNet(r.net_6m) }}</td><td class="bg6">{{ r.n_6m || 0 }}笔</td><td :class="(r.net_3m||0) >= (r.net_6m||0) ? 'cell-up' : 'cell-down'">{{ fmtDelta3v6(r) }}</td><td class="cell-up"><template v-if="btOf(r.signal_id)">+{{ btOf(r.signal_id)!.annualized }}%</template><span v-else>—</span></td><td><template v-if="btOf(r.signal_id)">{{ btOf(r.signal_id)!.pf }}</template><span v-else>—</span></td><td class="bg6"><svg v-if="sparkPoints(r.monthly)" class="mp-spark" :viewBox="`0 0 ${SPARK_W} ${SPARK_H}`" preserveAspectRatio="none"><title>{{ sparkTitle(r.monthly) }}</title><polyline :points="sparkPoints(r.monthly)" fill="none" stroke="var(--primary)" stroke-width="1.5" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round" /></svg><span v-else class="mp-dim">—</span></td><td class="bg6"><span :class="r.max_drawdown != null ? 'cell-down' : 'mp-dim'">{{ ddLabel(r.max_drawdown) }}</span></td></tr></tbody></table></div><p class="mp-sec-foot">全市场回测模型参与排名 · 近3月不含最近约2周触发 · 盘中触发的突破型(缩量突破/回踩MA/平台/强势起点/竞价)按5分钟真实可成交口径(不再用全天收盘筛交易),弱势极限为收盘价入场故按收盘口径 · 年化效率/盈利因子来自周度日线回测仅供趋势参考</p></div>
 
   <div class="mp-card"><div class="mp-card-t">📊 横评对比(点模型名跳详情)</div><div class="mp-tw"><table class="mp-tbl"><thead><tr><th>模型</th><th>侧</th><th>触发<br>频率</th><th>持有</th><th>适用行情</th><th :title="METRIC_TIPS.annualized">年化效率 ⓘ</th><th :title="METRIC_TIPS.pf">盈利因子 ⓘ</th></tr></thead><tbody><tr v-for="m in MODELS" :key="m.id" @click="scrollTo(m.id)"><td class="cell-name" :class="m.side">{{ m.name }}<span v-if="m.isNew" class="mp-new-tag">新</span><div class="cell-tag">{{ m.tag }}</div></td><td><span class="mp-side-pill" :class="m.side">{{ m.side==='left'?'左侧':'右侧' }}</span></td><td>{{ m.freq }}</td><td class="cell-dim">{{ m.hold }}</td><td class="cell-dim">{{ m.regime }}</td><td class="cell-up"><template v-if="btOf(m.id)">+{{ btOf(m.id)!.annualized }}%</template><span v-else class="cell-na">{{ m.isNew ? '观察中' : '—' }}</span></td><td class="cell-bold"><template v-if="btOf(m.id)">{{ btOf(m.id)!.pf }}</template><span v-else class="cell-na">—</span></td></tr></tbody></table></div><p class="mp-sec-foot">年化效率/盈利因子来自每周六全市场半年回测(各模型各自真实出场口径) · 鼠标移到表头ⓘ看大白话解释</p></div>
 
@@ -254,6 +272,8 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
 .mp-sec-foot{margin:6px 0 0;font-size:10.5px;color:var(--text2);line-height:1.4}
 .mp-rk-sub{font-size:10px;font-weight:400;color:#94a3b8;margin-left:6px}
 .sep3{border-right:3px solid #d0d5dd!important}.bg6{background:#f8fafc}
+.mp-spark{width:64px;height:20px;display:block;margin:0 auto}
+.mp-dim{color:#b8c0cc}
 .mp-model-card{background:var(--surface);border:1px solid var(--border);border-left:4px solid #d1d5db;border-radius:10px;padding:16px 18px 14px;margin-bottom:14px;box-shadow:0 1px 3px rgba(0,0,0,.04);transition:box-shadow .2s}
 .mp-model-card:hover{box-shadow:0 3px 16px rgba(0,0,0,.07)}.mp-model-card.right{border-left-color:#ef4444}.mp-model-card.left{border-left-color:#3b82f6}
 .mp-mc-hd{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}

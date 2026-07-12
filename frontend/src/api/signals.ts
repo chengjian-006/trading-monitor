@@ -161,6 +161,12 @@ export async function fetchModelBacktest(): Promise<ModelBacktest> {
   return data && Array.isArray(data.models) ? data : { run_date: null, window_start: null, models: [] }
 }
 
+export interface ModelMonthlyPoint {
+  ym: string
+  win_rate: number
+  n: number
+  net: number
+}
 export interface ModelWinrateRow {
   signal_id: string
   model_name: string
@@ -172,6 +178,8 @@ export interface ModelWinrateRow {
   n_6m: number
   rank_3m: number | null
   rank_n: number
+  monthly?: ModelMonthlyPoint[]
+  max_drawdown?: number | null
 }
 export interface ModelWinrate {
   run_date: string | null

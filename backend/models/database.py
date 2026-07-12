@@ -663,6 +663,8 @@ SCHEMA_STATEMENTS = [
         rank_3m      INT DEFAULT NULL,
         rank_n       INT NOT NULL DEFAULT 0,
         run_date     VARCHAR(10) NOT NULL DEFAULT '',
+        monthly_json TEXT NULL,
+        max_drawdown DOUBLE NULL,
         updated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (signal_id)
     )
@@ -976,6 +978,9 @@ MIGRATION_STATEMENTS = [
     # 模型近3月胜率排名(供买入提醒标"全模型第X名")
     "ALTER TABLE cfzy_biz_model_winrate ADD COLUMN rank_3m INT DEFAULT NULL",
     "ALTER TABLE cfzy_biz_model_winrate ADD COLUMN rank_n INT NOT NULL DEFAULT 0",
+    # v1.7.x: 图鉴果仁式策略卡 — 逐月胜率序列(JSON) + 逐笔权益曲线最大回撤(百分点)
+    "ALTER TABLE cfzy_biz_model_winrate ADD COLUMN monthly_json TEXT NULL",
+    "ALTER TABLE cfzy_biz_model_winrate ADD COLUMN max_drawdown DOUBLE NULL",
     # v1.7.x: 模拟账户成交流水加"成交状态" — 触发买点但买不进(资金不足/无板块交易权限/已持有/仓位满)
     # 也留一笔 status='failed' 的记录 + 失败原因, 让流水反映"想买没买成"。旧行默认 success。
     "ALTER TABLE cfzy_biz_paper_trade ADD COLUMN status ENUM('success','failed') NOT NULL DEFAULT 'success'",
@@ -1188,12 +1193,13 @@ async def _run_migrations(conn):
             ("second_surge_scan", "二波过前高·实时提醒",
              "盘中(09:45~15:00)每30秒纯读分时缓存, 对全自选池判分时二波过前高形态(第一波放量冲高→回落降温→二波放量拉升创当日新高), 命中实时提醒, 每股每天一次",
              "interval", _json.dumps({"seconds": 30}), "run_second_surge_scan"),
-            # v1.7.598: 板块共振·禁补仓提示 — 尾盘14:30拉全市场涨跌幅, 判"板块共振跌"(大盘正常<10%
-            # 但某行业大跌占比超出大盘≥20pp、成员≥8), 自选池命中才推; 回测背书该语境抄底/补仓期望为负;
+            # v1.7.598: 板块共振·禁补仓提示 — 盘中(09:45~15:00)每3分钟拉全市场涨跌幅, 判"板块共振跌"
+            # (大盘正常<10%但某行业大跌占比超出大盘≥20pp、成员≥8), 命中票再过个股破位闸(距峰≤-15%+
+            # 收MA20下+MA20拐头), 自选池破位命中才推; 每票每天一次去重; 回测背书该语境抄底/补仓期望为负;
             # 恐慌普跌日不适用不发(该语境历史抄底为正); 不落信号库
-            ("sector_cocrash_1430", "板块共振·禁补仓提示·14:30",
-             "交易日尾盘14:30拉全市场涨跌幅(新浪列表页), 判板块共振跌(全市场大跌占比<10%且某行业超出大盘≥20pp、成员≥8), 自选池有票命中则合并推一张禁抄底/禁补仓提示卡",
-             "cron", _json.dumps({"hour": 14, "minute": 30}), "run_sector_cocrash_watch"),
+            ("sector_cocrash_scan", "板块共振·禁补仓提示·实时",
+             "盘中09:45~15:00每3分钟拉全市场涨跌幅(新浪列表页), 判板块共振跌(全市场大跌占比<10%且某行业超出大盘≥20pp、成员≥8), 自选池命中票再过个股破位闸后合并推一张禁补仓提示卡, 每票每天一次",
+             "interval", _json.dumps({"seconds": 180}), "run_sector_cocrash_watch"),
             # v1.7.598: 全市场行业映射·每周刷新 — 问财拉「全部A股所属同花顺行业」(三级行业, 全覆盖)
             # upsert 进 cfzy_sys_industry_map; 行业归属极少变动, 周频=少撞风控; 失败保留旧映射
             ("industry_map_refresh", "全市场行业映射·周日19:20",
