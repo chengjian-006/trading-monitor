@@ -12,6 +12,14 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.604',
+    date: '2026-07-12',
+    title: '个股详情弹窗加「同花顺 / 东财」外链 — 一键看网页版分时/K线',
+    changes: [
+      { text: '点个股名称弹出的详情弹窗(分时+日K)底部加「同花顺 ↗」「东财 ↗」两个按钮, 一键在网页版打开该股行情页。同花顺 stockpage 全A通用(手机端自动转 m.10jqka)、东财按沪深北市场前缀跳转。因是全局共享弹窗, 股票池/信号历史/情绪面板等任何点开个股的地方都自动带此入口。', tag: 'new' },
+    ],
+  },
+  {
     version: 'v1.7.603',
     date: '2026-07-12',
     title: '模型图鉴补逐月胜率曲线+最大回撤 · snooze三档到期语义 · History按模型聚合',

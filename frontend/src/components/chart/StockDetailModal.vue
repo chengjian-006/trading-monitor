@@ -1,11 +1,12 @@
 <script setup lang="ts">
 // 通用个股详情弹窗(全局单实例, 挂在 App.vue)。任意组件 useUiStore().openStock(code,name) 即弹。
 // 头部: 名称/代码/板块 + 现价/涨跌幅 + 自选/持仓徽标; 内容复用 StockCharts(速览/信号/分时/日K/大单);
-// 底部操作: 加自选 / 设策略 / 整页打开。与整页 /intraday 同源(同一 StockCharts)。
+// 底部操作: 加自选 / 设策略 / 整页打开 / 同花顺·东财外链。与整页 /intraday 同源(同一 StockCharts)。
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { NModal, NButton, NInput, NTag } from 'naive-ui'
 import StockCharts from './StockCharts.vue'
+import { thsStockUrl, emStockUrl, openExternal } from '../../utils/stockLinks'
 import type { StockSummary } from '../../api/kline'
 import { useUiStore } from '../../stores/ui'
 import { useStockStore } from '../../stores/stock'
@@ -126,6 +127,10 @@ watch(code, () => { stratOpen.value = false; summary.value = null })
       <div class="dm-foot">
         <NButton v-if="!inPool" size="small" type="primary" :loading="adding" @click="addToPool">+ 加自选</NButton>
         <NButton v-if="inPool" size="small" :type="stratOpen ? 'primary' : 'default'" @click="toggleStrategy">设策略</NButton>
+        <span class="dm-ext">
+          <NButton size="small" tertiary title="在同花顺网页版看分时/K线" @click="openExternal(thsStockUrl(code))">同花顺 ↗</NButton>
+          <NButton size="small" tertiary title="在东方财富网页版看分时/K线" @click="openExternal(emStockUrl(code))">东财 ↗</NButton>
+        </span>
         <NButton size="small" @click="openFullPage">整页打开 ↗</NButton>
       </div>
     </template>
@@ -140,7 +145,12 @@ watch(code, () => { stratOpen.value = false; summary.value = null })
 .dm-pct { font-size: 13px; margin-left: 4px; }
 .dm-strat { margin-top: 12px; }
 .dm-strat-act { margin-top: 8px; display: flex; justify-content: flex-end; gap: 8px; }
-.dm-foot { display: flex; gap: 8px; justify-content: flex-end; }
+.dm-foot { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.dm-ext { display: inline-flex; gap: 6px; }
+@media (max-width: 768px) {
+  .dm-foot { gap: 6px; }
+  .dm-ext { order: 3; flex-basis: 100%; justify-content: flex-end; }
+}
 .up { color: #cf222e; }
 .down { color: #1a7f37; }
 </style>
