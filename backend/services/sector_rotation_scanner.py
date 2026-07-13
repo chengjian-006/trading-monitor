@@ -151,8 +151,8 @@ async def scan_sector_rotation() -> None:
         state_map[theme] = state
 
         direction = sr.detect_transition(prev, state)
-        # 弱转强失败跟踪: 早先已广播「启动」, 现回落到 退潮/冷 → 补一条失败提醒(每题材每日一次)
-        if (direction is None and state in ("退潮", "冷")
+        # 弱转强失败跟踪: 早先已广播「启动」, 现回落到 退潮/持平/冷 → 补一条失败提醒(每题材每日一次)
+        if (direction is None and state in ("退潮", "持平", "冷")
                 and (theme, "weak_to_strong") in pushed
                 and (theme, "wts_failed") not in pushed):
             direction = "wts_failed"

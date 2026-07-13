@@ -3,7 +3,7 @@ import client from './client'
 // 盘中题材轮动状态(已按强弱排序)
 export interface SectorRotationItem {
   theme: string
-  state: string // "启动" | "升温" | "高潮" | "退潮" | "冷"
+  state: string // "启动" | "升温" | "高潮" | "退潮" | "持平" | "冷"
   limit_up: number
   yest?: number // 昨日(上一交易日)该题材涨停家数, 日基准口径
   slope: number

@@ -74,7 +74,7 @@ def classify_intraday(series: list[int], texture: dict | None = None) -> str:
 
     series: 当日按时间升序的涨停家数序列(每个采样点一个值)。
     texture: 最新一档质地 {max_height, broken, first_board}(可选, 用于退潮/启动细化)。
-    返回: '启动' / '升温' / '高潮' / '退潮' / '冷' 之一。
+    返回: '启动' / '升温' / '高潮' / '退潮' / '持平' / '冷' 之一。
     """
     if not series:
         return "冷"
@@ -100,7 +100,11 @@ def classify_intraday(series: list[int], texture: dict | None = None) -> str:
         return "升温"
     if cur <= COLD_LIMIT_UP:
         return "冷"
-    return "升温" if slope > 0 else "高潮" if cur >= HOT_LIMIT_UP else "冷"
+    if slope > 0:
+        return "升温"
+    if cur >= HOT_LIMIT_UP:
+        return "高潮"
+    return "持平"
 
 
 # ── 日基准(带昨日基准的按日口径)阈值 v1.7.x ──
@@ -115,7 +119,7 @@ def classify_daily(yest: int, cur: int, texture: dict | None = None,
 
     yest: 昨日(上一交易日)该题材最终涨停家数; cur: 今日盘中当前涨停家数。
     is_afternoon: 是否已过 13:00(强转弱仅下午判, 防早盘涨停未封满误报退潮)。
-    返回 '启动'/'退潮'/'高潮'/'升温'/'冷'。启动/退潮 触发弱转强/强转弱推送。
+    返回 '启动'/'退潮'/'高潮'/'升温'/'持平'/'冷'。启动/退潮 触发弱转强/强转弱推送。
     """
     # 弱转强(启动): 昨冷今热 — 昨≤2家 且 今≥4家 且 今≥昨+3, 全天可判(今天真起来就报)
     if yest <= COLD_BASE and cur >= HOT_LIMIT_UP and cur >= yest + DAILY_JUMP:
@@ -127,7 +131,10 @@ def classify_daily(yest: int, cur: int, texture: dict | None = None,
         return "高潮"          # 今日仍高位(非"昨冷今热"则归延续高潮)
     if cur > COLD_LIMIT_UP and cur > yest:
         return "升温"          # 今比昨多但没到热门门槛
-    return "冷"
+    if cur <= COLD_LIMIT_UP:
+        return "冷"            # 真冷: 今日涨停 ≤1 家
+    # 2~3 家涨停但未超昨日: 有资金但没升温。旧版把这档也归"冷", 会出现"涨停扎堆题材(≥2家)·冷"的自相矛盾
+    return "持平"
 
 
 def detect_transition(prev_state: str | None, cur_state: str) -> str | None:

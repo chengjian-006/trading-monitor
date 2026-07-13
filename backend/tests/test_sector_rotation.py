@@ -142,6 +142,24 @@ def test_daily_cold():
     assert sr.classify_daily(yest=0, cur=0) == "冷"
 
 
+def test_daily_flat_is_not_cold():
+    """回归: 有涨停但未超昨日 = 持平, 不是"冷"。
+
+    旧版兜底把 2~3 家涨停也归"冷", 09:45 推送出现「涨停扎堆题材(上榜门槛≥2家) · 商业航天·冷」
+    的自相矛盾。"冷"只保留给涨停 ≤1 家。
+    """
+    assert sr.classify_daily(yest=3, cur=3) == "持平"   # 商业航天实例: 3家涨停, 与昨持平
+    assert sr.classify_daily(yest=5, cur=3) == "持平"   # 早盘(未到下午)不判退潮, 也不该叫冷
+    assert sr.classify_daily(yest=3, cur=2) == "持平"
+    assert sr.classify_daily(yest=3, cur=1) == "冷"     # 掉到1家才是真冷
+
+
+def test_intraday_flat_is_not_cold():
+    # 日内口径同步: 3家涨停横住(斜率≤0)不该叫"冷"
+    assert sr.classify_intraday([3, 3, 3]) == "持平"
+    assert sr.classify_intraday([1, 1, 1]) == "冷"
+
+
 # ── 回归: 昨日基准的日期格式归一(theme_heat 存紧凑 YYYYMMDD, today 传带连字符) ──
 def test_yest_baseline_date_format_normalize():
     """曾因 '20260630' < '2026-07-01' 恒 False → 昨日基准全空 → 全题材误显示昨0。

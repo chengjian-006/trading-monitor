@@ -28,10 +28,10 @@ const showPredict = ref(false)     // 次日预测折叠(默认收起)
 const flowExpanded = ref(false)    // 转换流水超量展开
 
 const items = computed<SectorRotationItem[]>(() => data.value?.items ?? [])
-// 走强区: 启动/升温/高潮; 退潮区: 退潮; 冷区: 冷
+// 走强区: 启动/升温/高潮; 退潮区: 退潮; 冷区: 持平(有涨停但未超昨日) + 冷(涨停≤1家)
 const strong = computed(() => items.value.filter(i => ['启动', '升温', '高潮'].includes(i.state)))
 const ebb = computed(() => items.value.filter(i => i.state === '退潮'))
-const cold = computed(() => items.value.filter(i => i.state === '冷'))
+const cold = computed(() => items.value.filter(i => ['持平', '冷'].includes(i.state)))
 
 // ── ① 今日转换流水 ──
 const FLOW_LIMIT = 10
@@ -138,7 +138,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
       <!-- ── ② 当前强弱格局 (压缩) ── -->
       <div v-if="items.length" class="block">
         <div class="block-title">当前强弱格局
-          <span class="bt-meta">走强{{ strong.length }} · 退潮{{ ebb.length }} · 冷{{ cold.length }}</span>
+          <span class="bt-meta">走强{{ strong.length }} · 退潮{{ ebb.length }} · 持平/冷{{ cold.length }}</span>
         </div>
         <div class="dots">
           <span v-for="it in strongChips" :key="it.theme" class="dot-chip strong" :title="`${it.theme} · ${it.state} · 涨停${it.limit_up}家`">
@@ -150,9 +150,9 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
         </div>
         <!-- 冷区折叠 -->
         <div v-if="cold.length" class="cold-zone">
-          <span class="cold-toggle" role="button" tabindex="0" @click="showCold = !showCold" @keydown.enter="showCold = !showCold">冷区 {{ cold.length }} 个 {{ showCold ? '↑' : '↓' }}</span>
+          <span class="cold-toggle" role="button" tabindex="0" @click="showCold = !showCold" @keydown.enter="showCold = !showCold">持平/冷区 {{ cold.length }} 个 {{ showCold ? '↑' : '↓' }}</span>
           <div v-if="showCold" class="cold-list">
-            <span v-for="it in cold" :key="it.theme" class="cold-chip">{{ it.theme }}<span class="cc-lu">{{ it.limit_up }}</span></span>
+            <span v-for="it in cold" :key="it.theme" class="cold-chip" :title="`${it.theme} · ${it.state} · 涨停${it.limit_up}家`">{{ it.theme }}<span class="cc-lu">{{ it.limit_up }}</span></span>
           </div>
         </div>
       </div>
