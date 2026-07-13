@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 from backend.core.config import load_config
 from backend.models import repository
@@ -90,7 +90,7 @@ async def _do_refresh(codes: list[str], all_stocks: list[dict]):
     # 2) 再做慢的: 人气排名 + 东财 extra(换手/量比/涨速/free_cap/行业), best-effort 写富字段
     rank_map = await _get_rank_map(codes)
     extras = await data_fetcher.get_stock_extra(codes)
-    ma_map = await _get_ma_batch(codes)
+    ma_map = await _get_ma_batch(codes, quotes)
 
     updates = _build_updates(codes, quotes, extras, rank_map, ma_map)
     _apply_speed_fallback(updates)
@@ -120,29 +120,49 @@ async def _update_board_strength(all_stocks: list[dict], quotes: dict):
         await repository.batch_update_board_strength(board_updates)
 
 
-async def _get_ma_batch(codes: list) -> dict:
-    """批量算 MA10/MA20/MA60: 每个code取最近60日收盘(最新在前), 返回
-    {code: {"ma10","ma20","ma60"}}(数据不足则该项为 None)。供股票池均线位置筛选用。"""
+def ma_with_today(closes_desc: list[float], k: int, floor: int, price: float) -> float | None:
+    """今日均线 = (最近 k-1 根历史收盘 + 今日现价) / k。closes_desc 为不含今日的历史收盘(最新在前)。
+
+    历史根数不足 floor-1 返回 None(与旧口径的 floor 语义对齐: 至少要 floor 根参与计算)。
+    根数介于两者之间时按实际根数取均(不补齐), 与旧行为一致。
+    """
+    seg = closes_desc[:k - 1]
+    if len(seg) < floor - 1 or price <= 0:
+        return None
+    return (sum(seg) + price) / (len(seg) + 1)
+
+
+async def _get_ma_batch(codes: list, quotes: dict | None = None) -> dict:
+    """批量算 MA10/MA20/MA60: 今日均线 = (最近 k-1 根历史收盘 + 今日现价)/k, 返回
+    {code: {"ma10","ma20","ma60"}}(数据不足则该项为 None)。供股票池均线位置筛选用。
+
+    口径(v1.7.606 修): 原来直接取 kline_cache 最近 k 根收盘, 但当日K线盘中根本不在 cache 里
+    (盘后才回填且覆盖不全) —— 存进去的其实是【昨日均线】, 页面却拿【今日现价】去比, 系统性
+    偏差约 0.3~0.5%, 恰好落在"碰线判定"最敏感的临界区。现改成剔今日历史 + 拼今日现价, 与
+    signal_engine(compute_indicators + 实时价覆盖末根) / near_buy / ma_break_watch 三处口径一致。
+    """
     from backend.models import repository
     if not codes: return {}
     try:
-        rows = await repository.fetch_kline_close_batch(codes, 60)
+        rows = await repository.fetch_kline_close_batch(codes, 60, before=date.today().isoformat())
     except Exception:
         return {}
-
-    def _ma(vals, k, floor):
-        seg = vals[:k]                       # 最新在前, 取前 k 根 = 最近 k 日
-        return sum(seg) / len(seg) if len(seg) >= floor else None
 
     result = {}
     for code in codes:
         closes = rows.get(code, [])
         if not closes:
             continue
+        q = (quotes or {}).get(code) or {}
+        # 停牌/无价: 用最近一个收盘价顶替今日现价 → 退化成纯历史均线(旧行为)。
+        # 不能直接 skip: _build_updates 里 ma_map 缺 code 会把 ma20 写成 NULL, 抹掉原有均线。
+        price = float(q.get("price") or 0) or float(closes[0])
+        if price <= 0:
+            continue
         result[code] = {
-            "ma10": _ma(closes, 10, 7),
-            "ma20": _ma(closes, 20, 15),
-            "ma60": _ma(closes, 60, 40),
+            "ma10": ma_with_today(closes, 10, 7, price),
+            "ma20": ma_with_today(closes, 20, 15, price),
+            "ma60": ma_with_today(closes, 60, 40, price),
         }
     return result
 
@@ -232,7 +252,7 @@ async def refresh_quotes_for_codes(codes: list[str]):
     quotes = await data_fetcher.get_realtime_quotes(codes)
     rank_map = await _get_rank_map(codes)
     extras = await data_fetcher.get_stock_extra(codes)
-    ma_map = await _get_ma_batch(codes)
+    ma_map = await _get_ma_batch(codes, quotes)
 
     updates = _build_updates(codes, quotes, extras, rank_map, ma_map)
     _apply_speed_fallback(updates)

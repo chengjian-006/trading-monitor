@@ -89,6 +89,33 @@ async def get_signals_by_code_since(code: str, user_id: int = 1, days: int = 150
     )
 
 
+async def get_last_buy_model_batch(codes: list[str], user_id: int = 1,
+                                   days: int = 180) -> dict[str, dict]:
+    """批量取每票【最近一次买点信号】(中文名 + 触发日) — 给"这票当初为什么进的自选"归因用。
+    返回 {code: {"model": signal_name, "at": "YYYY-MM-DD"}}, 查不到的 code 不在结果里。
+
+    用 direction='buy' 而非 signal_id 前缀过滤: signal_id 是混合两代命名(新的 BUY_WEAK_EXTREME
+    与旧的 M1_BUY/S3_BUY 并存), 按 LIKE 'BUY\\_%' 会漏掉旧命名那半。direction 才是规范判定
+    (见 has_buy_signal_today 同口径)。
+    """
+    if not codes:
+        return {}
+    ph = ", ".join(["%s"] * len(codes))
+    rows = await _fetchall(
+        f"SELECT code, signal_name, triggered_at FROM cfzy_biz_signals "
+        f"WHERE user_id = %s AND code IN ({ph}) AND direction = 'buy' "
+        f"AND triggered_at >= DATE_SUB(NOW(), INTERVAL %s DAY) "
+        f"ORDER BY code, triggered_at DESC",
+        (user_id, *codes, days),
+    )
+    out: dict[str, dict] = {}
+    for r in rows:                       # 已按 triggered_at DESC 排序, 每个 code 首条即最近一次
+        code = str(r["code"])
+        if code not in out:
+            out[code] = {"model": r["signal_name"], "at": str(r["triggered_at"])[:10]}
+    return out
+
+
 async def get_stop_fires_by_code(code: str, signal_ids: list[str], user_id: int = 1,
                                  days: int = 30) -> list[dict]:
     """某票近 N 天内指定硬止损 signal_id 的触发记录(止损强制升级用)。

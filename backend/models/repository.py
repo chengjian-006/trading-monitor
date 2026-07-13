@@ -48,7 +48,7 @@ from backend.models.repo.signals import (  # noqa: F401
     fetch_signals_for_perf, bulk_insert_signal_perf, get_signal_perf_stats,
     get_signal_stats, get_signal_matrix,
     get_signals_by_code_date, get_signal_days_for_code, get_signals_by_code_since,
-    get_stop_fires_by_code, get_key_signals_between,
+    get_stop_fires_by_code, get_key_signals_between, get_last_buy_model_batch,
     get_outcome_compare, get_weekly_outcome_trend, get_model_weekly_outcome,
     get_review_signal_list, set_eod_audit,
 )

@@ -210,22 +210,28 @@ async def batch_update_core_quotes(updates: list[dict]):
         )
 
 
-async def fetch_kline_close_batch(codes: list, n: int = 20) -> dict:
+async def fetch_kline_close_batch(codes: list, n: int = 20, before: str | None = None) -> dict:
     """批量查最近N日收盘价: 返回 {code: [close,...]}(最新在前)。
 
     v1.7.571: 加 trade_date 下界 — 原来无下界会把每只票在 kline_cache(全市场库,每票约5年≈1200行)
     的全部历史都拉回来只为取最近 n 根算均线, 每3秒全池调一次=跨云传数万行白耗带宽。
     下界取 max(n, 60) 交易日 × 1.6 的自然日缓冲(覆盖周末/节假日), 保证够 n 根。
+
+    before: 只取该日期【之前】的K线(不含当日)。算"含今日现价"的均线时必须传今天 ——
+    kline_cache 的当日行是盘后才回填且覆盖不全, 不排除的话当日收盘会和实时现价重复计入。
     """
     if not codes:
         return {}
     cal_days = int(max(n, 60) * 1.6) + 10   # n=60 → ≈106 自然日 ≈70+ 交易日, 稳过60根
     cutoff = (datetime.now() - timedelta(days=cal_days)).strftime("%Y-%m-%d")
     placeholders = ",".join(["%s"] * len(codes))
+    before_sql = " AND trade_date < %s" if before else ""
+    before_arg = (before,) if before else ()
     rows = await _fetchall(
         f"SELECT code, trade_date, close FROM cfzy_sys_kline_cache "
-        f"WHERE code IN ({placeholders}) AND trade_date >= %s ORDER BY code, trade_date DESC",
-        (*codes, cutoff),
+        f"WHERE code IN ({placeholders}) AND trade_date >= %s{before_sql} "
+        f"ORDER BY code, trade_date DESC",
+        (*codes, cutoff, *before_arg),
     )
     result: dict[str, list[float]] = {c: [] for c in codes}
     for r in rows:
