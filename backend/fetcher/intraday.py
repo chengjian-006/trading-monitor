@@ -2,14 +2,23 @@
 
 双源: 同花顺主 (d.10jqka.com.cn time), 东方财富备 (trends2/get, 2 次重试).
 (主备倒置: 东财 prod 出口 IP 被封, 作主源时每次空耗 2 次重试才切备, 拖慢分时图。)
+
+0713 雪崩教训(行情停更47分钟)—— 两道护栏:
+  1) 独立 HTTP 客户端: 分时拉取不再复用主池。当日同花顺 502 大面积失败, 231只票全落到东财兜底,
+     慢失败塞满共享连接池 → 3s 实时行情刷新每轮超 2.8s 预算被中止(461次), 全表行情冻在 10:12。
+     分时是"锦上添花", 实时行情是"命根子", 二者必须物理隔离(同 sector_strength_scanner 的隔离思路)。
+  2) 东财兜底熔断: 东财封了 prod 出口 IP, 兜底注定失败且是慢失败。连续失败达阈值即熔断,
+     冷却期内直接跳过不再逐只空耗(并停刷 warning); 冷却过后放行探路, 成功即恢复。
 """
 import asyncio
 import json
 import logging
 import time as _time
 
+import httpx
+
 from backend.fetcher.codes import _code_to_em, _code_to_ths
-from backend.fetcher.http_client import EM_HEADERS, THS_HEADERS, _get_client
+from backend.fetcher.http_client import EM_HEADERS, THS_HEADERS, TrackedAsyncClient
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,56 @@ def _get_fetch_sem() -> asyncio.Semaphore:
     return _fetch_sem
 
 
+# ── 护栏1: 独立 HTTP 客户端 (与 3s 实时行情的主池物理隔离, 分时再堵也堵不到行情) ──
+# 池子按 _fetch_sem(6) 配, 超时比主池(15s)短: 分时是非关键路径, 宁可拿不到也不能拖住别人。
+_intraday_client: httpx.AsyncClient | None = None
+
+
+def _get_intraday_client() -> httpx.AsyncClient:
+    global _intraday_client
+    if _intraday_client is None or _intraday_client.is_closed:
+        _intraday_client = TrackedAsyncClient(   # 仍走 TrackedAsyncClient, 保留 api_metrics 打点
+            timeout=httpx.Timeout(6.0, connect=3.0),
+            limits=httpx.Limits(max_connections=6, max_keepalive_connections=3),
+            follow_redirects=True,
+            trust_env=False,
+        )
+    return _intraday_client
+
+
+# ── 护栏2: 东财兜底熔断 (prod 出口 IP 被封 → 兜底必失败且慢失败, 别逐只空耗) ──
+EM_FAIL_STREAK_MAX = 5      # 连续失败达此数 → 熔断
+EM_COOLDOWN_SEC = 600.0     # 熔断冷却 10min, 到点自动放行一只探路
+_em_fail_streak = 0
+_em_open_until = 0.0        # 熔断打开至此刻(单调时钟)
+
+
+def _em_blocked() -> bool:
+    """熔断中 → True(直接跳过东财兜底)。"""
+    return _time.monotonic() < _em_open_until
+
+
+def _em_record(ok: bool, code: str = "", err: str = "") -> None:
+    """记一次东财兜底结果: 成功即复位, 连续失败达阈值即熔断(只在跃迁时打一条日志, 不刷屏)。"""
+    global _em_fail_streak, _em_open_until
+    if ok:
+        if _em_open_until or _em_fail_streak:
+            logger.info("[batch_intraday] 东财兜底恢复, 熔断解除")
+        _em_fail_streak = 0
+        _em_open_until = 0.0
+        return
+    _em_fail_streak += 1
+    if _em_fail_streak >= EM_FAIL_STREAK_MAX and not _em_blocked():
+        # 首次达阈值, 或冷却到期放行的探路又挂 → (重新)熔断。别用 == 判定: 探路失败时
+        # streak 已越过阈值, == 永不再成立, 熔断就再也合不上了。
+        _em_open_until = _time.monotonic() + EM_COOLDOWN_SEC
+        logger.warning(
+            f"[batch_intraday] 东财兜底连续失败 {_em_fail_streak} 次, 熔断 {int(EM_COOLDOWN_SEC)}s "
+            f"(prod IP 被封, 继续试只会空耗连接); 末次({code}): {err}")
+    else:
+        logger.debug(f"[batch_intraday] EM 兜底失败({code}): {err}")
+
+
 def _batch_ttl() -> float:
     """盘中 30s; 非交易时段分时冻结, 1小时。"""
     try:
@@ -58,7 +117,7 @@ async def _intraday_ths(code: str) -> tuple[list[dict], float]:
     """返回 (分时点列表, 昨收)。昨收取同花顺返回的 'pre' 字段(真实昨收), 拿不到则 0。"""
     ths_code = _code_to_ths(code)
     url = f"http://d.10jqka.com.cn/v4/time/{ths_code}/last.js"
-    client = _get_client()
+    client = _get_intraday_client()
     try:
         resp = await client.get(url, headers=THS_HEADERS)
         data = _parse_jsonp(resp.text)
@@ -110,14 +169,16 @@ async def get_intraday_data(code: str) -> tuple[list[dict], float]:
     if ths_points:
         return ths_points, ths_pre
 
-    # 兜底: 东方财富 (2 次重试)
+    # 兜底: 东方财富 (2 次重试; 熔断中直接跳过 — 封了 IP 再试也只是空耗连接)
+    if _em_blocked():
+        return [], ths_pre
     secid = _code_to_em(code)
     url = (
         f"https://push2his.eastmoney.com/api/qt/stock/trends2/get"
         f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6,f7,f8&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
         f"&iscr=0&ndays=1"
     )
-    client = _get_client()
+    client = _get_intraday_client()
     for attempt in range(1, 3):
         try:
             resp = await client.get(url, headers=EM_HEADERS)
@@ -125,7 +186,8 @@ async def get_intraday_data(code: str) -> tuple[list[dict], float]:
             node = data.get("data") or {}
             trends = node.get("trends", [])
             if not trends:
-                if attempt < 2:
+                _em_record(False, code, "空 trends")
+                if attempt < 2 and not _em_blocked():
                     await asyncio.sleep(1)
                     continue
                 break
@@ -143,11 +205,14 @@ async def get_intraday_data(code: str) -> tuple[list[dict], float]:
                         "avg_price": float(parts[7]) if len(parts) > 7 else float(parts[2]),
                         "volume": float(parts[5]),
                     })
+            _em_record(True, code)
             return result, pre_close
         except Exception as e:
-            logger.warning(f"[intraday] 东方财富兜底第{attempt}次失败({code}): {e}")
-            if attempt < 2:
+            _em_record(False, code, repr(e))
+            if attempt < 2 and not _em_blocked():
                 await asyncio.sleep(1)
+            else:
+                break
     logger.warning(f"[intraday] 同花顺与东财均失败({code})")
     return [], ths_pre
 
@@ -197,7 +262,9 @@ async def _fetch_one_sparkline(code: str) -> dict:
         except Exception as e:
             logger.warning(f"[batch_intraday] THS 主源失败({code}): {e}")
 
-        if not v["trends"]:
+        # 兜底: 东财。熔断中直接跳过 — 0713 同花顺大面积 502 时, 231 只票逐只走这条慢失败路,
+        # 48 分钟空耗 558 次, 是拖垮实时行情的元凶。
+        if not v["trends"] and not _em_blocked():
             secid = _code_to_em(code)
             url = (
                 f"https://push2his.eastmoney.com/api/qt/stock/trends2/get"
@@ -205,7 +272,7 @@ async def _fetch_one_sparkline(code: str) -> dict:
                 f"&iscr=0&ndays=1"
             )
             try:
-                resp = await _get_client().get(url, headers=EM_HEADERS)
+                resp = await _get_intraday_client().get(url, headers=EM_HEADERS)
                 data = resp.json()
                 node = data.get("data") or {}
                 pre_close = node.get("preClose", 0)
@@ -222,8 +289,9 @@ async def _fetch_one_sparkline(code: str) -> dict:
                         trends.append(pt)
                 if trends:
                     v = {"pre_close": pre_close, "trends": trends}
+                _em_record(bool(trends), code, "" if trends else "空 trends")
             except Exception as e:
-                logger.warning(f"[batch_intraday] EM 兜底失败({code}): {e}")
+                _em_record(False, code, repr(e))
 
         if v.get("trends"):
             _batch_intraday_cache[code] = {
