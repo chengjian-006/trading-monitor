@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.610',
+    date: '2026-07-13',
+    title: '移除东财数据源——prod IP 被封，请求必败还空耗连接池',
+    changes: [
+      {
+        text: '东方财富（push2/push2his）从实时行情、弹性数据、日K线、分时四个热路径全部移除。prod 服务器出口 IP 被东财风控封禁，所有请求注定失败，且慢失败会拖住 HTTP 连接池（今天两次全池冻结的元凶）。移除后行情 = 新浪唯一源，弹性数据 = 同花顺 realhead 唯一源，日K = 新浪 → 同花顺 → DB 缓存。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.609',
     date: '2026-07-13',
     title: '修复午后行情再次冻结——THS realhead 堵死共享连接池',

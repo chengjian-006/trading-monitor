@@ -1,7 +1,8 @@
-"""日 K 线获取 - 三源 fallback + DB 缓存 - v1.7.x.
+"""日 K 线获取 - 双源 fallback + DB 缓存 - v1.7.x.
 
-主备倒置 (v1.7.74): 新浪为主, 东财为备, 同花顺兜底, DB 缓存最终降级.
-失败链: sina(1次) → eastmoney(2次) → ths(1次) → cached.
+新浪为主, 同花顺兜底, DB 缓存最终降级.
+失败链: sina(1次) → ths(1次) → cached.
+东财已移除(v1.7.610): prod IP 被封, 请求必败且空耗连接池。
 """
 import asyncio
 import json
@@ -10,8 +11,8 @@ import time
 
 import pandas as pd
 
-from backend.fetcher.codes import _code_to_em, _code_to_sina, _code_to_ths, _normalize_code
-from backend.fetcher.http_client import EM_HEADERS, HEADERS, THS_HEADERS, _get_client
+from backend.fetcher.codes import _code_to_sina, _code_to_ths, _normalize_code
+from backend.fetcher.http_client import HEADERS, THS_HEADERS, _get_client
 
 logger = logging.getLogger(__name__)
 
@@ -57,35 +58,6 @@ async def _kline_sina(code: str, days: int) -> pd.DataFrame:
         if col not in df.columns:
             return pd.DataFrame()
     return df[needed].dropna().reset_index(drop=True)
-
-
-async def _kline_eastmoney(code: str, days: int) -> pd.DataFrame:
-    secid = _code_to_em(code)
-    url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57"
-        f"&klt=101&fqt=1&end=20500101&lmt={days}"
-    )
-    client = _get_client()
-    try:
-        resp = await client.get(url, headers=EM_HEADERS)
-        data = resp.json()
-        klines = data.get("data", {}).get("klines", []) if data.get("data") else []
-        if not klines:
-            return pd.DataFrame()
-        rows = []
-        for k in klines:
-            parts = k.split(",")
-            if len(parts) >= 7:
-                rows.append({
-                    "date": parts[0], "open": float(parts[1]), "close": float(parts[2]),
-                    "high": float(parts[3]), "low": float(parts[4]),
-                    "volume": float(parts[5]),
-                })
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
-    except Exception as e:
-        logger.error(f"EastMoney kline fetch failed for {code}: {e}")
-        return pd.DataFrame()
 
 
 async def _kline_ths(code: str, days: int) -> pd.DataFrame:
@@ -211,21 +183,8 @@ async def _fetch_daily_kline(code: str, days: int, prefer_cache: bool) -> pd.Dat
             return df
     except Exception as e:
         logger.warning(f"[kline] 新浪失败({code}): {e}")
-    logger.warning(f"[kline] 新浪返回空({code}), 切换东财")
+    logger.warning(f"[kline] 新浪返回空({code}), 切换同花顺")
 
-    for attempt in range(1, 3):
-        try:
-            df = await _kline_eastmoney(code, days)
-            if not df.empty:
-                logger.info(f"[kline] 东财备源成功({code})")
-                await _save_kline_cache(code, df)
-                return df
-        except Exception as e:
-            logger.warning(f"[kline] 东财第{attempt}次失败({code}): {e}")
-        if attempt < 2:
-            await asyncio.sleep(1)
-
-    logger.warning(f"[kline] 东财也失败({code}), 切换同花顺")
     df = await _kline_ths(code, days)
     if not df.empty:
         logger.info(f"[kline] 同花顺兜底成功({code})")
@@ -248,12 +207,8 @@ async def _fetch_daily_kline(code: str, days: int, prefer_cache: bool) -> pd.Dat
 
 # ── 指数日K (v1.7.386, 自选股"对标指数"K线叠加用) ────────────────────────────
 # 指数代码必须带市场前缀(sh000001/sz399006), 不能走 _normalize_code(会剥前缀后按个股猜市场)。
-# 新浪 CN_MarketDataService 直接吃带前缀 symbol; 备源东财按前缀映射 secid(sh→1. 其余→0.)。
+# 新浪 CN_MarketDataService 直接吃带前缀 symbol。
 # 复用进程内 90s TTL 缓存(key 带 idx: 前缀隔离, 不与个股冲突), 不写个股 kline_cache 表。
-
-def _index_to_em_secid(symbol: str) -> str:
-    mkt = "1" if symbol.startswith("sh") else "0"
-    return f"{mkt}.{symbol[2:]}"
 
 
 async def get_index_kline(symbol: str, days: int = 250) -> pd.DataFrame:
@@ -266,10 +221,7 @@ async def get_index_kline(symbol: str, days: int = 250) -> pd.DataFrame:
     if hit and (now - hit[0]) < _MEM_TTL_SECONDS and not hit[1].empty:
         return hit[1].copy()
 
-    # 不复用 _kline_sina(它走 _code_to_sina, 带前缀的 symbol 会被再裹一层前缀), 直接拼 url
     df = await _index_kline_sina_raw(symbol, days)
-    if df.empty:
-        df = await _index_kline_em(symbol, days)
     if not df.empty:
         _mem_cache[key] = (now, df.copy())
     return df
@@ -305,29 +257,3 @@ async def _index_kline_sina_raw(symbol: str, days: int) -> pd.DataFrame:
     for col in needed[1:]:
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df[needed].dropna().reset_index(drop=True)
-
-
-async def _index_kline_em(symbol: str, days: int) -> pd.DataFrame:
-    secid = _index_to_em_secid(symbol)
-    url = (
-        f"https://push2his.eastmoney.com/api/qt/stock/kline/get"
-        f"?secid={secid}&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57"
-        f"&klt=101&fqt=1&end=20500101&lmt={days}"
-    )
-    client = _get_client()
-    try:
-        resp = await client.get(url, headers=EM_HEADERS)
-        data = resp.json()
-        klines = data.get("data", {}).get("klines", []) if data.get("data") else []
-        rows = []
-        for k in klines:
-            parts = k.split(",")
-            if len(parts) >= 7:
-                rows.append({
-                    "date": parts[0], "open": float(parts[1]), "close": float(parts[2]),
-                    "high": float(parts[3]), "low": float(parts[4]), "volume": float(parts[5]),
-                })
-        return pd.DataFrame(rows) if rows else pd.DataFrame()
-    except Exception as e:
-        logger.warning(f"[index_kline] 东财失败({symbol}): {e}")
-        return pd.DataFrame()

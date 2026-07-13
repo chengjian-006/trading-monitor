@@ -1,15 +1,15 @@
-"""实时行情 (sina 主源 + eastmoney 备源) - v1.7.x.
+"""实时行情 (sina 唯一源) - v1.7.x.
 
-主备倒置历史 (v1.7.74): 东财对 prod IP 频繁风控/断连, 新浪稳定性更高.
-失败链: sina(1次) → eastmoney(2次重试).
+东财 prod IP 被封(v1.7.610 移除): push2 请求必败且慢失败, 空耗连接池
+拖垮实时行情(0713 两次全池冻结的元凶之一)。
 """
 import asyncio
 import logging
 import re
 import time
 
-from backend.fetcher.codes import _code_to_em, _code_to_sina
-from backend.fetcher.http_client import EM_HEADERS, HEADERS, _get_client
+from backend.fetcher.codes import _code_to_sina
+from backend.fetcher.http_client import HEADERS, _get_client
 
 logger = logging.getLogger(__name__)
 
@@ -83,76 +83,15 @@ async def _get_quotes_sina(codes: list[str]) -> dict:
     return result
 
 
-async def _get_quotes_eastmoney(codes: list[str]) -> dict:
-    result = {}
-    batch_size = 40
-    client = _get_client()
-    for i in range(0, len(codes), batch_size):
-        batch = codes[i:i + batch_size]
-        secids = ",".join(_code_to_em(c) for c in batch)
-        url = (
-            f"https://push2.eastmoney.com/api/qt/ulist.np/get"
-            f"?fltt=2&secids={secids}"
-            f"&fields=f2,f3,f5,f6,f8,f10,f11,f12,f14,f21,f100"
-        )
-        try:
-            resp = await client.get(url, headers=EM_HEADERS)
-            data = resp.json()
-            diff = data.get("data", {}).get("diff", []) if data.get("data") else []
-            for item in diff:
-                code_6 = str(item.get("f12", "")).zfill(6)
-                price = item.get("f2", 0) or 0
-                pct = item.get("f3", 0) or 0
-                amount = item.get("f6", 0) or 0
-                name = item.get("f14", "") or ""
-                speed = _safe_num(item.get("f11"))
-                turnover = _safe_num(item.get("f8"))
-                volume_ratio = _safe_num(item.get("f10"))
-                free_cap = _safe_num(item.get("f21"))
-                industry_raw = item.get("f100", "")
-                industry = industry_raw if isinstance(industry_raw, str) and industry_raw != "-" else ""
-                result[code_6] = {
-                    "code": code_6,
-                    "name": name,
-                    "price": price,
-                    "pct_change": pct,
-                    "amount": amount,
-                    "speed": speed,
-                    "turnover": turnover,
-                    "volume_ratio": volume_ratio,
-                    "free_cap": free_cap,
-                    "industry": industry,
-                    "open": 0, "pre_close": 0, "high": 0, "low": 0, "volume": 0,
-                }
-        except Exception as e:
-            logger.error(f"EastMoney realtime fetch failed (batch {i}): {e}")
-    return result
-
-
 async def fetch_quotes_uncached(codes: list[str]) -> dict:
-    """绕过 5s 进程缓存直接抓一批(sina 1次 → 东财2次重试), 不读不写缓存。
-
-    v1.7.562: 供 quote_refresher 分块抓取+逐块落库用(源慢时拿到一块落一块,
-    不因单轮超时整轮作废); 整轮抓完由调用方 seed_realtime_cache 灌回缓存。
-    """
-    result = {}
+    """新浪行情(prod 唯一可用源, 东财已封)。"""
     try:
         result = await _get_quotes_sina(codes)
     except Exception as e:
-        logger.warning(f"[quotes] 新浪失败({e}), 切换东方财富")
-
+        logger.warning(f"[quotes] 新浪行情失败: {e}")
+        return {}
     if not result:
-        logger.warning("[quotes] 新浪返回空, 切换东方财富")
-        for attempt in range(1, 3):
-            try:
-                result = await _get_quotes_eastmoney(codes)
-                if result:
-                    logger.info("[quotes] 东财备源成功")
-                    break
-            except Exception as e:
-                logger.warning(f"[quotes] 东财第{attempt}次失败: {e}")
-            if attempt < 2:
-                await asyncio.sleep(0.4)  # 东财仅备源且热路径(3s周期), 退避缩短减少放大
+        logger.warning("[quotes] 新浪返回空")
     return {c: result[c] for c in codes if c in result}
 
 

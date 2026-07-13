@@ -44,24 +44,24 @@ from backend.fetcher.http_client import (  # noqa: E402,F401
     _classify_source, _classify_usage, TrackedAsyncClient, _get_client,
 )
 
-# ── 实时行情 (sina 主 / eastmoney 备) ──
+# ── 实时行情 (sina 唯一源) ──
 from backend.fetcher.quotes import (  # noqa: E402,F401
-    _get_quotes_sina, _get_quotes_eastmoney, get_realtime_quotes,
+    _get_quotes_sina, get_realtime_quotes,
     fetch_quotes_uncached, seed_realtime_cache,
     REALTIME_CACHE_TTL, _sf, _safe_num,
 )
 
-# ── 日 K 三源 fallback + DB 缓存 ──
+# ── 日 K 双源 fallback + DB 缓存 ──
 from backend.fetcher.klines import (  # noqa: E402,F401
-    _kline_sina, _kline_eastmoney, _kline_ths,
+    _kline_sina, _kline_ths,
     _save_kline_cache, _load_kline_cache,
     get_daily_kline, get_index_kline,
 )
 
 # ── 弹性数据 ──
 from backend.fetcher.stock_extra import (  # noqa: E402,F401
-    _fetch_stock_extra_eastmoney, _fetch_stock_extra_ths, _fetch_stock_extra,
-    _fetch_one_ths_realhead, _merge_extra,
+    _fetch_stock_extra_ths, _fetch_stock_extra,
+    _fetch_one_ths_realhead,
     get_stock_extra,
     EXTRA_CACHE_TTL,
 )

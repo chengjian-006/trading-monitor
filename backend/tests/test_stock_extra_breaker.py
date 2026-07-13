@@ -1,8 +1,5 @@
 """stock_extra THS realhead 熔断 + 独立池 测试。"""
 import time
-from unittest.mock import patch
-
-import pytest
 
 from backend.fetcher import stock_extra as mod
 
