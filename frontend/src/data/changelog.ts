@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.605',
+    date: '2026-07-13',
+    title: '修复财报披露提醒每日崩溃 — 已静默失效 9 天',
+    changes: [
+      {
+        text: '财报披露日历(每日08:40)推送时引用了不存在的变量 trows，任务每天抛 NameError 直接中止，7月4日推送移动化重构后就没再推出过一条。现改回 rows，恢复推送。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.604',
     date: '2026-07-12',
     title: '个股详情弹窗加「同花顺 / 东财」外链 — 一键看网页版分时/K线',

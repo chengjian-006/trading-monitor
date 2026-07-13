@@ -102,11 +102,11 @@ async def run_disclosure_reminder() -> None:
         left = f" · {dleft}天后" if dleft != "" else ""
         tlines.append(f"**{d}**{left}　{mark}**{r['name']}**({r['code']}) {r['report_year']}{rt}")
     title = "📅 财报披露日历·近期"
-    body = (f"{title}\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(trows)}** 只披露定期报告。\n"
+    body = (f"{title}\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(rows)}** 只披露定期报告。\n"
             "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。")
     try:
         await notifier.send_dual_card(body, lark_title=title,
                                       elements=[md_element(body), md_element("\n".join(tlines))])
-        logger.info(f"[disclosure] 披露提醒已推: {len(trows)} 只")
+        logger.info(f"[disclosure] 披露提醒已推: {len(rows)} 只")
     except Exception as e:
         logger.warning(f"[disclosure] 推送失败: {e}")
