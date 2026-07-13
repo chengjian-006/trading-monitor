@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.609',
+    date: '2026-07-13',
+    title: '修复午后行情再次冻结——THS realhead 堵死共享连接池',
+    changes: [
+      {
+        text: '13:00 午后开盘起全池 165 只票行情持续冻结超 1 小时。根因与上午 v1.7.608 修的分时问题同一模式：THS realhead（弹性数据）每轮 165 只票逐只请求走共享 HTTP 池，THS 挂了后 10 个并发慢超时占满池子一半，新浪行情刷新抢不到连接被 2.8s 预算中止。',
+        tag: 'fix',
+      },
+      {
+        text: 'THS realhead 改用独立 HTTP 客户端（隔离池 12 连接 / 超时 6s），与实时行情主池物理隔离；加熔断：连续 3 轮全空即停用 5 分钟直走东财，冷却后自动探路恢复。至此分时 + realhead 两个高频 THS 调用均已隔离，不再有"THS 一挂全池冻"的风险。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.608',
     date: '2026-07-13',
     title: '修复行情停更 47 分钟（全表「滞后」）— 分时兜底拖垮了实时行情',

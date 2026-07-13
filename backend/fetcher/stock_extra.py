@@ -8,7 +8,9 @@ import re
 import time
 
 from backend.fetcher.codes import _code_to_em
-from backend.fetcher.http_client import EM_HEADERS, THS_HEADERS, _get_client
+import httpx
+
+from backend.fetcher.http_client import EM_HEADERS, THS_HEADERS, TrackedAsyncClient, _get_client
 from backend.fetcher.quotes import _safe_num
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,50 @@ logger = logging.getLogger(__name__)
 EXTRA_CACHE_TTL = 10
 _extra_cache: dict = {}
 _extra_cache_ts: float = 0
+
+# ── THS realhead 独立 HTTP 池 (与 3s 行情刷新的主池物理隔离, 同 intraday.py v1.7.608 思路) ──
+# realhead 是 per-code (165只 × sem(10) 并发), THS 一旦慢/挂, 10 个并发占满共享池一半
+# → 新浪行情抢不到连接 → 全池行情冻结。分时已独立(v1.7.608), realhead 同理隔离。
+_ths_extra_client: httpx.AsyncClient | None = None
+
+
+def _get_ths_extra_client() -> httpx.AsyncClient:
+    global _ths_extra_client
+    if _ths_extra_client is None or _ths_extra_client.is_closed:
+        _ths_extra_client = TrackedAsyncClient(
+            timeout=httpx.Timeout(6.0, connect=3.0),
+            limits=httpx.Limits(max_connections=12, max_keepalive_connections=6),
+            follow_redirects=True,
+            trust_env=False,
+        )
+    return _ths_extra_client
+
+
+# ── THS realhead 熔断: 连续全空 N 轮 → 停用 M 秒, 直走东财 ──
+_THS_RH_FAIL_MAX = 3
+_THS_RH_COOLDOWN = 300.0
+_ths_rh_fail_streak = 0
+_ths_rh_open_until: float = 0.0
+
+
+def _ths_rh_blocked() -> bool:
+    return time.monotonic() < _ths_rh_open_until
+
+
+def _ths_rh_record(ok: bool) -> None:
+    global _ths_rh_fail_streak, _ths_rh_open_until
+    if ok:
+        if _ths_rh_fail_streak >= _THS_RH_FAIL_MAX:
+            logger.info("[stock_extra] THS realhead 恢复, 熔断解除")
+        _ths_rh_fail_streak = 0
+        _ths_rh_open_until = 0.0
+        return
+    _ths_rh_fail_streak += 1
+    if _ths_rh_fail_streak >= _THS_RH_FAIL_MAX and not _ths_rh_blocked():
+        _ths_rh_open_until = time.monotonic() + _THS_RH_COOLDOWN
+        logger.warning(
+            f"[stock_extra] THS realhead 连续 {_ths_rh_fail_streak} 轮全空, "
+            f"熔断 {int(_THS_RH_COOLDOWN)}s(停刷 realhead, 直用东财)")
 
 
 async def _fetch_stock_extra_eastmoney(codes: list[str]) -> dict:
@@ -53,7 +99,7 @@ async def _fetch_one_ths_realhead(code: str) -> dict | None:
     """同花顺 realhead 单只票弹性数据. THS 不支持 batch, 必须 per-code."""
     code_6 = str(code).zfill(6)
     url = f"http://d.10jqka.com.cn/v6/realhead/hs_{code_6}/last.js"
-    client = _get_client()
+    client = _get_ths_extra_client()
     try:
         resp = await client.get(url, headers=THS_HEADERS)
         text = resp.text
@@ -107,8 +153,11 @@ def _merge_extra(primary: dict, fallback: dict) -> dict:
 
 async def _fetch_stock_extra(codes: list[str]) -> dict:
     """v1.7.78: THS realhead 主, 东财备. THS 不带行业, 行业从东财补."""
+    if _ths_rh_blocked():
+        return await _fetch_stock_extra_eastmoney(codes)
     ths_result = await _fetch_stock_extra_ths(codes)
     if ths_result:
+        _ths_rh_record(True)
         try:
             em_result = await _fetch_stock_extra_eastmoney(codes)
             for c, d in ths_result.items():
@@ -121,6 +170,7 @@ async def _fetch_stock_extra(codes: list[str]) -> dict:
         except Exception:
             pass
         return ths_result
+    _ths_rh_record(False)
     logger.warning("[stock_extra] THS 全失败, 回退东财")
     return await _fetch_stock_extra_eastmoney(codes)
 
