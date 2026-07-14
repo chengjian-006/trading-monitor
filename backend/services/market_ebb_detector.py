@@ -59,8 +59,8 @@ async def detect_market_ebb():
     hold_line = ("\n当前持仓: " + "、".join(f"{s['name']}({s['code']})" for s in holds[:12])) if holds else ""
     text = (
         f"🌊 大盘退潮·减仓提示\n\n"
-        f"全市场涨停家数骤降: 今 {today_lu} 家(昨 {prev_lu} 家, ↓{drop_pct}%)。\n"
-        f"整板抽血信号, 建议对持仓强势股逐步减仓兑现 — 回测显示退潮日离场显著压回撤、周转翻倍。"
+        f"涨停家数骤降：今 **{today_lu}** 家 ← 昨 **{prev_lu}** 家（↓**{drop_pct}%**）\n\n"
+        f"👉 整板在抽血，强势股先走一部分"
         f"{hold_line}"
     )
 
@@ -129,8 +129,8 @@ async def detect_strength_ebb():
 
     text = (
         f"🌊 强势退潮·赚钱效应消失\n\n"
-        f"昨日涨停股今日平均溢价 {prem:.2f}%(≤{PREMIUM_EBB_THRESHOLD}%),打板/强势资金转亏。\n"
-        f"短线赚钱效应退潮 — 对手中强势/高位股谨慎,控制仓位与开新仓节奏。"
+        f"昨日涨停股今日平均溢价 **{prem:.2f}%**，打板资金已转亏\n\n"
+        f"👉 别追高，手中高位股谨慎"
     )
 
     # 先写库(写库失败则不推, 避免重启重推) — 同 detect_market_ebb。

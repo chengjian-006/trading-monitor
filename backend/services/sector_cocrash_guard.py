@@ -140,32 +140,58 @@ def pick_pool_hits(pool_rows: list[dict], sectors: dict, ind_map: dict[str, str]
     return hits
 
 
-def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]) -> tuple[str, str]:
-    """合并提示卡 (title, body_md)。行业按大跌占比降序, 每行业一段+踩线自选票一行(💼=持仓)。"""
+def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]) -> tuple[str, list, str]:
+    """v2 卡片版: md_table + 一句话建议 + 折叠面板(回测依据)。返回 (title, elements, fallback)。"""
+    from backend.services.lark_notifier import md_element, md_table_str, collapsible_element
+
     ordered = sorted(sectors.items(), key=lambda kv: kv[1]["ratio"], reverse=True)
     by_ind: dict[str, list[dict]] = {}
     for h in hits:
         by_ind.setdefault(h["industry"], []).append(h)
-    lines: list[str] = []
+
+    # Build table rows
+    columns = [
+        {"name": "industry", "display_name": "行业"},
+        {"name": "ratio", "display_name": "大跌占比"},
+        {"name": "stocks", "display_name": "自选命中"},
+    ]
+    rows: list[dict] = []
     hit_inds = 0
     for ind, s in ordered:
         stocks = by_ind.get(ind)
         if not stocks:
             continue
         hit_inds += 1
-        lines.append(f"**{ind}**　行业大跌占比 **{s['ratio']*100:.0f}%**（{s['down']}/{s['total']}）"
-                     f" ｜ 全市场 {panic*100:.1f}%")
-        parts = [f"{'💼' if st['held'] else ''}{st['name']}({st['code']}) **{st['pct']:+.1f}%**"
-                 for st in stocks]
-        lines.append("　" + "　┃　".join(parts))
-        lines.append("")
+        stock_parts = [f"{'💼' if st['held'] else ''}{st['name']} {st['pct']:+.1f}%"
+                       for st in stocks]
+        rows.append({
+            "industry": ind,
+            "ratio": f"{s['ratio']*100:.0f}%({s['down']}/{s['total']})",
+            "stocks": " / ".join(stock_parts),
+        })
+
     title = f"⛔ 板块共振·禁补仓 · {hit_inds}个行业"
-    body = ("\n".join(lines).rstrip()
-            + "\n\n大盘正常但行业集体大跌=行业逻辑受损。全市场回测(2023~2026): 此语境抄底/补仓"
-              " T+5~T+20 期望为负、日胜率仅33%~47% — 行业停止超额大跌前别抄底、别补仓(💼=当前持仓)。"
-              "仅纳入本身已破位下跌(距峰≤-15%+收MA20下+MA20拐头)的票, 均线上方的强势票即便跟跌也不提示。"
-              "恐慌普跌日(全市场大跌占比≥10%)不适用本提示。")
-    return title, body
+
+    # Build v2 card elements
+    elements = [
+        md_element(md_table_str(columns, rows)),
+        md_element("👉 行业集体杀跌，等止跌再说，别抄底别补仓"),
+        collapsible_element(
+            "回测依据（点击展开）",
+            "全市场回测(2023~2026): 行业集体大跌时抄底/补仓，持有5~20天期望为负，"
+            "日胜率仅33%~47%。\n\n"
+            "筛选条件: 仅纳入本身已破位下跌(距峰≤-15% + 收MA20下 + MA20拐头)的票，"
+            "均线上方的强势票即便跟跌也不提示。\n\n"
+            f"全市场大跌占比 {panic*100:.1f}%（恐慌普跌日≥10%时不适用本提示）。"
+        ),
+    ]
+
+    # Plain text fallback for PushPlus
+    fallback_lines = [f"{r['industry']} {r['ratio']} {r['stocks']}" for r in rows]
+    fallback_lines.append("\n👉 行业集体杀跌，别抄底别补仓")
+    fallback = "\n".join(fallback_lines)
+
+    return title, elements, fallback
 
 
 # ══════════════ 取数 + 编排(定时 14:30) ══════════════
@@ -312,9 +338,9 @@ async def run_sector_cocrash_watch():
         logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业, 自选新命中{len(fresh)}只 "
                     f"但无一处于破位下跌, 不发(强势票跟跌不提示)")
         return
-    title, body = build_cocrash_card(res["panic"], res["sectors"], hits)
+    title, elements, fallback = build_cocrash_card(res["panic"], res["sectors"], hits)
     try:
-        await notifier.send_dual(body, lark_title=title, template="orange")
+        await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="orange")
         _FIRED_TODAY.update(h["code"] for h in hits)   # 推成功才标记, 每票当天不再重报
         logger.info(f"[sector_cocrash] 已推送: {title}, 新命中{len(hits)}只")
     except Exception as e:

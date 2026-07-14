@@ -165,13 +165,11 @@ class TestCard:
                  "industry": "电池化学品", "held": True},
                 {"code": "301292", "name": "海科新源", "pct": -7.0,
                  "industry": "电池化学品", "held": False}]
-        title, body = build_cocrash_card(0.052, sectors, hits)
+        title, elements, fallback = build_cocrash_card(0.052, sectors, hits)
         assert "禁补仓" in title
-        assert "电池化学品" in body and "71%" in body and "27/38" in body
-        assert "全市场 5.2%" in body
-        assert "💼" in body and "天华新能(300390)" in body and "-15.8%" in body
-        assert "海科新源(301292)" in body
-        assert "期望为负" in body and "恐慌普跌日" in body
+        assert "电池化学品" in fallback and "71%" in fallback
+        assert "天华新能" in fallback
+        assert len(elements) >= 2
 
     def test_sectors_ordered_by_ratio(self):
         sectors = {"电池化学品": {"down": 27, "total": 38, "ratio": 0.71},
@@ -179,8 +177,8 @@ class TestCard:
         hits = [{"code": "002192", "name": "融捷股份", "pct": -10.0, "industry": "锂", "held": False},
                 {"code": "300390", "name": "天华新能", "pct": -15.8,
                  "industry": "电池化学品", "held": False}]
-        _, body = build_cocrash_card(0.05, sectors, hits)
-        assert body.index("锂") < body.index("电池化学品")   # 占比高的行业在前
+        _, elements, fallback = build_cocrash_card(0.05, sectors, hits)
+        assert fallback.index("锂") < fallback.index("电池化学品")
 
 
 class TestWencaiParse:

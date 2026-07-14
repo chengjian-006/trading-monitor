@@ -44,6 +44,7 @@ _KIND_LABEL = {
     "ma_watch_snooze": "破位警戒静音",
     "surge_snooze": "二波提醒静音",
     "snooze_until_retrigger": "个股静音·直到再突破",
+    "mark_sold": "标记已卖出",
 }
 
 
@@ -114,6 +115,8 @@ async def quick_set(
     elif k == "snooze_until_retrigger":
         _code = t.split("|", 1)[0]
         detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
+    elif k == "mark_sold":
+        detail = f"已标记 {t} 为已卖出，后续不再推送该票的卖出/持仓提醒。导入新交割单买入后自动恢复。"
     else:  # ack
         detail = "该信号已标记处理，当日不再重复提醒。"
     return _confirm_page(f"已设置：{label}", detail)
@@ -144,9 +147,13 @@ async def list_prefs(user: Annotated[dict, Depends(get_current_user)]):
     out = []
     for r in rows:
         until = r["until_date"]
-        # 条件型静音无固定到期日(远期占位), 展示"直到再次突破"而非误导性的 2036 日期
-        until_label = ("直到再次突破" if r["kind"] == "snooze_until_retrigger"
-                       else (until.isoformat() if hasattr(until, "isoformat") else str(until)))
+        # 条件型/永久型无固定到期日(远期占位), 展示语义文案而非误导性的 2036 日期
+        if r["kind"] == "snooze_until_retrigger":
+            until_label = "直到再次突破"
+        elif r["kind"] == "mark_sold":
+            until_label = "手动恢复或导入新买入"
+        else:
+            until_label = until.isoformat() if hasattr(until, "isoformat") else str(until)
         out.append({
             "id": r["id"],
             "kind": r["kind"],

@@ -276,6 +276,8 @@ async def run_ma_break_watch():
     for code in codes:
         if pp.ma_watch_snooze_active(prefs, code):
             continue
+        if pp.mark_sold_active(prefs, code):
+            continue
         q = quotes.get(code)
         if not q or not q.get("price"):
             continue
@@ -304,11 +306,15 @@ async def run_ma_break_watch():
         # 入卡 = 破均线 或 跌破成本线
         if not any(v > 0 for v in streaks.values()) and not cost_break:
             continue
+        actions_md = pp.build_ma_watch_actions_md(site, user_id, code) if site else ""
+        sold_md = pp.build_mark_sold_md(site, user_id, code, q.get("name") or code)
+        if sold_md:
+            actions_md = (actions_md + "　·　" + sold_md) if actions_md else sold_md
         items.append({
             "name": q.get("name") or code, "code": code,
             "price": price, "pct": float(q.get("pct_change") or 0),
             "streaks": streaks, "cost_break": cost_break,
-            "actions_md": pp.build_ma_watch_actions_md(site, user_id, code) if site else "",
+            "actions_md": actions_md,
         })
 
     if not items and not watch_items:

@@ -161,16 +161,18 @@ def test_throttle_load_restores_counts_from_db_snapshot():
 # ---------- 文案: 关键事实出现 ----------
 
 def test_near_high_msg_contains_facts():
-    msg = build_near_high_msg("平安银行", "000001", 11.85, 12.05, "2026-05-21")
-    assert "平安银行" in msg and "000001" in msg
-    assert "11.85" in msg and "12.05" in msg
+    title, elements, fallback = build_near_high_msg("平安银行", "000001", 11.85, 12.05, "2026-05-21")
+    assert "平安银行" in title
+    assert "000001" in fallback
+    assert "11.85" in fallback and "12.05" in fallback
+    assert len(elements) >= 2
 
 
 def test_profit_protect_msg_contains_facts_and_advisory():
-    msg = build_profit_protect_msg(
+    title, elements, fallback = build_profit_protect_msg(
         "测试股份", "000XXX", peak_gain=0.183, cur_gain=0.014,
         cost=10.0, advisory="动量突破回踩常是洗盘，留意而非急走", model_name="缩量突破")
-    assert "测试股份" in msg
-    assert "18.3" in msg and "1.4" in msg
-    assert "洗盘" in msg
-    assert "缩量突破" in msg
+    assert "测试股份" in title
+    assert "18.3" in fallback and "1.4" in fallback
+    detail_text = " ".join(str(e) for e in elements)
+    assert "缩量突破" in detail_text

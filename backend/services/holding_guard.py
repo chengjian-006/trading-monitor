@@ -125,29 +125,56 @@ def _bar(fill: float, width: int = 10) -> str:
     return "█" * n + "░" * (width - n)
 
 
-def build_near_high_msg(name: str, code: str, price: float, ph: float, ph_date: str) -> str:
-    dist = price / ph - 1                       # 负=低于前高
-    fill = 1 - min(1.0, abs(dist) / NEAR_HIGH_TOL) if NEAR_HIGH_TOL > 0 else 0   # 越贴前高越满
-    return (f"📈 {name}({code}) 接近前高\n"
-            f"距前高 {dist*100:+.1f}%　现├{_bar(fill)}┤前高\n"
-            f"现 ¥{price:.2f} → 近{WINDOW_HIGH}日高 ¥{ph:.2f}({ph_date[5:]})\n"
-            f"放量站上=突破确认，滞涨/长上影=阻力压制")
+def build_near_high_msg(name: str, code: str, price: float, ph: float, ph_date: str) -> tuple[str, list, str]:
+    """v2 卡片版: 返回 (title, elements, fallback)。"""
+    from backend.services.lark_notifier import md_element, md_table_str
+    dist = price / ph - 1
+    fill = 1 - min(1.0, abs(dist) / NEAR_HIGH_TOL) if NEAR_HIGH_TOL > 0 else 0
+    columns = [
+        {"name": "now", "display_name": "现价"},
+        {"name": "high", "display_name": f"{WINDOW_HIGH}日高"},
+        {"name": "dist", "display_name": "距离"},
+    ]
+    rows = [{"now": f"¥{price:.2f}", "high": f"¥{ph:.2f}({ph_date[5:]})", "dist": f"{dist*100:+.1f}%"}]
+    elements = [
+        md_element(md_table_str(columns, rows)),
+        md_element(f"现├{_bar(fill)}┤前高"),
+        md_element("👉 放量站上=突破，缩量到这=压力"),
+    ]
+    title = f"📈 {name} 接近前高"
+    fallback = (f"📈 {name}({code}) 接近前高\n"
+                f"现 ¥{price:.2f} → {WINDOW_HIGH}日高 ¥{ph:.2f}({ph_date[5:]}) 距{dist*100:+.1f}%")
+    return title, elements, fallback
 
 
 def build_profit_protect_msg(name: str, code: str, peak_gain: float, cur_gain: float,
-                             cost: float, advisory: str = "", model_name: str = "") -> str:
-    # 回吐标尺: 成本(空)──→峰值(满), 现价位置 = 仍保留的浮盈占峰值比例; 已回吐% = 回吐多少
+                             cost: float, advisory: str = "", model_name: str = "") -> tuple[str, list, str]:
+    """v2 卡片版: 返回 (title, elements, fallback)。"""
+    from backend.services.lark_notifier import md_element, md_table_str, collapsible_element
     giveback = (peak_gain - cur_gain) / peak_gain * 100 if peak_gain > 0 else 0
     fill = cur_gain / peak_gain if peak_gain > 0 else 0
-    lines = [f"🛡️ {name}({code}) 盈利保护",
-             f"峰值 {peak_gain*100:+.1f}% → 现 {cur_gain*100:+.1f}%（已回吐 {giveback:.0f}%）",
-             f"成本├{_bar(fill)}┤峰值　成本 ¥{cost:.2f}",
-             "别让赚过的交易做成亏损，考虑保本/锁利离场"]
-    if advisory:
-        lines.append(advisory)
+    columns = [
+        {"name": "cost", "display_name": "成本"},
+        {"name": "peak", "display_name": "峰值"},
+        {"name": "cur", "display_name": "当前"},
+        {"name": "back", "display_name": "已回吐"},
+    ]
+    rows = [{"cost": f"¥{cost:.2f}", "peak": f"{peak_gain*100:+.1f}%",
+             "cur": f"{cur_gain*100:+.1f}%", "back": f"{giveback:.0f}%"}]
+    elements = [
+        md_element(md_table_str(columns, rows)),
+        md_element(f"成本├{_bar(fill)}┤峰值"),
+        md_element("👉 别让赚过的变成亏的，考虑锁利"),
+    ]
     if model_name:
-        lines.append(f"(建仓：{model_name})")
-    return "\n".join(lines)
+        elements.append(collapsible_element("建仓信息", f"建仓模型: {model_name}\n{advisory}" if advisory else f"建仓模型: {model_name}"))
+    elif advisory:
+        elements.append(collapsible_element("建仓信息", advisory))
+    title = f"🛡️ {name} 盈利保护"
+    fallback = (f"🛡️ {name}({code}) 盈利保护\n"
+                f"峰值{peak_gain*100:+.1f}% → 现{cur_gain*100:+.1f}%（回吐{giveback:.0f}%）\n"
+                f"成本 ¥{cost:.2f}")
+    return title, elements, fallback
 
 
 # ══════════════ 节流(进程内, 每股每规则每日一次) ══════════════
@@ -383,6 +410,16 @@ async def holding_guard_tick():
     if not codes:
         return
 
+    # 推送偏好(mark_sold 过滤 + 卖出类快捷按钮)
+    from backend.core.config import load_config
+    from backend.models.repo import push_pref as pp_repo
+    from backend.services import push_pref as pp
+    site = (load_config().get("site_url", "") or "").rstrip("/")
+    try:
+        prefs = await pp_repo.active_prefs(1)
+    except Exception:
+        prefs = []
+
     try:
         quotes = await data_fetcher.get_realtime_quotes(codes)
     except Exception as e:
@@ -396,6 +433,10 @@ async def holding_guard_tick():
             continue
         price = float(q["price"])
         name = q.get("name") or code
+
+        # 用户已标记该票为已卖出 → 跳过所有持仓类提醒(含异动/接近前高/盈利保护)
+        if pp.mark_sold_active(prefs, code):
+            continue
 
         # 持仓异动(涨停/跌停/急涨/急跌/封单松动) — 只用实时行情, 不依赖日K, 先跑
         try:
@@ -417,8 +458,13 @@ async def holding_guard_tick():
         ph, ph_date = prior_high(df)
         if ph and is_near_high(price, ph) and not _throttle.throttled(code, "prior_high", today):
             try:
-                await notifier.send_dual(build_near_high_msg(name, code, price, ph, ph_date),
-                                         lark_title="📈 持仓守护·接近前高")
+                title, elements, fallback = build_near_high_msg(name, code, price, ph, ph_date)
+                sold_md = pp.build_mark_sold_md(site, 1, code, name)
+                if sold_md:
+                    from backend.services.lark_notifier import md_element as _md_el
+                    elements = list(elements) + [_md_el(sold_md)]
+                    fallback += "\n" + sold_md
+                await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="blue")
                 await _mark(code, "prior_high", today)
             except Exception as e:
                 logger.warning(f"[holding_guard] 接近前高推送失败({code}): {e}")
@@ -430,12 +476,17 @@ async def holding_guard_tick():
             if profit_protect_triggered(cost, peak, price) \
                     and not _throttle.throttled(code, "profit_protect", today):
                 entry_model = model_map.get(code)
-                msg = build_profit_protect_msg(
+                title, elements, fallback = build_profit_protect_msg(
                     name, code, peak / cost - 1, price / cost - 1, cost,
                     advisory=model_advisory(entry_model),
                     model_name=MODEL_NAMES.get(entry_model, ""))
+                sold_md = pp.build_mark_sold_md(site, 1, code, name)
+                if sold_md:
+                    from backend.services.lark_notifier import md_element as _md_el
+                    elements = list(elements) + [_md_el(sold_md)]
+                    fallback += "\n" + sold_md
                 try:
-                    await notifier.send_dual(msg, lark_title="🛡️ 持仓守护·盈利保护")
+                    await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="orange")
                     await _mark(code, "profit_protect", today)
                 except Exception as e:
                     logger.warning(f"[holding_guard] 盈利保护推送失败({code}): {e}")

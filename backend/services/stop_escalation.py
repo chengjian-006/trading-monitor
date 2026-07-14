@@ -148,6 +148,9 @@ async def stop_escalation_tick():
     site = (load_config().get("site_url", "") or "").rstrip("/")
 
     for code in codes:
+        # 用户已标记该票为已卖出 → 跳过所有卖出/持仓类提醒
+        if pp.mark_sold_active(prefs, code):
+            continue
         # 用户已 stop_snooze 这只票的止损升级 → 跳过(不影响其它推送)
         if pp.stop_snooze_active(prefs, code):
             continue
@@ -184,6 +187,9 @@ async def stop_escalation_tick():
         first_pct = (first_price / cost - 1) * 100 if cost and cost > 0 else 0.0
         loss = extra_loss(first_price, price, qty)
         actions = pp.build_stop_escalation_actions_md(site, user_id, code) if site else ""
+        sold_md = pp.build_mark_sold_md(site, user_id, code, name)
+        if sold_md:
+            actions = (actions + "　·　" + sold_md) if actions else sold_md
 
         title, body = build_escalation_card(
             name=name, code=code, day_n=run,

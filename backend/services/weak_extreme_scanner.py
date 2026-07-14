@@ -119,6 +119,47 @@ def build_weak_extreme_section(we_hits: list[dict]) -> str:
     return f"■ 弱势极限·收盘候选 ({len(we_hits)}只)\n\n{we_lines}"
 
 
+def build_weak_extreme_elements(we_hits: list[dict]) -> list:
+    """v2 卡片版: md_table + 折叠技术参数。返回 elements 列表供 send_dual_card。"""
+    from backend.services.lark_notifier import md_element, md_table_str, collapsible_element
+    if not we_hits:
+        return []
+    columns = [
+        {"name": "stock", "display_name": "股票"},
+        {"name": "price", "display_name": "现价"},
+        {"name": "pct", "display_name": "涨跌"},
+    ]
+    rows = []
+    detail_lines = []
+    for h in we_hits:
+        pct = h.get("pct", 0)
+        pct_str = f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
+        amt_str = f" {_fmt_amount(h.get('amount', 0))}" if h.get("amount") else ""
+        rows.append({
+            "stock": f"{h['name']}({h['code']})",
+            "price": f"{h['close']:.2f}",
+            "pct": pct_str,
+        })
+        detail_lines.append(f"**{h['name']}**{amt_str}\n{h['detail']}")
+    elements = [md_element(md_table_str(columns, rows))]
+    if detail_lines:
+        elements.append(collapsible_element(
+            "技术参数（点击展开）",
+            "\n\n".join(detail_lines),
+        ))
+    return elements
+
+
+def build_weak_extreme_fallback(we_hits: list[dict]) -> str:
+    """PushPlus 纯文本兜底。"""
+    lines = []
+    for h in we_hits:
+        pct = h.get("pct", 0)
+        pct_str = f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
+        lines.append(f"{h['name']}({h['code']}) {h['close']:.2f} {pct_str}")
+    return "\n".join(lines)
+
+
 async def scan_weak_extreme_snapshot():
     """定时快照入口: 扫股票池 → 检测 S0 → 汇总企微推送。
 
@@ -142,11 +183,11 @@ async def scan_weak_extreme_snapshot():
     we_hits = await collect_weak_extreme_hits()
     slot = _slot_label()
     if not we_hits:
-        # v1.7.397: 空命中不再单独推送(纯噪音); "今日无命中"的确认改由 15:05 收盘汇总带一句
         logger.info(f"[weak_extreme_snapshot] {slot} 无命中, 不推送(收盘汇总会带确认)")
         return
-    we_lines = "\n\n".join(_format_hit_line(h) for h in we_hits)
-    text = f"【弱势极限·{slot}】\n\n■ 弱势极限 (买入候选) {len(we_hits)} 只\n\n{we_lines}"
+    title = f"📉 弱势极限·{len(we_hits)}只候选"
+    elements = build_weak_extreme_elements(we_hits)
+    fallback = f"【弱势极限·{slot}】{len(we_hits)}只\n\n{build_weak_extreme_fallback(we_hits)}"
 
-    sent = await notifier.send_wechat_text(text)
+    sent = await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="blue")
     logger.info(f"[weak_extreme_snapshot] {slot} 弱势极限{len(we_hits)}只 推送={sent}")
