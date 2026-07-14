@@ -122,7 +122,9 @@ def detect_signals(df: pd.DataFrame, trade_type: str = "short",
                    entry_cost: float | None = None,
                    entry_date: str | None = None,
                    entry_model: str | None = None,
-                   market_emotion: dict | None = None) -> list[Signal]:
+                   market_emotion: dict | None = None,
+                   now: datetime | None = None,
+                   took_half: bool = False) -> list[Signal]:
     """主入口. 整合实时报价 → 计算指标 → 调度各 detector → 应用 extra filters.
 
     entry_cost: 当前持仓的加权平均成本 (来自 repository.get_holdings_cost).
@@ -132,6 +134,12 @@ def detect_signals(df: pd.DataFrame, trade_type: str = "short",
                 有值时 SELL_TRAIL_STOP (最高价回撤) / SELL_TIME_STOP (持仓天数判断) 可触发.
     entry_model: 建仓买点 (来自 repository.get_holdings_entry_model). 命中 BUY_WEAK_EXTREME 时走左侧
                 差异化出场 (SELL_WEAK_STOP -12% / SELL_WEAK_TIME T+15), 并静音全部右侧卖点; 其余/None 走右侧快出.
+    now:        「当前时刻」注入 (默认 None = datetime.now(), 生产行为不变). 历史回放必须传:
+                引擎有两处读墙上时钟 —— ①末根bar是否属于今日(_ensure_today_bar) ②SELL_BREAK_MA*
+                的尾盘确认闸(MA5=14:30 / MA10·MA20=9:26). 回放在盘后跑, 不注入则闸门恒放行,
+                跌破均线会在早盘bar就误触发 (paper_replay 逐根5分钟bar按bar时刻注入).
+    took_half:  本轮建仓(entry_date 以来)是否已经卖过半. True → 静音 SELL_TAKE_PROFIT,
+                实现模型的「+7% 只卖半一次, 剩半交给破MA5/止损」(v1.7.614, 详见下方注释).
     """
     if len(df) < 20:
         return []
@@ -140,7 +148,7 @@ def detect_signals(df: pd.DataFrame, trade_type: str = "short",
     d = compute_indicators(df, cfg)
 
     if realtime and realtime.get("price", 0) > 0:
-        d = _merge_realtime_bar(d, realtime)
+        d = _merge_realtime_bar(d, realtime, today=now.strftime("%Y-%m-%d") if now else None)
         d = compute_indicators(d, cfg)
 
     signals: list[Signal] = []
@@ -152,7 +160,8 @@ def detect_signals(df: pd.DataFrame, trade_type: str = "short",
         rt_code = (realtime or {}).get("code")
         rt_name = (realtime or {}).get("name", "") or ""
         signals.extend(_detect_short_signals(d, latest, prev, cfg, entry_cost, entry_date, entry_model,
-                                             market_emotion, code=rt_code, name=rt_name))
+                                             market_emotion, code=rt_code, name=rt_name, now=now,
+                                             took_half=took_half))
 
     signals = _apply_extra_filters(signals, latest, cfg)
 
@@ -165,7 +174,9 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
                           entry_date: str | None = None,
                           entry_model: str | None = None,
                           market_emotion: dict | None = None,
-                          code: str | None = None, name: str = "") -> list[Signal]:
+                          code: str | None = None, name: str = "",
+                          now: datetime | None = None,
+                          took_half: bool = False) -> list[Signal]:
     """per-stock 调度: 跑所有"短线"信号. 顺序: 持仓减仓/止盈/止损/弱势极限/强势起点/SS1-3.
 
     weak_exit: 该持仓由弱势极限建仓 → 走左侧出场(SELL_WEAK_STOP/-12% + SELL_WEAK_TIME/T+15),
@@ -193,8 +204,15 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
             f"[sell] 持仓成本与现价偏离过大, 疑似脏数据, 跳过成本类卖点: cost={entry_cost} close={close}")
 
     # SELL_TAKE_PROFIT: +7%减仓 — 仅对持仓票生效, 盘中价 ≥ 成本 × (1 + target_pct)
+    # v1.7.614: 加 took_half 闸 —— 本轮建仓已卖过半就不再报。
+    #   原来没有这道闸: 卖半后每股成本不变(成本与股数同比例扣减), 只要价格还在 +7% 上方,
+    #   次日 SELL_TAKE_PROFIT 又触发又卖一半 → 赢家被一路碾成碎仓(0714 回放实测: 华灿光电
+    #   1300→700→300→200→100→100 连砍6次, 59笔卖出里43笔是它)。而回测口径
+    #   (backtester_5m.simulate_exit_detail 的 `if not half and h[t] >= tgt_px`)是「只卖半一次,
+    #   剩半交给破MA5/止损」—— 生产与回测口径不一致, 模拟盘等于没在执行它要验证的那个模型。
+    #   took_half 由调用方按「本轮建仓(entry_date)以来是否已卖过半」算好传入。
     sc = cfg.get("SELL_TAKE_PROFIT", {})
-    if not weak_exit and sc.get("enabled", True) and cost_valid:
+    if not weak_exit and sc.get("enabled", True) and cost_valid and not took_half:
         target_pct = sc.get("target_pct", 7.0) / 100
         if close >= entry_cost * (1 + target_pct):
             gain = (close - entry_cost) / entry_cost * 100
@@ -418,7 +436,7 @@ def _detect_short_signals(d: pd.DataFrame, latest: pd.Series,
             # 14:30后仍破才算确认。盘后/周末放行供EOD/回测路径。MA10/MA20不受影响。
             confirm_min = int(sc.get("confirm_after_minute", 0))
             if confirm_min:
-                _now = datetime.now()
+                _now = now or datetime.now()   # now: 历史回放按bar时刻注入, 生产为 None → 墙上时钟
                 if _now.weekday() < 5 and (_now.hour * 60 + _now.minute) < confirm_min:
                     continue
             if pd.isna(anchor_val) or anchor_val <= 0:

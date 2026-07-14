@@ -56,6 +56,7 @@ from backend.services.sector_rotation_scanner import scan_sector_rotation, predi
 from backend.services.limit_up_archive import run_limit_up_daily
 from backend.services.trade_round_builder import rebuild_user_rounds
 from backend.services.paper_equity import snapshot_paper_equity
+from backend.services.paper_guard import paper_guard_tick
 from backend.services.signal_eod_audit import run_signal_eod_audit
 from backend.services.custom_alert_scanner import check_custom_alerts
 from backend.services.risk_announcement_scanner import scan_risk_announcements
@@ -145,6 +146,7 @@ TASK_HANDLERS: dict[str, object] = {
     "run_limit_up_daily": run_limit_up_daily,
     "rebuild_trade_rounds": rebuild_trade_rounds,
     "snapshot_paper_equity": snapshot_paper_equity,
+    "paper_guard_tick": paper_guard_tick,
     "signal_eod_audit": run_signal_eod_audit,
     "record_daily_popularity": record_daily_popularity,
     "check_custom_alerts": check_custom_alerts,

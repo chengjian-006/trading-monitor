@@ -114,6 +114,25 @@ async def list_positions(account_id: int) -> list:
             return list(await cur.fetchall())
 
 
+async def took_half_codes(account_id: int) -> set[str]:
+    """本轮建仓以来已卖过半的持仓代码 (v1.7.614)。
+
+    喂 signal_engine.detect_signals(took_half=...): 卖半后每股成本不变, 没有这道闸
+    SELL_TAKE_PROFIT 天天重复触发把赢家碾成碎仓; 回测口径是「+7% 只卖半一次, 剩半交给破MA5/止损」。
+    以「成交日 >= 该持仓 open_date」判本轮: 清仓再买入 → open_date 前移 → 自动重新开闸。
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT DISTINCT p.code FROM cfzy_biz_paper_position p "
+                "JOIN cfzy_biz_paper_trade t ON t.account_id=p.account_id AND t.code=p.code "
+                "WHERE p.account_id=%s AND t.side='sell' AND t.status='success' "
+                "  AND t.signal_id='SELL_TAKE_PROFIT' AND t.trade_date >= p.open_date",
+                (account_id,))
+            return {str(r[0]) for r in await cur.fetchall()}
+
+
 async def position_count(account_id: int) -> int:
     pool = get_pool()
     async with pool.acquire() as conn:

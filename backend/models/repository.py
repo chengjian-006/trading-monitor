@@ -69,7 +69,7 @@ from backend.models.repo.signal_config import (  # noqa: F401
 )
 from backend.models.repo.holdings import (  # noqa: F401
     get_holdings_cost, get_holdings_entry_date, get_holdings_entry_model, get_holdings_full_info,
-    get_holdings_qty,
+    get_holdings_qty, get_holdings_took_half,
 )
 from backend.models.repo.market import (  # noqa: F401
     save_market_report, get_today_reports, get_latest_report, get_report_context,
@@ -161,6 +161,7 @@ from backend.models.repo.paper_trading import (  # noqa: F401
     list_positions as paper_list_positions,
     position_count as paper_position_count,
     sum_position_cost as paper_sum_position_cost,
+    took_half_codes as paper_took_half_codes,
     signal_processed as paper_signal_processed,
     apply_fill as paper_apply_fill,
     record_failure as paper_record_failure,

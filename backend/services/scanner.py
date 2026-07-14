@@ -372,9 +372,10 @@ class _UserContextCache:
         self.cost_maps: dict[int, dict[str, float]] = {}
         self.entry_date_maps: dict[int, dict[str, str]] = {}
         self.entry_model_maps: dict[int, dict[str, str]] = {}
+        self.took_half_sets: dict[int, set[str]] = {}
 
-    async def get(self, user_id: int, code: str, is_hold: bool) -> tuple[dict | None, float | None, str | None, str | None]:
-        """返回 (user_config, entry_cost, entry_date, entry_model). 非持仓票 cost/date/model 返 None."""
+    async def get(self, user_id: int, code: str, is_hold: bool) -> tuple[dict | None, float | None, str | None, str | None, bool]:
+        """返回 (user_config, entry_cost, entry_date, entry_model, took_half). 非持仓票后四项为空。"""
         if user_id not in self.configs:
             self.configs[user_id] = await repository.get_signal_config(user_id)
         if user_id not in self.cost_maps:
@@ -383,10 +384,12 @@ class _UserContextCache:
             self.cost_maps[user_id] = cost_map
             self.entry_date_maps[user_id] = date_map
             self.entry_model_maps[user_id] = model_map
+            self.took_half_sets[user_id] = await repository.get_holdings_took_half(user_id, date_map)
         entry_cost = self.cost_maps[user_id].get(code) if is_hold else None
         entry_date = self.entry_date_maps[user_id].get(code) if is_hold else None
         entry_model = self.entry_model_maps[user_id].get(code) if is_hold else None
-        return self.configs[user_id], entry_cost, entry_date, entry_model
+        took_half = (code in self.took_half_sets[user_id]) if is_hold else False
+        return self.configs[user_id], entry_cost, entry_date, entry_model, took_half
 
 
 # v1.7.x: 买点质量序(越小越优先保留), 多买点共振时留最强的一条
@@ -668,12 +671,12 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
         name = stock["name"]
         is_hold = stock.get("status") == "hold"
 
-        user_config, entry_cost, entry_date, entry_model = await user_ctx.get(user_id, code, is_hold)
+        user_config, entry_cost, entry_date, entry_model, took_half = await user_ctx.get(user_id, code, is_hold)
 
         signals = signal_engine.detect_signals(
             df, trade_type, rt, user_config,
             entry_cost=entry_cost, entry_date=entry_date, entry_model=entry_model,
-            market_emotion=market_emotion,
+            market_emotion=market_emotion, took_half=took_half,
         )
 
         valid_sigs = await _filter_valid_signals(
@@ -871,6 +874,7 @@ async def manual_scan(user_id: int = 1) -> list[dict]:
     cost_map = await repository.get_holdings_cost(user_id)
     entry_date_map = await repository.get_holdings_entry_date(user_id)
     entry_model_map = await repository.get_holdings_entry_model(user_id)
+    took_half_set = await repository.get_holdings_took_half(user_id, entry_date_map)
 
     sem = asyncio.Semaphore(3)
     async def _fetch_kline(code: str):
@@ -897,6 +901,7 @@ async def manual_scan(user_id: int = 1) -> list[dict]:
             sigs = signal_engine.detect_signals(
                 df, stock["trade_type"], rt, user_config,
                 entry_cost=entry_cost, entry_date=entry_date, entry_model=entry_model,
+                took_half=(code in took_half_set) if is_hold else False,
             )
             for sig in sigs:
                 if not is_hold and sig.direction != "buy":

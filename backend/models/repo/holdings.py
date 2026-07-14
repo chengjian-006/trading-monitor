@@ -108,6 +108,30 @@ async def get_holdings_full_info(user_id: int, match_window_days: int = 7,
     return cost_map, date_map, model_map
 
 
+async def get_holdings_took_half(user_id: int, date_map: dict[str, str]) -> set[str]:
+    """本轮建仓以来已经推过「+7%止盈卖半」的持仓代码集合 (v1.7.614)。
+
+    喂 signal_engine.detect_signals(took_half=...) 用: 卖半后每股成本不变, 没有这道闸
+    SELL_TAKE_PROFIT 会天天重复触发, 把赢家一路碾成碎仓 —— 而回测口径是「只卖半一次,
+    剩半交给破MA5/止损」。以「该股本轮建仓日(date_map)之后是否发过 SELL_TAKE_PROFIT」为准:
+    清仓再买入 → entry_date 前移 → 自动重新开闸, 无需额外状态表。
+    """
+    if not date_map:
+        return set()
+    earliest = min(date_map.values())
+    rows = await _fetchall(
+        "SELECT code, triggered_at FROM cfzy_biz_signals "
+        "WHERE user_id=%s AND signal_id='SELL_TAKE_PROFIT' AND triggered_at >= %s",
+        (user_id, f"{str(earliest)[:10]} 00:00:00"))
+    out: set[str] = set()
+    for r in rows:
+        code = str(r["code"])
+        entry = date_map.get(code)
+        if entry and str(r["triggered_at"])[:10] >= str(entry)[:10]:
+            out.add(code)
+    return out
+
+
 async def get_holdings_entry_model(user_id: int, match_window_days: int = 7) -> dict[str, str]:
     """返回 {code: entry_signal_id} — 把每只持仓的最早未平仓买入日, 匹配到 cfzy_biz_signals 里
     买入日前后 ±match_window_days 天内、离买入日最近的那条买点信号(同距离优先买入日及之前)。

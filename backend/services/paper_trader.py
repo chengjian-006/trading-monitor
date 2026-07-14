@@ -157,6 +157,23 @@ async def on_signal(*, code: str, name: str, signal_id: str, signal_name: str,
         logger.warning(f"[paper] on_signal 异常({code} {signal_id}), 忽略: {e}")
 
 
+async def apply_exit(acct: dict, *, code: str, name: str, signal_id: str, signal_name: str,
+                     direction: str, price: float) -> None:
+    """模拟盘自有持仓的出场成交 (paper_guard 用)。
+
+    on_signal 只在「实盘信号下发」时被调用, 而卖点信号只对用户本人的持仓下发
+    (scanner._filter_valid_signals: 非持仓票只推买点) → 模拟盘自己买的票收不到任何卖点,
+    只买不卖。paper_guard 用模拟盘自己的成本/建仓日/建仓买点独立跑一遍卖点检测, 命中后走这里成交。
+    与 on_signal 共用同一条 决策(decide) → 落库(apply_fill) 路径, 口径不会漂;
+    不推送、不落信号库、不进模型胜率统计。
+    """
+    from backend.models import repository
+    from datetime import datetime
+    await _process_account(acct, code=code, name=name, signal_id=signal_id,
+                           signal_name=signal_name, direction=direction, price=float(price),
+                           today=datetime.now().date(), repository=repository)
+
+
 async def _process_account(acct, *, code, name, signal_id, signal_name, direction,
                            price, today, repository) -> None:
     """单个模拟账户的成交处理(决策→成交/失败留痕)。"""

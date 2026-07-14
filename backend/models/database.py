@@ -870,6 +870,21 @@ SCHEMA_STATEMENTS = [
         updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
     """,
+    # 官网内测申请 (v1.7.613) — 主域名官网表单免鉴权提交, 落此表 + 飞书通知。
+    # ip 用于防刷(同 IP 24h 上限)与溯源; status: new(待处理)/contacted(已联系)/rejected。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_beta_apply (
+        id         INT AUTO_INCREMENT PRIMARY KEY,
+        contact    VARCHAR(60) NOT NULL DEFAULT '',
+        remark     VARCHAR(500) NOT NULL DEFAULT '',
+        ip         VARCHAR(45) NOT NULL DEFAULT '',
+        user_agent VARCHAR(255) NOT NULL DEFAULT '',
+        status     VARCHAR(20) NOT NULL DEFAULT 'new',
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_ip_created (ip, created_at),
+        INDEX idx_created (created_at)
+    )
+    """,
 ]
 
 
@@ -1637,6 +1652,14 @@ async def _seed_scheduled_tasks(conn):
             # v1.7.x: 原在 defaults 块, 但存量库(表非空)会被早返回跳过 → 生产从未注册, 资金曲线恒空。挪到增量块补建。
             ("paper_equity_snapshot", "模拟账户收盘盯市", "每交易日15:05对模拟持仓盯市并写资金曲线",
              "cron", {"hour": 15, "minute": 5}, "snapshot_paper_equity"),
+            # v1.7.614: 模拟盘持仓守护 — 修「模拟盘只买不卖」的根因。卖点只对用户本人持仓下发
+            # (scanner: 非持仓票只推买点), 模拟盘自己买的票一条卖点都收不到 → 仓位被亏损票占死。
+            # 本任务用模拟盘自己的成本/建仓日/建仓买点独立跑卖点检测, 命中就在模拟盘内成交。
+            ("paper_guard_tick", "模拟盘持仓守护·盘中",
+             "盘中每60秒扫模拟账户(默认/无限子弹)自有持仓, 用各自的成本/建仓日/建仓买点跑一遍卖点检测"
+             "(止盈/止损/跌破MA5·MA10·MA20/弱势极限左侧出场), 命中即在模拟盘内成交; "
+             "不推送、不落信号库、不进模型胜率统计", "interval",
+             {"seconds": 60}, "paper_guard_tick"),
             ("signal_eod_audit", "信号EOD自动复核",
              "每交易日17:00用收盘真实日线复核当日全部信号(K线序列指纹/触发价区间/涨跌家数自洽/指数波幅容纳急跌), "
              "数据层假象标记存疑(不自动删)并推送提醒, 写 cfzy_biz_signals.eod_audit", "cron",
