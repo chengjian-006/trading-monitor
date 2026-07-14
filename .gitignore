@@ -36,6 +36,10 @@ frontend/node_modules/
 frontend/dist/
 node_modules/
 
+# 官网(site/)依赖与构建 —— 与 frontend 同规: 本机 build, dist 只随部署包上传, 不入库
+site/node_modules/
+site/dist/
+
 # 编辑器
 .vscode/
 .idea/
@@ -50,8 +54,10 @@ backend/scripts/find_platform_like.py
 backend/scripts/verify_platform_recent.py
 backend/scripts/add_name_col.py
 backend/scripts/gen_models_xlsx.py
-# 回测缓存(全市场日线 csv, 体积大且可重生)
+# 回测缓存/事件表(全市场 csv, 体积大且可由 bt_* 脚本重生)
 backend/scripts/bt_cache/
+backend/scripts/*.csv
+backend/scripts/*.txt
 
 # 散落的导出表格/数据(复盘 xlsx、扫描 csv 等)
 /*.xlsx

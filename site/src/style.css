@@ -1,0 +1,196 @@
+/* ============================================================
+   股小察官网 · 设计系统
+   调性: 量化终端 —— 深墨底 / 琥珀数据 / 中文衬线标题(研报感) / 等宽跑数字
+   中文字体走系统栈(国内零加载), 拉丁与数字自托管 JetBrains Mono。
+   ============================================================ */
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/700.css';
+
+:root {
+  /* 墨色梯度 */
+  --ink-0: #08090c;
+  --ink-1: #0a0c10;
+  --ink-2: #10141a;
+  --ink-3: #171c24;
+  --line: #232a34;
+  --line-soft: #1a2029;
+
+  /* 文字 */
+  --fg: #d6dde5;
+  --fg-strong: #f2f5f8;
+  --fg-dim: #7d8794;
+  --fg-faint: #545d69;
+
+  /* 主强调: 终端琥珀 */
+  --amber: #f0a500;
+  --amber-soft: #ffc94d;
+  --amber-glow: rgba(240, 165, 0, 0.14);
+
+  /* 盘口红绿(A股口径: 红涨绿跌), 只在极小面积出现 */
+  --up: #e5484d;
+  --down: #2fa96b;
+
+  --font-serif: 'Songti SC', 'Source Han Serif SC', 'Noto Serif CJK SC', 'Noto Serif SC', STSong,
+    SimSun, Georgia, serif;
+  --font-sans: 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Source Han Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  --maxw: 1160px;
+  --gut: 24px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--ink-1);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* 盘口坐标网格 + 顶部琥珀辉光: 整站底噪, 不抢内容 */
+  background-image:
+    radial-gradient(1100px 520px at 50% -8%, var(--amber-glow), transparent 62%),
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 64px, 64px 100%;
+  background-attachment: fixed;
+}
+
+/* 网格在小屏收密, 免得格子比字还大 */
+@media (max-width: 640px) {
+  body {
+    background-size: 100% 100%, 100% 40px, 40px 100%;
+  }
+}
+
+::selection {
+  background: var(--amber);
+  color: var(--ink-0);
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  color: var(--fg-strong);
+  letter-spacing: 0.01em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+  text-wrap: pretty;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------- 版心与分节 ---------- */
+.wrap {
+  width: 100%;
+  max-width: var(--maxw);
+  margin: 0 auto;
+  padding: 0 var(--gut);
+}
+
+.sec {
+  padding: 104px 0;
+  border-top: 1px solid var(--line-soft);
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .sec {
+    padding: 68px 0;
+  }
+}
+
+/* 分节小标: 「02 / 能力」这种终端式编号 */
+.sec-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--amber);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.sec-tag::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--line), transparent);
+}
+
+.sec-title {
+  font-size: clamp(26px, 4.4vw, 40px);
+  line-height: 1.35;
+  margin-bottom: 16px;
+}
+
+.sec-lede {
+  color: var(--fg-dim);
+  font-size: clamp(15px, 2.2vw, 17px);
+  max-width: 62ch;
+}
+
+/* ---------- 数字一律等宽 ---------- */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ---------- 滚动入场 ---------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
