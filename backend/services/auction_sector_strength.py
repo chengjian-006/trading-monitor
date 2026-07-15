@@ -134,9 +134,12 @@ async def _yesterday_top_themes(today: str, top_n: int = 5) -> list[dict]:
 
 
 async def _yesterday_limitup_by_theme(prev_date: str) -> dict[str, list[dict]]:
-    """昨日涨停池按题材(reason 首段, 与 theme_heat 同口径)分组 → {题材: [{code,name}]}。
+    """昨日涨停池按题材(全标签, 与 theme_heat 同口径)分组 → {题材: [{code,name}]}。
+    v1.7.618: 由「reason 首段」改「全标签」(iter_themes), 一股按涨停原因所有题材归组,
+    与 theme_heat/aggregate_themes 一致 —— 否则承接度用的题材成分股会漏(如创新药只算首段那批)。
     theme_heat 的 sample_codes 只存名字, 拿不到代码 → 直接重拉昨日涨停池(THS 支持历史日期)。"""
     from backend.fetcher.limit_pool import get_limit_pool
+    from backend.services.sector_rotation import iter_themes
     try:
         pool = await get_limit_pool(prev_date)
     except Exception as e:
@@ -144,12 +147,11 @@ async def _yesterday_limitup_by_theme(prev_date: str) -> dict[str, list[dict]]:
         return {}
     groups: dict[str, list[dict]] = {}
     for b in (pool or {}).get("boards") or []:
-        reason = (b.get("reason") or "").strip()
-        theme = reason.split("+")[0].strip() if reason else ""
         code = str(b.get("code") or "").zfill(6)
-        if not theme or not code.isdigit():
+        if not code.isdigit():
             continue
-        groups.setdefault(theme, []).append({"code": code, "name": b.get("name") or code})
+        for theme in iter_themes(b.get("reason")):
+            groups.setdefault(theme, []).append({"code": code, "name": b.get("name") or code})
     return groups
 
 

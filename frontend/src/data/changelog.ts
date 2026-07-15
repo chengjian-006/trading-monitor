@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.620',
+    date: '2026-07-15',
+    title: '竞价承接度题材成分口径同步全标签（补 v1.7.617 遗漏处）',
+    changes: [
+      {
+        text: '接 v1.7.617：竞价板块强弱/承接度里「昨日涨停股按题材分组」也在用旧的涨停原因首段口径，会漏掉题材非首位的昨停股（如创新药只算首段那批），导致该题材的竞价溢价/承接度只按部分成分股算。改为全标签（共用 iter_themes），与 theme_heat 昨日家数、承接度用的题材成分股对齐。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.619',
     date: '2026-07-15',
     title: '自选股统计栏与「共X只」计数合并成一行',
