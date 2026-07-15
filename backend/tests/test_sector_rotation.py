@@ -6,7 +6,18 @@
 from backend.services import sector_rotation as sr
 
 
-# ── aggregate_themes ──
+# ── iter_themes (全标签取题材) ──
+def test_iter_themes():
+    # 多标签全拆, 去空去重保序
+    assert sr.iter_themes("仿制药+创新药+减重药") == ["仿制药", "创新药", "减重药"]
+    assert sr.iter_themes("创新药") == ["创新药"]
+    assert sr.iter_themes("") == []
+    assert sr.iter_themes(None) == []
+    assert sr.iter_themes(" 电力 + 风电 ") == ["电力", "风电"]   # 去空格
+    assert sr.iter_themes("电力+电力") == ["电力"]               # 去重
+
+
+# ── aggregate_themes (全标签: 一股计入每个题材) ──
 def test_aggregate_themes():
     boards = [
         {"reason": "电力+业绩", "name": "大唐发电", "height": 2, "open_times": 0},
@@ -16,13 +27,16 @@ def test_aggregate_themes():
         {"reason": "", "name": "无题材", "height": 1, "open_times": 0},   # 无 reason 跳过
     ]
     agg = sr.aggregate_themes(boards)
-    assert set(agg.keys()) == {"电力", "光通信"}
+    # 全标签: 大唐进电力+业绩, 金山进电力+风电 → 题材集含业绩/风电
+    assert set(agg.keys()) == {"电力", "业绩", "风电", "光通信"}
     power = agg["电力"]
-    assert power["limit_up"] == 3
+    assert power["limit_up"] == 3        # 大唐+华银+金山
     assert power["max_height"] == 2
     assert power["first_board"] == 2     # 华银+金山
     assert power["broken"] == 1          # 华银 open_times>0
     assert "大唐发电" in power["samples"]
+    assert agg["业绩"]["limit_up"] == 1  # 只有大唐(次标签也计入)
+    assert agg["风电"]["limit_up"] == 1  # 只有金山
     assert agg["光通信"]["max_height"] == 3
 
 

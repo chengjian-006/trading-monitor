@@ -4,8 +4,10 @@
 按"涨停题材首标签"聚合各题材当日涨停家数 + 样本股, 整日幂等覆盖写 cfzy_sys_theme_heat。
 前端 ThemeHeatPanel 以 日期×题材 矩阵展示主线兴起/退潮。
 
-题材口径: reason_type 形如 "电力+业绩减亏+广东国资", 取首段 "电力" 作主题材
-(首段通常是当日核心驱动)。东财备源无 reason_type → 该日题材聚合为空(降级)。
+题材口径(v1.7.617 起): reason_type 形如 "仿制药+创新药+减重药" 全标签计入 —— 一只多标签
+涨停股算进它涉及的每个题材(共用 sector_rotation.iter_themes)。旧首段口径会把「非首位」的
+题材漏掉(实测创新药首段仅4只/全标签11只), 与概念板块看到的家数对不上, 也拖累弱转强昨日基准。
+东财备源无 reason_type → 该日题材聚合为空(降级)。
 """
 import logging
 from collections import defaultdict
@@ -14,6 +16,7 @@ from datetime import datetime
 from backend.core.trading_calendar import is_workday
 from backend.fetcher.limit_pool import get_limit_pool_cached
 from backend.models import repository
+from backend.services.sector_rotation import iter_themes
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +44,15 @@ async def refresh_theme_heat() -> None:
 
     agg: dict[str, dict] = defaultdict(lambda: {"count": 0, "names": []})
     for b in boards:
-        reason = (b.get("reason") or "").strip()
-        if not reason:
+        themes = iter_themes(b.get("reason"))
+        if not themes:
             continue
-        theme = reason.split("+")[0].strip()
-        if not theme:
-            continue
-        slot = agg[theme]
-        slot["count"] += 1
-        if len(slot["names"]) < _MAX_SAMPLES:
-            slot["names"].append(b.get("name") or b.get("code") or "")
+        name = b.get("name") or b.get("code") or ""
+        for theme in themes:
+            slot = agg[theme]
+            slot["count"] += 1
+            if len(slot["names"]) < _MAX_SAMPLES:
+                slot["names"].append(name)
 
     if not agg:
         logger.info("[theme_heat] 涨停股无题材字段(可能东财备源), 跳过")
