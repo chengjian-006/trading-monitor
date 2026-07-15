@@ -7,7 +7,7 @@
   盘后 15:00-次日9:00 → 60分钟
   非交易日 → 20:00 一次
 
-入口 scan_blogger_posts() 注册为 interval/60s, 内部节流控制实际执行间隔.
+入口 scan_blogger_posts() 注册为 interval/300s(5min, 见 database.py 种子), 内部按上表节流控制实际执行间隔.
 去重靠 cfzy_biz_blogger_posts 唯一索引.
 """
 
