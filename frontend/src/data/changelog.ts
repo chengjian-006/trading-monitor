@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.621',
+    date: '2026-07-15',
+    title: '问财候选榜改「本地浏览器代跑」上报接口（云端 IP 被风控的旁路）',
+    changes: [
+      {
+        text: '云端服务器出口 IP 被同花顺问财 IP 级风控，pywencai 从生产拉不到候选。新增本地浏览器代跑管道：在本机 www.iwencai.com 登录态下用油猴脚本页面内查问财、归一化后 POST 回服务器落候选榜，绕开云端 IP 封锁。',
+        tag: 'new',
+      },
+      {
+        text: '新增 POST /api/wencai/ingest（上报一条语句的候选结果，共享密钥 ingest_token 鉴权、免 JWT，服务器只做防御性清洗+落库）与 POST /api/wencai/ingest/queries（给油猴下发当前该跑的语句清单=预置+各用户启用的自定义，语句可在系统里自定义、脚本不写死）。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.620',
     date: '2026-07-15',
     title: '竞价承接度题材成分口径同步全标签（补 v1.7.617 遗漏处）',

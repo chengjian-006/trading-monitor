@@ -47,6 +47,10 @@ DEFAULT_CONFIG = {
     # 完整接入说明见 backend/fetcher/wencai_screener.py 顶部 docstring。
     "wencai_screening": {
         "enabled": False,
+        # 本地油猴代跑(www.iwencai.com 登录态页面内查问财)上报结果的共享密钥, 仿 blogger renew_token。
+        # 云端出口 IP 被同花顺 IP 级风控(pywencai 从生产拉不到), 故改浏览器代跑 POST /api/wencai/ingest。
+        # 空 = 拒收所有上报(默认关); 填一串随机密钥并同步到油猴脚本才生效。
+        "ingest_token": "",
         "queries": [
             {"id": "breakout", "name": "量价突破型",
              "query": "换手率大于5% 且 创60日新高 且 成交额大于2亿 且 非ST", "enabled": True},

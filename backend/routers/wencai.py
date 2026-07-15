@@ -7,8 +7,11 @@
   POST   /api/wencai/queries      新增一条常驻语句(立即跑一次出榜)
   PUT    /api/wencai/queries/{id} 改语句(name/query/enabled), 启用则即刻重跑、禁用则清掉榜
   DELETE /api/wencai/queries/{id} 删除语句及其候选榜
+  POST   /api/wencai/ingest       本地油猴代跑上报: 浏览器登录态查问财→归一化→POST结果落库(共享密钥鉴权, 免JWT)
 """
+import re
 import time
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -121,6 +124,117 @@ async def manual_scan(user: Annotated[dict, Depends(get_current_user)]):
         else:
             failed.append(name)
     return {"ok": True, "total": len(work), "succeeded": succeeded, "failed": failed}
+
+
+# ── 本地油猴代跑上报 (www.iwencai.com 登录态浏览器代跑) ──
+# 云端出口 IP 被同花顺 IP 级风控(pywencai 从生产拉不到), 改为在本机浏览器登录态页面内查问财、
+# 油猴脚本归一化后 POST 到这里落库。脚本在同花顺域无本系统 JWT, 故不走 get_current_user, 靠
+# 共享密钥 ingest_token 鉴权(仿 blogger renew_token)。语句可自定义: 脚本每轮从 /ingest/queries
+# 拉「当前该跑的语句清单」(预置 + 各用户启用的自定义), 不写死。normalize 在油猴 JS 做, 服务器
+# 只做防御性清洗(不信客户端): code 6位校验 / 名称·标签截断 / 数值强转 / 白名单 extra / 条数上限。
+
+_INGEST_MAX_ITEMS = 200
+_INGEST_EXTRA_ALLOWED = {"tech_pattern", "buy_signal", "concepts", "industry",
+                         "turnover", "amount", "free_cap"}
+
+
+def _uid_of(strategy_id: str) -> int:
+    """从 strategy_id 反解 user_id: 自定义榜 u{uid}_q{qid} → uid; 预置榜(breakout 等) → 0。"""
+    m = re.match(r"^u(\d+)_q\d+$", strategy_id or "")
+    return int(m.group(1)) if m else 0
+
+
+def _ingest_token_ok(token: str) -> bool:
+    expected = load_config().get("wencai_screening", {}).get("ingest_token", "") or ""
+    return bool(expected) and token == expected
+
+
+class IngestQueriesRequest(BaseModel):
+    token: str
+
+
+@router.post("/ingest/queries")
+async def ingest_queries(req: IngestQueriesRequest):
+    """给本地油猴脚本下发「当前该跑的选股语句清单」= 预置(config) + 各用户启用的自定义语句。
+
+    语句可在系统里自定义(config 预置 + 前端 /api/wencai/queries 增删改), 脚本每轮拉最新清单跑,
+    不写死。共享密钥鉴权(同 ingest)。返回 [{strategy_id, name, query}]。
+    """
+    if not _ingest_token_ok(req.token):
+        raise HTTPException(status_code=401, detail="ingest token 无效")
+    cfg = load_config().get("wencai_screening", {})
+    out: list[dict] = []
+    for q in (cfg.get("queries") or []):
+        if q.get("enabled", True) and q.get("query"):
+            sid = q.get("id") or q.get("name") or ""
+            out.append({"strategy_id": sid, "name": q.get("name") or sid, "query": q.get("query")})
+    try:
+        for uq in await repository.list_all_enabled_queries():
+            if uq.get("query_text"):
+                sid = repository.pool_strategy_id(uq["user_id"], uq["id"])
+                out.append({"strategy_id": sid, "name": uq.get("name") or sid,
+                            "query": uq["query_text"]})
+    except Exception:
+        pass
+    return {"queries": out}
+
+
+class IngestItem(BaseModel):
+    code: str
+    name: str = ""
+    price: float | None = None
+    pct_change: float | None = None
+    extra: dict = {}
+
+
+class IngestRequest(BaseModel):
+    token: str
+    strategy_id: str
+    strategy_name: str = ""
+    query_text: str = ""
+    trade_date: str = ""
+    items: list[IngestItem] = []
+
+
+def _sanitize_ingest_items(items: list[IngestItem]) -> list[dict]:
+    """油猴上报的候选行防御性清洗(不信客户端): 只留 6 位代码的行, 字段限长/强转, extra 走白名单。"""
+    out: list[dict] = []
+    for it in items[:_INGEST_MAX_ITEMS]:
+        code = str(it.code or "").strip().zfill(6)
+        if not re.match(r"^\d{6}$", code):
+            continue
+        extra: dict = {}
+        for k, v in (it.extra or {}).items():
+            if k not in _INGEST_EXTRA_ALLOWED or v is None:
+                continue
+            if isinstance(v, (int, float)) and not isinstance(v, bool):
+                extra[k] = round(float(v), 4)
+            else:
+                extra[k] = str(v)[:120]
+        num = lambda x: float(x) if isinstance(x, (int, float)) and not isinstance(x, bool) else None
+        out.append({"code": code, "name": str(it.name or "").strip()[:40],
+                    "price": num(it.price), "pct_change": num(it.pct_change), "extra": extra})
+    return out
+
+
+@router.post("/ingest")
+async def ingest_wencai(req: IngestRequest):
+    """本地油猴代跑上报一条选股语句的候选结果 → 整行 UPSERT 进 cfzy_sys_wencai_pool。
+
+    共享密钥鉴权(config.wencai_screening.ingest_token); token 不匹配/为空则拒收, 绝不落库。
+    一条语句一次 POST; 归一化在油猴 JS 完成, 这里只清洗+落库。user_id 从 strategy_id 反解。
+    """
+    if not _ingest_token_ok(req.token):
+        raise HTTPException(status_code=401, detail="ingest token 无效")
+    sid = (req.strategy_id or "").strip()[:40]
+    if not sid:
+        raise HTTPException(status_code=400, detail="strategy_id 为空")
+    items = _sanitize_ingest_items(req.items)
+    trade_date = (req.trade_date or "").strip()[:10] or datetime.now().strftime("%Y-%m-%d")
+    name = (req.strategy_name or "").strip()[:40] or sid
+    query_text = (req.query_text or "").strip()[:255]
+    await repository.upsert_wencai_strategy(sid, _uid_of(sid), name, query_text, trade_date, items)
+    return {"ok": True, "strategy_id": sid, "stock_count": len(items)}
 
 
 class AddToPoolRequest(BaseModel):
