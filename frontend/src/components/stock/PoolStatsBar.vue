@@ -83,7 +83,6 @@ const stats = computed(() => {
   align-items: center;
   gap: 6px 14px;
   padding: 8px 12px;
-  margin-bottom: 10px;
   border: 1px solid var(--border-color, #eee);
   border-radius: 8px;
   background: var(--card-bg, #fafafa);

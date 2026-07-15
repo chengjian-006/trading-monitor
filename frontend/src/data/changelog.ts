@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.619',
+    date: '2026-07-15',
+    title: '自选股统计栏与「共X只」计数合并成一行',
+    changes: [
+      {
+        text: '把上一版新增的实时统计栏和上方「共X只/持仓/关注 + 标签说明」计数行合并到同一行(统计栏在左撑开、计数靠右), 省一行竖向空间; 窄屏自动换行堆叠。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.618',
     date: '2026-07-15',
     title: '自选股页面加实时统计栏(当日+近5日)',

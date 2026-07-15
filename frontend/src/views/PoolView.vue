@@ -460,12 +460,14 @@ async function handleThsImport(groupId: string) {
     <Transition v-else name="content-fade" appear>
       <div :class="{ 'pool-content': !isPhone }">
         <SignalSummaryBar :signals-by-code="signalsByCode" />
-        <div class="table-summary">
-          <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
-          <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
-          <TagLegendButton />
+        <div class="pool-summary-row">
+          <PoolStatsBar :stocks="stockStore.stocks" />
+          <div class="table-summary">
+            <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
+            <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
+            <TagLegendButton />
+          </div>
         </div>
-        <PoolStatsBar :stocks="stockStore.stocks" />
         <StockTable v-if="!isPhone" ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline" />
         <StockList v-else :stocks="pf.filteredStocks.value" />
       </div>
@@ -798,6 +800,23 @@ async function handleThsImport(groupId: string) {
   font-size: 12px;
   color: var(--text2);
   margin-bottom: 8px;
+}
+/* 统计栏 + 计数行合并成一行: 统计栏在左撑开, 计数/标签靠右; 窄屏自动换行堆叠 */
+.pool-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.pool-summary-row :deep(.pool-stats-bar) {
+  flex: 1 1 340px;
+  min-width: 0;
+}
+.pool-summary-row .table-summary {
+  margin-bottom: 0;
+  flex: 0 0 auto;
 }
 .ths-empty {
   text-align: center;
