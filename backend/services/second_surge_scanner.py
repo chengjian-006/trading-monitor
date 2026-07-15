@@ -119,7 +119,7 @@ async def run_second_surge_scan():
         r = ss.detect_second_surge(trends, pre_close, p, code=code, name=name_map.get(code, ""))
         if not r:
             continue
-        if ss.estimate_amount(trends) < min_amt:                # 流动性底线(trends估算累计额)
+        if ss.cum_amount(trends) < min_amt:                     # 流动性底线(当日累计成交额)
             continue
         _mark_fired(day, code)                                  # 每股每天一次(命中即登记)
         hits.append({

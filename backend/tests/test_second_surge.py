@@ -5,7 +5,7 @@
   放量 ≥vol_mult×基准量 拉升 ≥leg_rise_min → 现价创当日新高(过 H1)。确认后报。
 """
 from backend.services.second_surge import (
-    baseline_vol, detect_second_surge, estimate_amount, build_surge_card,
+    baseline_vol, detect_second_surge, cum_amount, build_surge_card,
 )
 
 # 默认参数(= 生产原设计: 深回落≥1.5% / 放量≥1.8× / 二波涨≥0.8% / 窗口4分钟)
@@ -79,10 +79,17 @@ class TestSecondSurge:
 
 
 class TestAmountAndCard:
-    def test_estimate_amount(self):
-        # 2根: 量1000手×100股×价10 + 量2000手×100股×价10 = 100万+200万 = 300万
-        trends = [{"price": 10.0, "volume": 1000}, {"price": 10.0, "volume": 2000}]
-        assert abs(estimate_amount(trends) - 3_000_000) < 1
+    def test_cum_amount_prefers_real_amount(self):
+        # 分时自带真实成交额(THS 第3字段) → 直接求和, 不再由量价估算
+        trends = [{"price": 10.0, "volume": 100_000, "amount": 1_000_000},
+                  {"price": 10.0, "volume": 200_000, "amount": 2_000_000}]
+        assert abs(cum_amount(trends) - 3_000_000) < 1
+
+    def test_cum_amount_fallback_no_x100(self):
+        # 老缓存无 amount 时退回 量×价: volume 单位是「股」, 不得再 ×100(曾放大百倍,
+        # 致 min_amount_now=5000万 的流动性闸门实际只卡到 50 万)
+        trends = [{"price": 10.0, "volume": 100_000}, {"price": 10.0, "volume": 200_000}]
+        assert abs(cum_amount(trends) - 3_000_000) < 1
 
     def test_build_card_single_and_multi(self):
         r = detect_second_surge(_mk(_POS_PRICES, _POS_VOLS), 100.0, P, code="600000", name="测试")

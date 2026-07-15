@@ -97,9 +97,13 @@ async def _intraday_ths(code: str) -> tuple[list[dict], float]:
             if len(parts) < 4:
                 continue
             # 逐点安全解析: 某字段为空('')时只跳过该点, 不让整条分时报废
+            # THS 分时字段: 时间, 现价, 该分钟成交额(元), 均价, 该分钟成交量(股)
+            # 注意 volume 单位是「股」不是「手」—— 用它折算成交额时不要再 ×100(曾放大百倍)。
+            # amount 是数据源直接给的真实成交额, 优先用它, 不必由量价估算。
             try:
                 time_str = parts[0]
                 price = float(parts[1])
+                amount = float(parts[2]) if len(parts) > 2 and parts[2] else 0.0
                 avg_price = float(parts[3]) if parts[3] else price
                 volume = float(parts[4]) if len(parts) > 4 and parts[4] else 0
             except (ValueError, IndexError):
@@ -109,6 +113,7 @@ async def _intraday_ths(code: str) -> tuple[list[dict], float]:
                 "price": price,
                 "avg_price": avg_price,
                 "volume": volume,
+                "amount": amount,
             })
         return result, pre
     except Exception as e:
@@ -164,7 +169,8 @@ async def _fetch_one_sparkline(code: str) -> dict:
             if ths_points:
                 v = {"pre_close": ths_pre,
                      "trends": [{"time": p["time"], "price": p["price"],
-                                 "volume": p.get("volume", 0)} for p in ths_points]}
+                                 "volume": p.get("volume", 0),
+                                 "amount": p.get("amount", 0)} for p in ths_points]}
         except Exception as e:
             logger.warning(f"[batch_intraday] THS 失败({code}): {e}")
 

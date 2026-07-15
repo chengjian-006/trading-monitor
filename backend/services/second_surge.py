@@ -34,10 +34,23 @@ DEFAULT_PARAMS = {
 }
 
 
-def estimate_amount(trends: list[dict]) -> float:
-    """由分时(分钟量, 手)估算截至最新的累计成交额(元): Σ 分钟量×100股×价。
-    仅供流动性底线粗筛(≥min_amount_now), 非精确成交额。"""
-    return sum((float(t.get("volume") or 0) * 100.0 * float(t.get("price") or 0)) for t in trends)
+def cum_amount(trends: list[dict]) -> float:
+    """截至最新的当日累计成交额(元)。
+
+    优先用分时自带的真实成交额 amount(THS 分时第3字段, 单位元); 老缓存无该字段时退回
+    量×价估算 —— volume 单位是「股」不是「手」, 不要再 ×100(曾放大百倍, 致 min_amount
+    闸门实际只卡百分之一)。
+    """
+    if any(t.get("amount") for t in trends):
+        return sum(float(t.get("amount") or 0) for t in trends)
+    return sum((float(t.get("volume") or 0) * float(t.get("price") or 0)) for t in trends)
+
+
+def wave_amounts(trends: list[dict]) -> list[float]:
+    """逐分钟成交额(元)序列, 与 trends 等长。资金强度诸口径的公共取数。"""
+    if any(t.get("amount") for t in trends):
+        return [float(t.get("amount") or 0) for t in trends]
+    return [float(t.get("volume") or 0) * float(t.get("price") or 0) for t in trends]
 
 
 _SURGE_TAGLINE = "抬头看一眼·形态提示非买卖建议(历史多为隔日T+1~T+3小余温, 当日≈走平)。"
