@@ -17,6 +17,7 @@ import { fetchThsGroups, importThsGroup, compareThsUpload } from '../api/config'
 import type { ThsCompareResult } from '../types'
 import StockTable from '../components/stock/StockTable.vue'
 import StockList from '../components/stock/StockList.vue'
+import PoolStatsBar from '../components/stock/PoolStatsBar.vue'
 import StrategyOverviewDrawer from '../components/stock/StrategyOverviewDrawer.vue'
 import SignalSummaryBar from '../components/stock/SignalSummaryBar.vue'
 import TagLegendButton from '../components/stock/TagLegendButton.vue'
@@ -464,6 +465,7 @@ async function handleThsImport(groupId: string) {
           <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
           <TagLegendButton />
         </div>
+        <PoolStatsBar :stocks="stockStore.stocks" />
         <StockTable v-if="!isPhone" ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline" />
         <StockList v-else :stocks="pf.filteredStocks.value" />
       </div>
