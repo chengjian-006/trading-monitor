@@ -21,6 +21,7 @@ ALERT_STALE_SEC = 360      # 自愈后仍 >360s(6min) 未更新才算异常
 ALERT_MIN_COUNT = 5        # 异常票数达到此值才告警
 ALERT_COOLDOWN = 1800      # 同类告警冷却 30min
 RESUME_GRACE_SEC = 180     # v1.7.562: 开盘/午休恢复宽限窗(秒), 窗内不判"陈旧"
+CONTINUOUS_AM_SEC = 9 * 3600 + 30 * 60   # v1.7.x: 早盘连续竞价开始 09:30(集合竞价撮合09:25出价, 留5min余量)
 
 _last_alert_at: float = 0.0
 
@@ -46,6 +47,27 @@ def _in_resume_grace(now=None, grace: int = RESUME_GRACE_SEC) -> bool:
         if 0 <= cur - start < grace:
             return True
     return False
+
+
+def _before_am_continuous(now=None) -> bool:
+    """早盘连续竞价(09:30)之前 —— 集合竞价撮合前后全池无成交价是结构性正常, 非数据源故障。
+
+    v1.7.594 起交易时段开盘前移到 09:15(为看竞价), is_trading_time 在 09:15~09:30 也为 True,
+    但连续竞价前市场未产生最新价 → 全池 price 为空, "行情缺失"(null_price)全池告警是误报
+    (0715 09:18 报 165/165 只无价即此)。此窗内跳过缺失判定; 下午 13:00 复盘已有价格不受影响
+    (13:00 恒 > 09:30 → False); 09:30 后真缺失照常告警。开盘时刻取自 config trading_hours[0]。
+    """
+    from datetime import datetime as _dt
+    from backend.core.config import load_config
+    n = now if now is not None else _dt.now()
+    cur = n.hour * 3600 + n.minute * 60 + n.second
+    periods = load_config().get("trading_hours") or [{"start": "09:15"}]
+    try:
+        hh, mm = str(periods[0].get("start", "09:15")).split(":")
+        am_start = int(hh) * 3600 + int(mm) * 60
+    except (ValueError, AttributeError, IndexError):
+        am_start = 9 * 3600 + 15 * 60
+    return am_start <= cur < CONTINUOUS_AM_SEC
 
 
 async def self_heal_stale_quotes():
@@ -90,7 +112,8 @@ async def check_data_sanity():
     # 陈旧判定跳过"恢复宽限窗"(开盘/午休回来前3分钟) — 该窗内大面积陈旧是结构性必然, 非真异常
     if h["stale"] >= ALERT_MIN_COUNT and not _in_resume_grace():
         problems.append(f"行情陈旧: {h['stale']}/{h['total']} 只 >6 分钟未更新")
-    if h["null_price"] >= ALERT_MIN_COUNT:
+    # 行情缺失(全池无价): 早盘连续竞价(09:30)前是撮合前结构性正常, 跳过; 09:30后才是真缺失
+    if h["null_price"] >= ALERT_MIN_COUNT and not _before_am_continuous():
         problems.append(f"行情缺失: {h['null_price']}/{h['total']} 只无价格")
     if not problems:
         return
