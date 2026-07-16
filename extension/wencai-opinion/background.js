@@ -28,24 +28,36 @@ async function uploadTo(serverUrl, payload) {
   return j || {};
 }
 
+// 运行状态写进 storage.local：弹窗关掉重开也能恢复进度/结果
+const setRunState = (st) => chrome.storage.local.set({ runState: st });
+
 async function runBg(question, opts) {
   opts = opts || {};
   const s = await getSettings();
-  if (!s.token) throw new Error('未配置 token（点扩展图标在设置里填）');
-  const res = await WOP.runAimeQuery(question, { deep: s.deepResearch, askText: question + WOP.FORMAT_SUFFIX, getV: () => cookieVal('v'), getUserId: () => cookieVal('userid') });
-  if (!res.answer.trim()) throw new Error('没抓到答案（可能被风控或非推荐意图）');
-  const rawAnswer = res.answer;
-  res.answer = WOP.stripMarkerLine(WOP.stripEmbeds(rawAnswer));   // 去图表占位块+结论标记行
-  const uid = await cookieVal('userid');
-  const conc = WOP.extractConclusion(rawAnswer, []);
-  const r = await uploadTo(s.serverUrl, { token: s.token, question, answer_text: res.answer, reasoning: res.reasoning || '', conclusion: conc, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || uid || '', only_with_stock: !!s.onlyWithStock });
-  const items = r.stock_items || (r.stocks || []).map((n) => ({ name: n }));
-  pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: WOP.extractConclusion(rawAnswer, items), ts: Date.now() });
-  if (!opts.silent) {
-    if (r.skipped) notify('问财观点 · 未上报', '「' + question.slice(0, 20) + '」没抽出个股，按设置未入库。');
-    else notify('问财观点 · 已存档', '「' + question.slice(0, 18) + '」→ ' + ((r.stocks || []).join('、') || '未识别出个股') + '（' + res.answer.length + '字）');
+  const startedAt = Date.now();
+  setRunState({ status: 'running', q: question, deep: !!s.deepResearch, startedAt });
+  try {
+    if (!s.token) throw new Error('未配置 token（点扩展图标在设置里填）');
+    const res = await WOP.runAimeQuery(question, { deep: s.deepResearch, askText: question + WOP.FORMAT_SUFFIX, getV: () => cookieVal('v'), getUserId: () => cookieVal('userid') });
+    if (!res.answer.trim()) throw new Error('没抓到答案（可能被风控或非推荐意图）');
+    const rawAnswer = res.answer;
+    res.answer = WOP.stripMarkerLine(WOP.stripEmbeds(rawAnswer));   // 去图表占位块+结论标记行
+    const uid = await cookieVal('userid');
+    const conc = WOP.extractConclusion(rawAnswer, []);
+    const r = await uploadTo(s.serverUrl, { token: s.token, question, answer_text: res.answer, reasoning: res.reasoning || '', conclusion: conc, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || uid || '', only_with_stock: !!s.onlyWithStock });
+    const items = r.stock_items || (r.stocks || []).map((n) => ({ name: n }));
+    const finalConc = WOP.extractConclusion(rawAnswer, items);
+    pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: finalConc, deep: !!s.deepResearch, ts: Date.now() });
+    setRunState({ status: 'done', q: question, deep: !!s.deepResearch, startedAt, finishedAt: Date.now(), skipped: !!r.skipped, stockItems: items, conclusion: finalConc, answerLen: res.answer.length });
+    if (!opts.silent) {
+      if (r.skipped) notify('问财观点 · 未上报', '「' + question.slice(0, 20) + '」没抽出个股，按设置未入库。');
+      else notify('问财观点 · 已存档', '「' + question.slice(0, 18) + '」→ ' + ((r.stocks || []).join('、') || '未识别出个股') + '（' + res.answer.length + '字）');
+    }
+    return { ...r, answerLen: res.answer.length, stocks: r.stocks || [] };
+  } catch (e) {
+    setRunState({ status: 'error', q: question, deep: !!s.deepResearch, startedAt, finishedAt: Date.now(), error: String(e && e.message || e) });
+    throw e;
   }
-  return { ...r, answerLen: res.answer.length, stocks: r.stocks || [] };
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {

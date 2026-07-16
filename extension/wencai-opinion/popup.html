@@ -5,54 +5,140 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="hd">💡 问财观点 · 设置</div>
-  <div class="quota" id="quota">额度加载中…</div>
+<div class="app">
 
-  <div class="sec">
-    <div class="row"><label>后台问一句（不用开问财页）</label></div>
-    <div id="askBtns" class="askbtns"></div>
-    <div class="row2"><input id="askInput" type="text" placeholder="或输入自定义问题…"><button id="askGo" class="btn sm">问</button></div>
-    <div id="askStatus" class="status"></div>
-  </div>
-
-  <div class="sec">
-    <div class="row"><label>最近问答（点击重看）</label></div>
-    <div id="history" class="history"><span class="muted">暂无</span></div>
-  </div>
-
-  <div class="sec">
-    <div class="row"><label>我的昵称（留空自动用同花顺账号号）</label><input id="uploader" type="text" placeholder="选填，如：老王"></div>
-  </div>
-
-  <div class="sec">
-    <div class="row"><label>预置问题（每行一条，悬浮按钮菜单里列出）</label>
-      <textarea id="presets" rows="4" placeholder="每行一条口语问题"></textarea></div>
-  </div>
-
-  <div class="sec">
-    <label class="ck"><input id="deepResearch" type="checkbox"> 深度研究（更深，但每天约10次额度；默认关走普通188次）</label>
-    <label class="ck"><input id="autoUpload" type="checkbox"> 问完自动上报（关掉=只看答案，手动点上报）</label>
-    <label class="ck"><input id="onlyWithStock" type="checkbox"> 仅识别出个股才上报（过滤纯观点）</label>
-  </div>
-
-  <div class="sec">
-    <label class="ck"><input id="schedEnabled" type="checkbox"> 定时自动问（后台跑，⚠️自动化，封号风险相对高，谨慎开）</label>
-    <div class="row"><label>时间点（逗号分隔，如 09:35,13:05）</label><input id="schedTimes" type="text" placeholder="09:35,13:05"></div>
-    <div class="row"><label>定时跑哪些问题（每行一条；留空=跑第一条预置）</label>
-      <textarea id="schedQuestions" rows="2" placeholder="留空则跑第一条预置问题"></textarea></div>
-  </div>
-
-  <details class="adv">
-    <summary>⚙️ 高级设置（服务器/密钥，已预置，一般不用动）</summary>
-    <div class="advbd">
-      <div class="row"><label>服务器地址</label><input id="serverUrl" type="text" placeholder="http://124.71.75.5"></div>
-      <div class="row"><label>上报密钥 token
-        <span class="link" id="tokToggle">显示</span></label>
-        <input id="token" type="password" placeholder="分发包已预置"></div>
+  <!-- ===== 顶部：品牌 + 额度 ===== -->
+  <header class="hd">
+    <div class="brand">
+      <div class="logo">💡</div>
+      <div class="brand-txt">
+        <div class="brand-name">问财观点</div>
+        <div class="brand-sub">口语问一句 · 存进股小察</div>
+      </div>
     </div>
-  </details>
+    <div id="quota" class="quota"><span class="qpill ghost">额度加载中…</span></div>
+  </header>
 
-  <div class="foot"><button id="save" class="btn">保存设置</button><span id="saveMsg" class="savemsg"></span></div>
-  <script src="popup.js"></script>
+  <!-- ===== 主体：三个面板 ===== -->
+  <main class="panels">
+
+    <!-- 问答 -->
+    <section class="panel active" id="panel-ask">
+      <div class="sec-label">快捷提问 <span class="sec-hint">后台跑，不用开问财页</span></div>
+      <div id="askBtns" class="preset-list"></div>
+
+      <div class="ask-box">
+        <textarea id="askInput" rows="2" placeholder="或输入自定义问题…"></textarea>
+        <div class="ask-tools">
+          <label class="deep-toggle" title="深度研究更深入，但每天约10次额度；普通模式约188次">
+            <input id="deepResearch" type="checkbox">
+            <span class="sw"></span>
+            <span class="deep-txt">深度研究</span>
+          </label>
+          <button id="askGo" class="send-btn" title="提问">
+            <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3.4 20.4l17.4-7.5c.8-.35.8-1.45 0-1.8L3.4 3.6c-.66-.29-1.39.2-1.39.91L2 9.12c0 .5.37.93.87.99L17 12 2.87 13.88c-.5.07-.87.5-.87 1l.01 4.61c0 .71.73 1.2 1.39.91z"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="runCard" class="run-card hide">
+        <div class="run-head">
+          <span class="spinner"></span>
+          <span class="run-title">问财思考中…</span>
+          <span id="runElapsed" class="run-elapsed"></span>
+        </div>
+        <div id="runQ" class="run-q"></div>
+        <div class="run-tip">可以关掉这个窗口，完成后会弹系统通知</div>
+      </div>
+
+      <div id="resultCard" class="result-card hide"></div>
+    </section>
+
+    <!-- 历史 -->
+    <section class="panel" id="panel-history">
+      <div class="sec-label">最近问答 <span class="sec-hint">点击查看全文</span></div>
+      <div id="history" class="history-list"></div>
+    </section>
+
+    <!-- 设置 -->
+    <section class="panel" id="panel-settings">
+
+      <div class="card">
+        <div class="card-title">上报</div>
+        <div class="field">
+          <label for="uploader">我的昵称</label>
+          <input id="uploader" type="text" placeholder="选填，如：老王（留空自动用同花顺账号）">
+        </div>
+        <label class="sw-row">
+          <span class="sw-txt">问完自动上报<small>关掉 = 只看答案，手动点上报</small></span>
+          <span class="sw-wrap"><input id="autoUpload" type="checkbox"><span class="sw"></span></span>
+        </label>
+        <label class="sw-row">
+          <span class="sw-txt">仅识别出个股才上报<small>过滤纯观点类回答</small></span>
+          <span class="sw-wrap"><input id="onlyWithStock" type="checkbox"><span class="sw"></span></span>
+        </label>
+      </div>
+
+      <div class="card">
+        <div class="card-title">预置问题</div>
+        <div class="field">
+          <textarea id="presets" rows="4" placeholder="每行一条口语问题"></textarea>
+          <div class="field-hint">显示在问答页和问财页悬浮菜单里，每行一条</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <label class="sw-row">
+          <span class="sw-txt">定时自动问<small>⚠️ 自动化封号风险相对高，谨慎开</small></span>
+          <span class="sw-wrap"><input id="schedEnabled" type="checkbox"><span class="sw"></span></span>
+        </label>
+        <div id="schedBody" class="sched-body">
+          <div class="field">
+            <label for="schedTimes">时间点（逗号分隔）</label>
+            <input id="schedTimes" type="text" placeholder="09:35,13:05">
+          </div>
+          <div class="field">
+            <label for="schedQuestions">定时跑哪些问题（每行一条）</label>
+            <textarea id="schedQuestions" rows="2" placeholder="留空 = 跑第一条预置问题"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <details class="card adv">
+        <summary>高级设置 <span class="sec-hint">服务器 / 密钥，已预置一般不用动</span></summary>
+        <div class="adv-body">
+          <div class="field">
+            <label for="serverUrl">服务器地址</label>
+            <input id="serverUrl" type="text" placeholder="http://124.71.75.5">
+          </div>
+          <div class="field">
+            <label for="token">上报密钥 token <span class="link" id="tokToggle">显示</span></label>
+            <input id="token" type="password" placeholder="分发包已预置">
+          </div>
+        </div>
+      </details>
+
+    </section>
+  </main>
+
+  <!-- ===== 底部 Tab ===== -->
+  <nav class="tabbar">
+    <button class="tab active" data-panel="panel-ask">
+      <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3C6.5 3 2 6.9 2 11.7c0 2.7 1.4 5.1 3.6 6.7-.14 1.2-.62 2.3-1.43 3.2-.2.23 0 .6.3.55 1.9-.3 3.5-1.06 4.7-1.9 1 .25 1.9.38 2.9.38 5.5 0 10-3.9 10-8.7S17.5 3 12 3z"/></svg>
+      <span>问答</span>
+    </button>
+    <button class="tab" data-panel="panel-history">
+      <svg viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 0 0-9 9H1.8c-.45 0-.67.54-.35.85l3.3 3.3c.2.2.5.2.7 0l3.3-3.3c.32-.31.1-.85-.35-.85H6a7 7 0 1 1 7 7 6.96 6.96 0 0 1-4.9-2 .5.5 0 0 0-.7 0l-.72.7c-.2.2-.2.53 0 .72A9 9 0 1 0 13 3zm-.5 5v4.2c0 .27.1.52.3.7l2.9 2.9c.3.3.77.3 1.06 0 .3-.3.3-.77 0-1.06L14 12V8c0-.41-.34-.75-.75-.75S12.5 7.59 12.5 8z"/></svg>
+      <span>历史</span>
+    </button>
+    <button class="tab" data-panel="panel-settings">
+      <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19.4 13c.04-.33.07-.66.07-1s-.03-.67-.07-1l2.1-1.65a.5.5 0 0 0 .12-.64l-2-3.46a.5.5 0 0 0-.6-.22l-2.5 1a7.3 7.3 0 0 0-1.7-1l-.4-2.65A.5.5 0 0 0 13.9 2h-4a.5.5 0 0 0-.5.42l-.4 2.65c-.6.26-1.17.6-1.69 1l-2.49-1a.5.5 0 0 0-.6.22l-2 3.46a.5.5 0 0 0 .12.64L4.4 11c-.04.33-.07.66-.07 1s.03.67.07 1l-2.1 1.65a.5.5 0 0 0-.12.64l2 3.46c.14.24.42.33.6.22l2.5-1c.52.4 1.08.74 1.69 1l.4 2.65c.04.24.25.42.5.42h4c.25 0 .46-.18.5-.42l.4-2.65c.6-.26 1.17-.6 1.69-1l2.49 1c.23.09.5 0 .6-.22l2-3.46a.5.5 0 0 0-.12-.64L19.4 13zm-7.5 2.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"/></svg>
+      <span>设置</span>
+    </button>
+  </nav>
+
+  <div id="toast" class="toast"></div>
+</div>
+<script src="popup.js"></script>
 </body>
 </html>
