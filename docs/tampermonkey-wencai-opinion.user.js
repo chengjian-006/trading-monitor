@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         问财观点上报 (chat智能调度)
 // @namespace    guxiaocha-wencai-opinion
-// @version      1.0
-// @description  在 www.iwencai.com 登录态下, 用口语问一句(走 chat 智能调度 aime stream-query SSE), 把整段投顾话术上报股小察落「问财观点」。菜单手动触发。
+// @version      1.1
+// @description  在 www.iwencai.com 登录态下, 用口语问一句(走 chat 智能调度 aime stream-query SSE), 把整段投顾话术上报股小察落「问财观点」。菜单手动触发, 右上角实时状态条显示进展。
 // @match        https://www.iwencai.com/*
 // @match        http://www.iwencai.com/*
 // @grant        GM_registerMenuCommand
@@ -22,19 +22,43 @@
   const DEFAULT_Q = '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上';
   // ======================================
 
+  // ---- 右上角实时状态条(单个 div + 强内联样式, 不与页面 CSS 纠缠) ----
+  function statusEl() {
+    let el = document.getElementById('gxc-op-status');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'gxc-op-status';
+      el.style.cssText = [
+        'position:fixed', 'top:16px', 'right:16px', 'z-index:2147483647',
+        'max-width:380px', 'min-width:220px', 'background:#1f2937', 'color:#fff',
+        'padding:12px 16px', 'border-radius:10px', 'font-size:13px', 'line-height:1.7',
+        'box-shadow:0 8px 28px rgba(0,0,0,.4)', 'white-space:pre-line', 'cursor:pointer',
+        'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif',
+      ].join(';');
+      el.title = '点击关闭';
+      el.addEventListener('click', () => el.remove());
+      (document.documentElement || document.body).appendChild(el);
+    }
+    return el;
+  }
+  function setStatus(text, bg) {
+    const el = statusEl();
+    el.textContent = text;
+    el.style.background = bg || '#1f2937';
+    console.log('%c[问财观点] ' + text.replace(/\n/g, ' '), 'color:#2563eb');
+  }
+
   function getCookie(name) {
     const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
     return m ? m.pop() : '';
   }
 
-  // 32 位十六进制 session_id(不依赖 crypto, 兼容性优先)
   function genSessionId() {
     let s = '';
     for (let i = 0; i < 32; i++) s += Math.floor(Math.random() * 16).toString(16);
     return s;
   }
 
-  // 跨域 POST 到股小察服务器(GM_xmlhttpRequest 绕同源/CSP)
   function gmPost(path, payload) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
@@ -54,12 +78,12 @@
     });
   }
 
-  // 读一条 aime SSE 流: 累积 openAnswer 话术 + 抓 base_info(trace_id / agent_mode)。
-  async function readAimeSSE(resp) {
+  // 读 aime SSE 流: 累积 openAnswer 话术 + 抓 base_info; onProgress(phase, chars) 回报进展。
+  async function readAimeSSE(resp, onProgress) {
     if (!resp.ok) throw new Error('问财 HTTP ' + resp.status);
     const reader = resp.body.getReader();
     const dec = new TextDecoder('utf-8');
-    let buf = '', answer = '', traceId = '', agentMode = '';
+    let buf = '', answer = '', traceId = '', agentMode = '', phase = 'connecting';
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -73,11 +97,13 @@
         try { f = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         const bi = f.base_info;
         if (bi) { traceId = bi.trace_id || traceId; agentMode = bi.agent_mode || agentMode; }
-        // 最终答案话术: answer_path=other/openAnswer, 逐 token 的 rich_text/text_answer 增量
+        if (f.answer_path === 'progress/searching_for' && phase !== 'answering') phase = 'thinking';
         if (f.answer_path === 'other/openAnswer' && f.section) {
+          phase = 'answering';
           const t = f.section.rich_text != null ? f.section.rich_text : (f.section.text_answer || '');
           answer += t;
         }
+        if (onProgress) onProgress(phase, answer.length);
       }
     }
     return { answer: answer, traceId: traceId, agentMode: agentMode };
@@ -88,22 +114,30 @@
     'X-Source': 'Ths_iwencai_Xuangu', 'hexin-v': getCookie('v'),
   });
 
+  function onProgress(phase, n) {
+    if (phase === 'thinking') setStatus('②/④ 问财思考中…\n(智能调度深度推理, 约 10~20 秒)');
+    else if (phase === 'answering') setStatus('③/④ 正在接收答案… ' + n + ' 字');
+  }
+
   async function runAsk(question) {
-    if (!getCookie('v')) { alert('⚠️ 没取到 v cookie, 请确认已登录 iwencai'); return; }
-    if (INGEST_TOKEN === 'PUT_YOUR_TOKEN_HERE') { alert('请先在脚本里填 INGEST_TOKEN'); return; }
+    setStatus('准备中…\n' + question);
+    if (!getCookie('v')) { setStatus('✗ 没取到 v cookie\n请确认已登录 iwencai', '#b91c1c'); return; }
+    if (INGEST_TOKEN === 'PUT_YOUR_TOKEN_HERE') { setStatus('✗ 请先在脚本里填 INGEST_TOKEN', '#b91c1c'); return; }
     const userId = getCookie('userid') || '';
     const sessionId = genSessionId();
 
     // 1. 建会话
+    setStatus('①/④ 建会话中…');
     try {
       await fetch('/gateway/aime/robotdata/user_session/add', {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: question, session_id: sessionId }),
       });
-    } catch (e) { /* 建会话失败不致命, 继续 */ }
+    } catch (e) { /* 建会话失败不致命 */ }
 
     // 2. 提交问题(stream-query, SSE)
+    setStatus('②/④ 提交问题中…');
     const events = [{ event_name: 'auto_agent', event_type: 'user_input' }];
     if (DEEP_RESEARCH) events.push({ event_name: 'ab_test', event_type: 'front_trigger', content: { deep_research: 1 } });
     const body = {
@@ -118,31 +152,34 @@
       const resp = await fetch('/gateway/aime/stream-query', {
         method: 'POST', credentials: 'include', headers: V_HEADERS(), body: JSON.stringify(body),
       });
-      res = await readAimeSSE(resp);
-    } catch (e) { alert('问财 stream-query 失败: ' + e.message); return; }
+      res = await readAimeSSE(resp, onProgress);
+    } catch (e) { setStatus('✗ 问财 stream-query 失败:\n' + e.message, '#b91c1c'); return; }
 
-    // 3. 话术太短(答案可能走 async 生成) → 用 trace_id 拉 stream-query2 补全
+    // 3. 话术太短 → 用 trace_id 拉 stream-query2 补全
     if (res.answer.length < 50 && res.traceId) {
+      setStatus('③/④ 答案较短, 补拉完整流…');
       try {
         const resp2 = await fetch('/gateway/aime/stream-query2/?historyTraceId=' + encodeURIComponent(res.traceId), {
           method: 'GET', credentials: 'include', headers: V_HEADERS(),
         });
-        const res2 = await readAimeSSE(resp2);
+        const res2 = await readAimeSSE(resp2, onProgress);
         if (res2.answer.length > res.answer.length) { res.answer = res2.answer; res.traceId = res2.traceId || res.traceId; res.agentMode = res.agentMode || res2.agentMode; }
       } catch (e) { /* 补全失败就用已有的 */ }
     }
 
-    if (!res.answer.trim()) { alert('没抓到答案话术(可能被风控或问题被判为非推荐意图)。'); return; }
+    if (!res.answer.trim()) { setStatus('✗ 没抓到答案话术\n(可能被风控或问题被判为非推荐意图)', '#b91c1c'); return; }
 
     // 4. 上报股小察
+    setStatus('④/④ 上报股小察中… (话术 ' + res.answer.length + ' 字)');
     try {
       const r = await gmPost('/api/wencai/opinion', {
         token: INGEST_TOKEN, question: question, answer_text: res.answer,
         trace_id: res.traceId, agent_mode: res.agentMode || (DEEP_RESEARCH ? 'deep_research' : 'normal'),
       });
-      const stks = (r.stocks || []).join('、') || '(未识别出个股)';
-      alert('✓ 已上报问财观点!\n话术 ' + res.answer.length + ' 字\n识别个股: ' + stks + '\n\n去股小察「问财观点」页查看。');
-    } catch (e) { alert('上报失败: ' + e.message); }
+      const stks = (r.stocks || []).join('、') || '(未识别出具体个股)';
+      setStatus('✓ 已上报问财观点!\n话术 ' + res.answer.length + ' 字 · 识别个股: ' + stks
+        + '\n\n去股小察「问财观点」页查看\n(点此关闭)', '#15803d');
+    } catch (e) { setStatus('✗ 上报失败:\n' + e.message, '#b91c1c'); }
   }
 
   GM_registerMenuCommand('① 问一句 → 上报观点', () => {
