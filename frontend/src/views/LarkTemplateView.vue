@@ -42,6 +42,14 @@ onMounted(async () => {
 const cardWidth = computed(() => viewMode.value === 'mobile' ? '360px' : '100%')
 const cardFontSize = computed(() => viewMode.value === 'mobile' ? '13px' : '14px')
 
+// 基线 v1.1 信封三件: 锁屏摘要 / header 副标题 / header 彩色标签(≤3)
+const cardSummary = computed(() => selected.value?.card?.config?.summary?.content || '')
+const headerSubtitle = computed(() => selected.value?.card?.header?.subtitle?.content || '')
+const headerTags = computed(() => {
+  const list = selected.value?.card?.header?.text_tag_list
+  return Array.isArray(list) ? list.slice(0, 3) : []
+})
+
 // 折叠面板(collapsible_panel)展开状态: 按 模版id:元素序号 记, 切模版不串状态
 const panelOpen = ref<Record<string, boolean>>({})
 function isPanelOpen(ei: number, def?: boolean): boolean {
@@ -96,20 +104,52 @@ function togglePanel(ei: number, def?: boolean) {
           <div class="phone-notch"></div>
         </div>
 
+        <!-- 锁屏摘要预览(基线v1.1 config.summary): 模拟通知横幅, 让用户看到锁屏/会话列表效果 -->
+        <div v-if="cardSummary" class="notify-banner" :class="viewMode">
+          <span class="notify-bell" aria-hidden="true">🔔</span>
+          <span class="notify-text">{{ cardSummary }}</span>
+        </div>
+
         <!-- Lark Card -->
         <div class="lark-card" :class="viewMode" :style="{ fontSize: cardFontSize }">
           <!-- Header -->
           <div class="card-header" :class="selected.card.header?.template || 'blue'">
             <div class="header-bar"></div>
-            <span class="header-title">{{ selected.card.header?.title?.content || '' }}</span>
+            <div class="header-main">
+              <div class="header-title-row">
+                <span class="header-title">{{ selected.card.header?.title?.content || '' }}</span>
+                <!-- 彩色标签(基线v1.1 text_tag_list ≤3) -->
+                <span v-for="(tg, ti) in headerTags" :key="ti"
+                      class="hdr-tag" :class="tagColorClass(tg.color)">
+                  {{ tg.text?.content || '' }}
+                </span>
+              </div>
+              <!-- 副标题(基线v1.1 header.subtitle): 小一号灰字, 单行超长省略 -->
+              <div v-if="headerSubtitle" class="header-subtitle">{{ headerSubtitle }}</div>
+            </div>
           </div>
 
           <!-- V2 body -->
           <div class="card-body" v-if="selected.card.body?.elements">
             <template v-for="(el, ei) in selected.card.body.elements" :key="ei">
               <div v-if="el.tag === 'markdown'" class="el-markdown"
+                   :class="{ 'el-heading': el.text_size === 'heading' }"
                    :style="{ textAlign: el.text_align || 'left' }"
                    v-html="renderMd(el.content)" />
+              <!-- KPI 三栏(基线v1.1 column_set): 数字层 heading 大字 + 标签层小灰字, 手机端保持3栏字号略缩 -->
+              <div v-else-if="el.tag === 'column_set'" class="el-columns">
+                <div v-for="(col, ci) in (el.columns || [])" :key="ci" class="el-column">
+                  <div v-for="(ce, cei) in (col.elements || [])" :key="cei"
+                       class="el-markdown col-md"
+                       :class="{ 'el-heading': ce.text_size === 'heading' }"
+                       :style="{ textAlign: ce.text_align || 'center' }"
+                       v-html="renderMd(ce.content)" />
+                </div>
+              </div>
+              <!-- chart 占位框(基线v1.1): 按 aspect_ratio 的浅色框, 内部用真实数据画示意折线/柱 -->
+              <div v-else-if="el.tag === 'chart'" class="el-chart"
+                   :style="{ aspectRatio: chartBox(el).ratio }"
+                   v-html="chartBox(el).svg" />
               <div v-else-if="el.tag === 'table'" class="el-table-wrap">
                 <table class="el-table">
                   <thead>
@@ -184,6 +224,69 @@ function renderMd(content: string): string {
     .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
     .replace(/\n/g, '<br>')
 }
+
+// 飞书 text_tag 枚举色 → chip 样式类(未知色回退 grey)
+const TAG_COLORS = new Set([
+  'red', 'carmine', 'orange', 'yellow', 'green', 'turquoise',
+  'blue', 'wathet', 'indigo', 'purple', 'violet', 'lime', 'grey', 'neutral',
+])
+function tagColorClass(color?: string): string {
+  const c = (color || '').toLowerCase()
+  if (c === 'neutral') return 'grey'
+  return TAG_COLORS.has(c) ? c : 'grey'
+}
+
+// chart 元素(基线v1.1)占位渲染: 不接真实图表库, 按 chart_spec.data[0].values 画示意
+// 折线(polyline+点)或柱(rect), 颜色取 chart_spec.color[0], 宽高比取 aspect_ratio(2:1/1:1/4:3/16:9)
+function chartBox(el: any): { ratio: string; svg: string } {
+  const spec = el?.chart_spec || {}
+  const raw = (spec.data && spec.data[0] && spec.data[0].values) || []
+  const vals: number[] = (Array.isArray(raw) ? raw : []).map((v: any) => Number(v?.y) || 0)
+  let color: string = (Array.isArray(spec.color) && spec.color[0]) || '#4b8ef0'
+  if (!/^#[0-9a-fA-F]{3,8}$|^[a-zA-Z]+$/.test(color)) color = '#4b8ef0'
+  const isBar = spec.type === 'bar'
+  const m = /^(\d+):(\d+)$/.exec(String(el?.aspect_ratio || '2:1'))
+  const rw = m ? Number(m[1]) : 2
+  const rh = m ? Number(m[2]) : 1
+  const W = 200
+  const H = Math.round((W * rh) / rw)
+  const padX = 10, padTop = 8, padBot = 10
+  const iw = W - padX * 2, ih = H - padTop - padBot
+  let inner = ''
+  if (vals.length) {
+    let min = Math.min(...vals)
+    let max = Math.max(...vals)
+    if (isBar) min = Math.min(0, min)          // 柱状从 0 基线起
+    if (max === min) max = min + 1             // 全等值防除零
+    const yPix = (y: number) => padTop + ih - ((y - min) / (max - min)) * ih
+    if (isBar) {
+      const gap = iw / vals.length
+      const bw = gap * 0.55
+      const base = yPix(Math.max(0, min))
+      inner = vals.map((y, i) => {
+        const x = padX + gap * i + (gap - bw) / 2
+        const yv = yPix(y)
+        const top = Math.min(base, yv)
+        const h = Math.max(1, Math.abs(base - yv))
+        return `<rect x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="1" fill="${color}" opacity="0.85"/>`
+      }).join('')
+    } else {
+      const step = vals.length > 1 ? iw / (vals.length - 1) : 0
+      const pts = vals.map((y, i) => [padX + step * i, yPix(y)] as const)
+      inner = `<polyline points="${pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}"`
+        + ` fill="none" stroke="${color}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>`
+      if (spec.point && spec.point.visible) {
+        inner += pts.map(p => `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="1.8" fill="${color}"/>`).join('')
+      }
+    }
+  } else {
+    // 无数据: 画一条中位虚线占位
+    const y = (padTop + ih / 2).toFixed(1)
+    inner = `<line x1="${padX}" y1="${y}" x2="${W - padX}" y2="${y}" stroke="${color}" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.5"/>`
+  }
+  const svg = `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="图表示意">${inner}</svg>`
+  return { ratio: `${rw} / ${rh}`, svg }
+}
 </script>
 
 <style scoped>
@@ -236,19 +339,69 @@ function renderMd(content: string): string {
 .lark-card.pc { border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
 .lark-card.mobile { border-radius: 0; box-shadow: none; }
 
+/* 锁屏摘要通知横幅(config.summary 预览) */
+.notify-banner {
+  display: flex; align-items: center; gap: 6px;
+  background: #eceef1; border: 1px solid #e2e4e8; border-radius: 8px;
+  padding: 6px 10px; margin-bottom: 8px;
+  font-size: 12px; color: #666;
+}
+.notify-banner.mobile { border-radius: 0; border-left: none; border-right: none; margin-bottom: 0; background: #e9ebee; }
+.notify-bell { flex-shrink: 0; font-size: 12px; }
+.notify-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* Header */
-.card-header { display: flex; align-items: center; height: 44px; }
-.header-bar { width: 4px; height: 100%; flex-shrink: 0; border-radius: 0; }
+.card-header { display: flex; align-items: stretch; min-height: 44px; }
+.header-bar { width: 4px; flex-shrink: 0; border-radius: 0; }
 .card-header.red .header-bar    { background: #e65c5c; }
 .card-header.green .header-bar  { background: #45b078; }
 .card-header.blue .header-bar   { background: #4b8ef0; }
 .card-header.orange .header-bar { background: #f0a040; }
 .card-header.yellow .header-bar { background: #e6b840; }
-.header-title {
-  padding: 0 16px; font-size: 15px; font-weight: 600; color: #1f1f1f;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+.card-header.grey .header-bar   { background: #8f959e; }
+.card-header.purple .header-bar { background: #935af6; }
+.card-header.carmine .header-bar { background: #d94a8c; }
+.card-header.wathet .header-bar { background: #3da8f5; }
+.card-header.turquoise .header-bar { background: #14b0b0; }
+.header-main {
+  flex: 1; min-width: 0; display: flex; flex-direction: column;
+  justify-content: center; gap: 1px; padding: 6px 16px;
 }
-.lark-card.mobile .header-title { font-size: 14px; padding: 0 12px; }
+.lark-card.mobile .header-main { padding: 6px 12px; }
+.header-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.header-title {
+  font-size: 15px; font-weight: 600; color: #1f1f1f;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.lark-card.mobile .header-title { font-size: 14px; }
+
+/* header 副标题(subtitle): 小一号灰字, 单行省略 */
+.header-subtitle {
+  font-size: 11px; color: #8f959e; font-weight: 400;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.lark-card.mobile .header-subtitle { font-size: 10px; }
+
+/* header 彩色标签(text_tag_list): 小圆角 chip, 飞书枚举色 */
+.hdr-tag {
+  flex-shrink: 0; font-size: 10px; line-height: 1; font-weight: 500;
+  padding: 3px 6px; border-radius: 4px;
+  background: #f2f3f5; color: #646a73; white-space: nowrap;
+}
+.lark-card.mobile .hdr-tag { font-size: 9px; padding: 2px 5px; }
+.hdr-tag.red       { background: #feeceb; color: #d83931; }
+.hdr-tag.carmine   { background: #fde5ef; color: #b82879; }
+.hdr-tag.orange    { background: #fff0e1; color: #de7802; }
+.hdr-tag.yellow    { background: #fcf3ce; color: #997a00; }
+.hdr-tag.green     { background: #e4f7e7; color: #2ea121; }
+.hdr-tag.turquoise { background: #ddf6f0; color: #078372; }
+.hdr-tag.blue      { background: #e1eaff; color: #245bdb; }
+.hdr-tag.wathet    { background: #e0f3fb; color: #1177b0; }
+.hdr-tag.indigo    { background: #e7e9fd; color: #4752e6; }
+.hdr-tag.purple    { background: #f0e5fc; color: #7a35f0; }
+.hdr-tag.violet    { background: #f9e2fb; color: #a922b5; }
+.hdr-tag.lime      { background: #eff8c8; color: #667900; }
+.hdr-tag.grey      { background: #f2f3f5; color: #646a73; }
 
 /* Body */
 .card-body { padding: 12px 16px; }
@@ -259,6 +412,31 @@ function renderMd(content: string): string {
 .el-markdown :deep(strong) { color: #1f1f1f; font-weight: 600; }
 .el-markdown :deep(a) { color: #2b6de8; text-decoration: none; }
 .el-markdown :deep(font) { font-size: 12px; }
+
+/* markdown text_size=heading: 大号加粗行(单行核心结论/KPI数字层) */
+.el-markdown.el-heading { font-size: 20px; font-weight: 600; line-height: 1.35; color: #1f1f1f; }
+.lark-card.mobile .el-markdown.el-heading { font-size: 17px; }
+.el-markdown.el-heading :deep(font) { font-size: inherit; }
+.el-markdown.el-heading :deep(strong) { font-weight: 600; }
+
+/* KPI 三栏(column_set): 并排居中, 数字层 heading + 标签层小灰字; 手机端保持3栏字号略缩 */
+.el-columns { display: flex; gap: 8px; margin: 10px 0; }
+.el-column { flex: 1; min-width: 0; overflow: hidden; }
+.el-column .el-markdown { margin-bottom: 2px; }
+.el-column .el-markdown:last-child { margin-bottom: 0; }
+.el-column .el-markdown:not(.el-heading) { font-size: 11px; color: #8f959e; }
+.el-column .el-markdown :deep(font) { font-size: inherit; }
+.lark-card.mobile .el-columns { gap: 4px; }
+.lark-card.mobile .el-column .el-markdown.el-heading { font-size: 15px; }
+.lark-card.mobile .el-column .el-markdown:not(.el-heading) { font-size: 10px; }
+
+/* chart 占位框: 浅底+边框, 内部 SVG 按真实数据画示意折线/柱 */
+.el-chart {
+  width: 100%; margin: 10px 0;
+  background: #fafbfc; border: 1px solid #ebedf0; border-radius: 6px;
+  overflow: hidden;
+}
+.el-chart :deep(svg) { display: block; width: 100%; height: 100%; }
 
 /* Table */
 /* 折叠面板预览: 头部常显(第一句)+点击展开正文, 与飞书 collapsible_panel 一致 */

@@ -1,139 +1,121 @@
 # -*- coding: utf-8 -*-
-"""飞书推送模版预览 API — 返回各推送场景的示例卡片 JSON + 元数据.
+"""飞书推送模版预览 API — 直接调用真实构卡函数生成预览 JSON, 与真实推送 1:1.
 
-前端用 LarkCardPreview 组件渲染, 模拟飞书真实效果.
+改造(基线 v1.1 落地): 原手工镜像卡片 JSON(与 service 双份维护、必然漂移) → 逐张 import
+对应 service 的真实构卡纯函数, 用逼真样例数据调用, 经 lark_notifier._build_card_v2
+(真实推送同一信封: summary/subtitle/text_tags/家族色)组装完整卡片 JSON 注册。
+构卡逻辑改版时预览页自动跟进, 不再手工同步。
+
+仍为手工镜像的卡(各处注释标明"手工镜像"):
+  - market_risk_controller 状态卡 4 张: 该文件正在被同事修复(import SyntaxError),
+    修复后应改直调 _push_state_card / emit_risk_dimension 版式
+  - 竞价分析·板块强弱: 构卡内联在 async 网络编排函数里, 用其真实纯件
+    (_board_row/_relay_advice) + card_kit 按 service 版式逐行对齐拼装
+  - 资金回流·板块预警 / 错过消息回顾 / 恐慌底机会提示: 构卡内联在编排里, 手工对齐
+
+前端 LarkCardPreview 渲染; 路由契约(GET 列表/详情)与分类不变。
 """
 
+import asyncio
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
 from backend.routers.signals import get_current_user
+from backend.services import card_kit
+from backend.services.lark_notifier import (
+    DIRECTION_TEMPLATE,
+    _build_card_v2,
+    md_element as _md,
+)
 
 router = APIRouter(prefix="/api/admin/lark-templates", tags=["lark-templates"])
 
 
-def _card_v2(title: str, template: str, elements: list[dict],
-              link_url: str = "", link_text: str = "") -> dict:
-    """构建飞书 2.0 卡片 (schema: '2.0'). 时间已在标题栏右侧, body不再重复."""
-    body_elements = list(elements)
-    if link_url:
-        body_elements.append({
-            "tag": "markdown",
-            "content": f"[{link_text or link_url}]({link_url})",
-        })
-    return {
-        "schema": "2.0",
-        "config": {"wide_screen_mode": True, "width_mode": "fill"},
-        "header": {
-            "title": {"tag": "plain_text", "content": title},
-            "template": template,
-        },
-        "body": {"elements": body_elements},
-    }
+# ══════════════════════════════════════════════════════════════
+# 小助手: 真实信封(与 notifier.send_card → post_lark_card_v2 同路径)
+# ══════════════════════════════════════════════════════════════
+
+def _v2(title: str, elements: list, template: str, *, summary: str = "",
+        subtitle: str = "", tags: list | None = None,
+        link_url: str = "", link_text: str = "") -> dict:
+    """完整飞书 2.0 卡 JSON — 走真实 lark_notifier._build_card_v2(标题栏自动拼时间)。"""
+    return _build_card_v2(title, list(elements), template,
+                          link_url=link_url, link_text=link_text or "查看详情",
+                          summary=summary, subtitle=subtitle,
+                          text_tags=list(tags or []))
+
+
+def _card_json(card, extra_elements: list | None = None) -> dict:
+    """card_kit.Card → 完整卡 JSON(信封字段 1:1 取自 Card, 同 notifier.send_card)。"""
+    els = list(card.elements) + list(extra_elements or [])
+    return _v2(card.title, els, card.template, summary=card.summary,
+               subtitle=card.subtitle, tags=card.tags,
+               link_url=card.link_url, link_text=card.link_text)
 
 
 def _card_v1(title: str, template: str, md_body: str,
-              link_url: str = "", link_text: str = "") -> dict:
-    """构建飞书 1.0 卡片. 时间已在标题栏右侧, body不再重复."""
-    elements = [
-        {"tag": "div", "text": {"tag": "lark_md", "content": md_body}},
-    ]
+             link_url: str = "", link_text: str = "") -> dict:
+    """飞书 1.0 卡(个别旧通道卡仍用)。"""
+    elements = [{"tag": "div", "text": {"tag": "lark_md", "content": md_body}}]
     if link_url:
         elements.append({
             "tag": "action",
-            "actions": [{
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": link_text or "查看详情"},
-                "type": "primary",
-                "url": link_url,
-            }],
+            "actions": [{"tag": "button",
+                         "text": {"tag": "plain_text", "content": link_text or "查看详情"},
+                         "type": "primary", "url": link_url}],
         })
     return {
         "config": {"wide_screen_mode": True, "width_mode": "fill"},
-        "header": {
-            "title": {"tag": "plain_text", "content": title},
-            "template": template,
-        },
+        "header": {"title": {"tag": "plain_text", "content": title}, "template": template},
         "elements": elements,
     }
 
 
-def _time_element() -> dict:
-    from datetime import datetime
-    now = datetime.now()
-    return {
-        "tag": "markdown",
-        "content": f"<font color='grey'>{now.month}-{now.day} {now.hour:02d}:{now.minute:02d}</font>",
-        "text_align": "right",
-    }
+# 快捷设置动作行 demo(真实推送由 push_pref.build_quick_actions_md 生成带 HMAC 签名链接,
+# 预览用 # 链接做视觉展示, 版式 1:1)
+_QA_BUY = "[🔕 今日免打扰](#)　·　[🔕 静音此股](#)"
+_QA_SELL = _QA_BUY + "　·　[✅ 已卖出](#)"
+_QA_SURGE = "[🔕 当日不提醒](#)　·　[🔕 本周不提醒](#)"
 
 
-def _md(content: str) -> dict:
-    return {"tag": "markdown", "content": content}
+def _signal_card(*, code: str, name: str, signal_name: str, direction: str,
+                 price: float, pct_change: float, detail: str, strategy: str = "",
+                 model_stats: dict | None = None, basics: dict | None = None,
+                 sector: dict | None = None, background: dict | None = None) -> dict:
+    """个股买卖点卡 — 直调 notifier._build_signal_elements(真实构卡), 信封/标题/彩签
+    与 notifier.send_wechat_signal 的飞书路径逐项对齐(标题公式/摘要/模型彩签/动作行)。"""
+    from backend.services import notifier
+    elements = notifier._build_signal_elements(
+        code, name, signal_name, direction, price, detail, strategy,
+        pct_change, model_stats, basics, sector, background)
+    qa = _QA_SELL if direction in ("sell", "reduce") else _QA_BUY
+    elements = list(elements) + [_md(qa)]
+    title = (f"{notifier.DIRECTION_EMOJI.get(direction, '')} "
+             f"{notifier.DIRECTION_SHORT.get(direction, '')} · {name}({code})")
+    summary = card_kit.summary_text(
+        name, code, signal_name, f"¥{price:.2f}" if price else "",
+        f"{pct_change:+.1f}%" if pct_change else "")
+    tag_color = {"buy": "red", "sell": "green"}.get(direction, "orange")
+    tags: list = [(signal_name, tag_color)] if signal_name else []
+    if direction == "buy" and model_stats and model_stats.get("rank_3m"):
+        tags.append((f"第{model_stats['rank_3m']}名", "orange"))
+    return _v2(title, elements, DIRECTION_TEMPLATE.get(direction, "blue"),
+               summary=summary, tags=tags, link_url="#", link_text="查看分时图")
 
 
-def _collapsible(summary: str, detail: str, expanded: bool = False) -> dict:
-    """折叠面板预览(与 lark_notifier.collapsible_element 一致): header 常显, 点开看 detail。"""
-    return {
-        "tag": "collapsible_panel",
-        "expanded": expanded,
-        "header": {
-            "title": {"tag": "markdown", "content": summary},
-            "vertical_align": "center",
-            "icon": {"tag": "standard_icon", "token": "down-small-ccm_outlined",
-                     "color": "grey", "size": "12px 12px"},
-            "icon_position": "right",
-            "icon_expanded_angle": -180,
-        },
-        "elements": [{"tag": "markdown", "content": detail}],
-    }
+def _ms(model_name: str, wr3, net3, n3, wr6, net6, n6,
+        rank: int | None = None, rank_n: int = 9) -> dict:
+    """模型战绩样例(与 buy_model_stats 行结构一致)。"""
+    ms = {"model_name": model_name, "win_rate_3m": wr3, "net_3m": net3, "n_3m": n3,
+          "win_rate_6m": wr6, "net_6m": net6, "n_6m": n6}
+    if rank:
+        ms.update(rank_3m=rank, rank_n=rank_n)
+    return ms
 
 
-def _table(columns: list[dict], rows: list[dict], page_size: int = 10) -> dict:
-    return {
-        "tag": "table",
-        "page_size": page_size,
-        "row_height": "low",
-        "header_style": {"text_align": "center", "text_size": "normal"},
-        "columns": columns,
-        "rows": rows,
-    }
-
-
-def _mdtable(columns: list[dict], rows: list[dict]) -> str:
-    """把 (columns, rows) 渲染成 markdown 竖线表格字符串 — 与 lark_notifier.md_table_str 1:1。
-
-    真实推送已把原生 table 全改成 markdown 表格(修手机端截断)。预览用同一份渲染, 保持一致。
-    options 彩色标签取 text; 单元格内 | → ／、换行 → 空格。
-    """
-    def _cell(v) -> str:
-        if isinstance(v, list):
-            return " ".join(str(x.get("text", "")) for x in v if isinstance(x, dict))
-        return str(v if v is not None else "").replace("|", "／").replace("\n", " ")
-    heads = [c.get("display_name", "") or "　" for c in columns]
-    keys = [c.get("name", "") for c in columns]
-    lines = ["| " + " | ".join(heads) + " |",
-             "| " + " | ".join(["---"] * len(columns)) + " |"]
-    for r in rows:
-        lines.append("| " + " | ".join(_cell(r.get(k)) for k in keys) + " |")
-    return "\n".join(lines)
-
-
-# 买入信号模型战绩表列(与 notifier._build_signal_elements 一致: 周期/胜率/单笔)
-_WR_COLS = [
-    {"name": "period", "display_name": "周期"},
-    {"name": "wr", "display_name": "胜率"},
-    {"name": "net", "display_name": "单笔"},
-]
-
-
-def _wr_rows(wr3: str, net3: str, wr6: str, net6: str) -> list[dict]:
-    return [{"period": "近3月", "wr": wr3, "net": net3},
-            {"period": "近6月", "wr": wr6, "net": net6}]
-
-
-# ── 模版定义 ──
+# ── 模版注册 ──
 
 TEMPLATES = []
 
@@ -150,280 +132,767 @@ def register(category: str, name: str, desc: str, card_json: dict, timing: str =
 
 
 # ═══════════════════════════════════════════
-# 1. 买入信号 (v2 卡片 + 表格)
+# 一、买入信号(直调 notifier._build_signal_elements, KPI三栏/触发模型行/胜率条)
 # ═══════════════════════════════════════════
-register("买入信号", "回踩10MA缩量后突破昨高", "检测到回踩MA10缩量后放量突破昨高, 触发买入",
-         _card_v2("🟢 买入信号 · 多氟多", "red", [
-             _md("**多氟多**　`002407`\n现价 **33.18** ▲**+2.09%**"),
-             # v1.7.x 背景标签: 黑天鹅(风险公告/财务红旗) + 业绩预增, 紧跟头部风险优先看
-             _md("⚠️ **黑天鹅·风险公告**：大股东减持（06-23）\n📈 **业绩预增**：预增 **+50%~80%**"),
-             _md("💰 成交额 **3.5亿**　🎯 近3月胜率**61%**·第**2**名"),   # 关键数字前置
-             _md("📊 所属行业：化学制品 ｜ 关联热点：PCB·覆铜板\n升温🔥 · 今日涨停 **6** 家 · 近3日 4→5→6 走强"),
-             _collapsible("📌 **我的策略**　回踩10日线缩量企稳是经典买点…",
-                          "回踩10日线缩量企稳是经典买点 · 突破昨高确认 · 大涨减仓降成本反复跟踪 · 跌破MA10离场"),
-             _md("🎯 个股实情：缩量回踩MA10(昨量是均量的**0.62倍**) · 突破昨高**2.5%**(触发价31.73)"),
-             # 模型战绩 = markdown 表(周期/胜率/单笔), 与真实 notifier._build_signal_elements 一致
-             _md("**📊 模型战绩**（回踩MA10缩量突破）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("61%", "+3.2%", "58%", "+2.9%"))),
-             _md("近3月胜率　全模型第 **2/9** 名"),
-             _md("⚠️ **市场风险·空仓预警(RED)**: 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓"),
-         ]), "盘中实时 · 满足条件立即推送")
+
+register("买入信号", "回踩10MA缩量后突破昨高",
+         "检测到回踩MA10缩量后放量突破昨高, 触发买入(本例带市场风险RED横幅+黑天鹅/预增背景标签)",
+         _signal_card(
+             code="002407", name="多氟多", signal_name="回踩10MA缩量后突破昨高",
+             direction="buy", price=33.18, pct_change=2.09,
+             detail=("⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓\n"
+                     "缩量回踩MA10(昨量是均量的0.62倍) | 突破昨高2.5%(触发价31.73) "
+                     "| 成交额3.5亿 | 交易计划: 目标35.80 / 止损30.50"),
+             strategy=("回踩10日线缩量企稳是经典买点\n突破昨高确认\n"
+                       "大涨减仓降成本反复跟踪\n跌破MA10离场"),
+             model_stats=_ms("回踩10MA缩量后突破昨高", 61.0, 3.2, 18, 58.0, 2.9, 41, rank=2),
+             basics={"amount_rank": 37, "popularity_rank": 52},
+             sector={"industry": "化学制品", "label": "PCB·覆铜板", "status": "升温",
+                     "emoji": "🔥", "today": 6, "seq": [4, 5, 6], "trend": "走强"},
+             background={"forecast": {"predict_type": "预增", "amp_lower": 50, "amp_upper": 80},
+                         "fin_risk": None,
+                         "risk_anns": [{"tags": "大股东减持",
+                                        "title": "关于控股股东减持股份的预披露公告",
+                                        "ann_date": "2026-06-23"}]},
+         ), "盘中实时 · 满足条件立即推送")
+
+register("买入信号", "缩量后放量突破(无预警)",
+         "正常市场环境下的缩量突破买点, 带模型战绩排名",
+         _signal_card(
+             code="603019", name="中科曙光", signal_name="缩量后放量突破（右侧）",
+             direction="buy", price=49.47, pct_change=4.12,
+             detail=("昨缩量(近10日均量的0.55倍) | 今日放量(均量的2.1倍、昨量的3.4倍) "
+                     "| 突破昨高2.0%(触发价48.50) | 站上MA10 MA20 "
+                     "| 成交额12.3亿 | 交易计划: 目标53.00 / 止损46.00"),
+             strategy="缩量蓄势后放量突破跟进\n跌破MA10离场",
+             model_stats=_ms("缩量后放量突破（右侧）", 65.0, 3.8, 21, 62.0, 3.4, 44, rank=1),
+             basics={"amount_rank": 12, "popularity_rank": 18},
+             sector={"industry": "计算机设备", "label": "AI算力·液冷", "status": "高潮",
+                     "emoji": "🔥", "today": 9, "seq": [6, 8, 9], "trend": "走强"},
+         ), "盘中实时 · 满足条件立即推送")
+
+register("买入信号", "回踩20MA缩量后突破昨高",
+         "检测到回踩MA20缩量后放量突破昨高, 触发买入",
+         _signal_card(
+             code="002484", name="江海股份", signal_name="回踩20MA缩量后突破昨高",
+             direction="buy", price=21.86, pct_change=3.15,
+             detail=("缩量回踩MA20(昨量是均量的0.71倍) | 突破昨高2.6%(触发价21.30) "
+                     "| 成交额10.8亿 | 交易计划: 目标23.50 / 止损20.10"),
+             model_stats=_ms("回踩20MA缩量后突破昨高", 54.0, 2.7, 13, 51.0, 2.3, 32, rank=5),
+             sector={"industry": "被动元件", "label": "固态电池", "status": "启动",
+                     "emoji": "⚡", "today": 4, "seq": [1, 2, 4], "trend": "走强"},
+         ), "盘中实时 · 成交额破10亿即触发")
+
+register("买入信号", "弱势极限",
+         "缩量地量潜伏买点(左侧), 博回调结束反弹",
+         _signal_card(
+             code="600276", name="恒瑞医药", signal_name="弱势极限",
+             direction="buy", price=27.42, pct_change=-1.15,
+             detail=("贴MA20(距-1.2%) | 地量(今量是近10日最低的1.05倍、均量的0.62倍) "
+                     "| 成交额6.2亿 | 交易计划: 左侧持有T+15 / 止损-12%"),
+             strategy="左侧买点, 买在下跌中\n持有到T+15, 需扛得住继续下探",
+             model_stats=_ms("弱势极限", 14.0, -5.8, 7, 16.0, -4.2, 25),
+             sector={"industry": "化学制药", "label": "创新药", "status": "退潮",
+                     "emoji": "📉", "today": 2, "seq": [5, 3, 2], "trend": "走弱"},
+         ), "盘中实时 · 10:00起满足条件推送")
+
+register("买入信号", "强势起点",
+         "弱势极限缩量后放量启动确认(右侧), 触发买入",
+         _signal_card(
+             code="002600", name="领益智造", signal_name="强势起点",
+             direction="buy", price=9.87, pct_change=4.55,
+             detail=("昨日弱势极限地量 | 今放量(近期的2.4倍) | 涨幅+3.1%确认 "
+                     "| 站上MA10/20 | 成交额11.5亿 | 交易计划: 目标10.60 / 止损9.20"),
+             model_stats=_ms("强势起点", 67.0, 4.6, 9, 63.0, 4.1, 24, rank=1),
+             sector={"industry": "消费电子", "label": "机器人", "status": "升温",
+                     "emoji": "🔥", "today": 6, "seq": [3, 4, 6], "trend": "走强"},
+         ), "盘中实时 · 10:00起满足条件推送")
+
+register("买入信号", "中继平台突破",
+         "多日横盘后尾盘确认突破平台上沿, 触发买入",
+         _signal_card(
+             code="300476", name="胜宏科技", signal_name="中继平台突破",
+             direction="buy", price=112.30, pct_change=3.86,
+             detail=("前12日横盘振幅9.8% | 收盘≥上沿×1.005 | 放量(均量的1.6倍) "
+                     "| 成交额15.2亿 | 交易计划: 目标122.00 / 止损105.00"),
+             strategy="尾盘确认: 必须等14:40, 早盘\"突破\"不算数",
+             model_stats=_ms("中继平台突破", 53.0, 1.0, 15, 50.0, 0.7, 36, rank=6),
+             sector={"industry": "印制电路板", "label": "PCB", "status": "高潮",
+                     "emoji": "🔥", "today": 8, "seq": [4, 6, 8], "trend": "走强"},
+         ), "尾盘14:40起 · 收盘确认后推送")
+
+register("买入信号", "竞价弱转强",
+         "9:26竞价高开弱转强(研发中·无回测), 情绪+竞价额双门控",
+         _signal_card(
+             code="002229", name="鸿博股份", signal_name="竞价弱转强",
+             direction="buy", price=18.62, pct_change=5.20,
+             detail=("昨缩量(均量的0.72倍) | 竞价高开5.2% | 竞价成交额1.8亿 "
+                     "| 大盘极端情绪(昨涨停81家)"),
+             strategy="研发中: 无历史回测, 信号很稀, 真实胜率待验",
+         ), "9:26竞价撮合后立即推送")
+
+
+# ── 二波过前高: 直调 second_surge.build_surge_card_v2(✅触发清单卡) ──
+
+def _surge_preview() -> dict:
+    from backend.services.second_surge import build_surge_card_v2
+    items = [{
+        "name": "卫星化学", "code": "002648", "action_md": _QA_SURGE,
+        "r": {"price_now": 23.69, "day_pct": 4.1, "h1_time": "10:12", "H1": 23.40,
+              "trough_pct": 1.8, "vol_mult": 2.1, "leg_rise_pct": 1.5,
+              "ma20_now": 22.15, "ma20_prev": 21.90, "amount_yi": 4.6},
+    }]
+    return _card_json(build_surge_card_v2(items))
+
+
+register("买入信号", "二波过前高",
+         "盘中分时二波过前高实时提醒(✅触发清单卡): 第一波放量冲高→回落降温→第二波放量拉升"
+         "创当日新高, 全自选每股每天一次, 只提醒不落信号库",
+         _surge_preview(),
+         "盘中09:45~15:00每30秒 · 每股每天一次 · surge_snooze逐票静音 · 20日线上翘闸")
+
+
+# ── 弱势极限·候选快照: 直调 weak_extreme_scanner.build_weak_extreme_card ──
+
+def _weak_extreme_preview() -> dict:
+    from backend.services.weak_extreme_scanner import build_weak_extreme_card
+    we_hits = [
+        {"code": "000725", "name": "京东方A", "close": 3.45, "pct": -2.52, "amount": 8.9e8,
+         "detail": "MA20距-1.8% | 地量(近10日最低×1.04、均量×0.58)"},
+        {"code": "601318", "name": "中国平安", "close": 42.10, "pct": -1.23, "amount": 21.5e8,
+         "detail": "MA10距-1.1% | 地量(近10日最低×1.08、均量×0.63)"},
+        {"code": "600276", "name": "恒瑞医药", "close": 27.42, "pct": -1.15, "amount": 6.2e8,
+         "detail": "MA20距-1.2% | 地量(近10日最低×1.05、均量×0.62)"},
+    ]
+    return _card_json(build_weak_extreme_card(we_hits, "尾盘快照"))
+
+
+register("买入信号", "弱势极限·候选快照",
+         "14:45尾盘单独推: 股票池中当前符合弱势极限条件的候选(结论行+全短列表+技术参数折叠)",
+         _weak_extreme_preview(),
+         "交易日14:45 · 股票池扫描弱势极限条件 · 无命中不推")
+
 
 # ═══════════════════════════════════════════
-# 2. 买入信号 (普通, 无风险预警)
+# 二、卖出信号 / 离场家族
 # ═══════════════════════════════════════════
-register("买入信号", "缩量后放量突破(无预警)", "正常市场环境下的缩量突破买点, 带模型战绩排名",
-         _card_v2("🟢 买入信号 · 中科曙光", "red", [
-             _md("**缩量突破昨高** 昨缩量(近10日均量的0.55倍) → 今日放量(均量的2.1倍、昨量的3.4倍) "
-                  "突破昨高2.0%(触发价48.50) ｜ 站上MA10 MA20"),
-             _md("📊 所属行业：计算机设备 ｜ 关联热点：AI算力·液冷\n高潮🔥 · 今日涨停 **9** 家 · 近3日 6→8→9 走强"),
-             _md("**📊 模型战绩**（缩量突破昨高）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("65%", "+3.8%", "62%", "+3.4%"))),
-             _md("近3月胜率　全模型第 **1/9** 名"),
-         ]), "盘中实时 · 满足条件立即推送")
+
+register("卖出信号", "弱势极限止损卖出",
+         "弱势极限持仓触发止损条件, 提醒卖出",
+         _signal_card(
+             code="002050", name="三花智控", signal_name="弱势极限·止损离场",
+             direction="sell", price=18.20, pct_change=-3.20,
+             detail=("成本21.50 当前18.20 浮亏-15.3% | 收盘价跌破止损线-12%(触发价19.10) "
+                     "| 持仓12天(左侧出场·封顶T+15)"),
+             strategy=("弱势极限建仓(左侧出场)\n止损-12% 封顶T+15\n"
+                       "入场2026-07-01@22.80 最高@24.50(+7.5%)未触发止盈"),
+             sector={"industry": "通用设备", "label": "机器人", "status": "退潮",
+                     "emoji": "📉", "today": 2, "seq": [7, 4, 2], "trend": "走弱"},
+         ), "盘中实时 · 止损触发立即推送")
+
+
+# ── 尾盘破位警戒: 直调 ma_break_watch.build_watch_card ──
+
+def _watch_preview() -> dict:
+    from backend.services.ma_break_watch import build_watch_card
+    items = [
+        {"name": "圣泉集团", "code": "605589", "price": 55.70, "pct": -2.9,
+         "streaks": {5: 4, 10: 4, 20: 3},
+         "cost_break": {"price": 57.01, "date": "2026-06-11"},
+         "actions_md": _QA_SURGE + "　·　[✅ 已卖出](#)"},
+        {"name": "兆易创新", "code": "603986", "price": 118.50, "pct": -1.4,
+         "streaks": {5: 2, 10: 1, 20: 0}, "cost_break": None,
+         "actions_md": _QA_SURGE + "　·　[✅ 已卖出](#)"},
+    ]
+    watch_items = [
+        {"name": "通富微电", "code": "002156", "price": 25.10, "pct": -3.2,
+         "dist_pct": -1.6, "model": "缩量后放量突破（右侧）", "model_at": "2026-07-02"},
+    ]
+    return _card_json(build_watch_card(items, watch_items))
+
+
+register("卖出信号", "尾盘破位警戒",
+         "持仓14:40贴线判跌破MA5/MA10/MA20(同破多档只报最深)+主力成本线; 自选段今日新跌破MA20"
+         "只报转弱当天; 每日尾盘复报直到收复",
+         _watch_preview(),
+         "交易日尾盘14:40 · 均线贴线判+主力成本线 · 连续N日从日线回算 · 收复即消失")
+
+
+# ── 止损升级红卡: 直调 stop_escalation.build_escalation_card(唯一允许绿越级红) ──
+
+def _escalation_preview() -> dict:
+    from backend.services.stop_escalation import build_escalation_card
+    return _card_json(build_escalation_card(
+        name="天华新能", code="300390", day_n=3,
+        first_stop_date="2026-07-13", first_stop_price=28.40, first_stop_pct=-8.0,
+        current_price=26.10, current_pct=-15.2, extra_loss_yuan=2300,
+        actions_md="[🔕 三天别提醒](#)　·　[✅ 已卖出](#)",
+        history_md=("07-13 首次触发止损 @¥28.40（-8%）\n07-14 复喊未执行（-11%）\n"
+                    "07-15 反弹未站回止损位（-12%）\n07-16 第3天, 现价 -15.2%"),
+    ))
+
+
+register("卖出信号", "止损未执行·纪律升级",
+         "硬止损连续N天未执行 → 纪律升级红卡(基线: 唯一允许离场绿越级红), 带累计多亏金额",
+         _escalation_preview(),
+         "交易日09:30/11:20扫真实持仓 · 连续≥3天未执行触发 · 现价站回首次止损位自动熄火")
+
+
+# ── 持仓守护: 直调 holding_guard.build_near_high_msg / build_profit_protect_msg ──
+
+def _near_high_preview() -> dict:
+    from backend.services.holding_guard import build_near_high_msg
+    return _card_json(build_near_high_msg("沪电股份", "002463", 151.00, 153.80, "2026-06-30"),
+                      extra_elements=[_md(_QA_SELL)])
+
+
+register("卖出信号", "接近前高",
+         "持仓逼近波段前高(阻力位)提醒: 距前高强度条+价格明细折叠, 放量站上是突破缩量到这是压力",
+         _near_high_preview(),
+         "盘中实时 · 每股每日一次 · 持仓守护族")
+
+
+def _profit_protect_preview() -> dict:
+    from backend.services.holding_guard import build_profit_protect_msg
+    return _card_json(build_profit_protect_msg(
+        "通富微电", "002156", peak_gain=0.12, cur_gain=0.02, cost=22.40,
+        advisory="动量突破回踩常是洗盘，留意而非急走",
+        model_name="缩量后放量突破（右侧）",
+    ), extra_elements=[_md(_QA_SELL)])
+
+
+register("卖出信号", "盈利保护",
+         "赚过的票不做成亏损: 峰值浮盈≥10%回吐到贴成本线时提醒锁利(KPI三栏+回吐强度条)",
+         _profit_protect_preview(),
+         "盘中实时 · 每股每日一次 · model-dependent(动量回踩=洗盘提示)")
+
 
 # ═══════════════════════════════════════════
-# 3-7. 其余买入信号模版 (v1.7.407 补齐)
+# 三、持仓异动(直调 holding_anomaly.build_*_card + merge_anomaly_cards)
 # ═══════════════════════════════════════════
-register("买入信号", "回踩20MA缩量后突破昨高", "检测到回踩MA20缩量后放量突破昨高, 触发买入",
-         _card_v2("🟢 买入信号 · 回踩MA20", "red", [
-             _md("**回踩20MA缩量后突破昨高** 缩量后放量突破昨高\n"
-                  "触发价 **--** · 现价 **--**\n"
-                  "近30日主升≥15% · 回踩MA20±3% · 缩量<均量×0.8 · 突破昨高×1.025"),
-             _md("**📊 模型战绩**（回踩MA20缩量突破）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("54%", "+2.7%", "51%", "+2.3%"))),
-         ]), "盘中实时 · 成交额破10亿即触发")
 
-register("买入信号", "弱势极限", "缩量地量潜伏买点, 博回调结束反弹",
-         _card_v2("🟢 买入信号 · 弱势极限", "red", [
-             _md("**弱势极限(左侧)** 缩量地量潜伏\n"
-                  "触发价 **--** · 现价 **--**\n"
-                  "近30日主升≥15% · 贴MA10/20±2% · 地量≤最低×1.1且≤均量×0.7"),
-             _md("**📊 模型战绩**（弱势极限·左侧）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("14%", "-5.8%", "16%", "-4.2%"))),
-             _md("⚠️ **左侧买点**: 买在下跌中, 持有到T+15, 需扛得住继续下探"),
-         ]), "盘中实时 · 10:00起满足条件推送")
+def _anomaly_single_preview() -> dict:
+    from backend.services.holding_anomaly import build_surge_card
+    return _card_json(build_surge_card("三花智控", "002050", 4.2, 5, 21.80, 6.8))
 
-register("买入信号", "强势起点", "弱势极限缩量后放量启动确认, 触发买入",
-         _card_v2("🟢 买入信号 · 强势起点", "red", [
-             _md("**强势起点(右侧)** 缩量地量后放量启动\n"
-                  "触发价 **--** · 现价 **--**\n"
-                  "满足弱势极限前置 · 放量≥近期×2 · 涨幅≥2% · 站上MA10/20"),
-             _md("**📊 模型战绩**（强势起点·右侧）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("67%", "+4.6%", "63%", "+4.1%"))),
-             _md("近3月胜率　全模型第 **1/9** 名"),
-         ]), "盘中实时 · 10:00起满足条件推送")
 
-register("买入信号", "中继平台突破", "多日横盘后尾盘确认突破平台上沿, 触发买入",
-         _card_v2("🟢 买入信号 · 中继平台突破", "red", [
-             _md("**中继平台突破(右侧)** 尾盘收盘确认\n"
-                  "触发价 **--** · 现价 **--**\n"
-                  "前12日振幅≤15% · 缓升台阶 · 收盘≥上沿×1.005 · 放量≥均量×1.2"),
-             _md("**📊 模型战绩**（中继平台突破）"),
-             _md(_mdtable(_WR_COLS, _wr_rows("53%", "+1.0%", "50%", "+0.7%"))),
-             _md("⚠️ **尾盘确认**: 必须等14:40, 早盘\"突破\"不算数"),
-         ]), "尾盘14:40起 · 收盘确认后推送")
+register("风险预警", "持仓异动·急速拉升",
+         "持仓分时急拉(N分钟涨幅跳升): 结论行heading+建议+明细折叠, 机会家族红卡",
+         _anomaly_single_preview(),
+         "盘中3秒行情扫描 · 每股每日限2次+冷却 · 同tick多项异动自动合并")
 
-register("买入信号", "竞价弱转强", "9:26竞价高开弱转强, 情绪+竞价额双门控",
-         _card_v2("🟢 买入信号 · 竞价弱转强", "red", [
-             _md("**竞价弱转强(右侧·研发)** 9:26竞价触发\n"
-                  "触发价 **--** · 现价 **--**\n"
-                  "昨缩量≤均×0.8 · 竞价高开3-9% · 竞价成交额≥1亿 · 大盘极端情绪"),
-             _md("⚠️ **研发中**: 无历史回测, 信号很稀, 真实胜率待验"),
-             # 研发中·无回测 → 真实卡无模型战绩表(触发条件已在正文)
-         ]), "9:26竞价撮合后立即推送")
+
+def _anomaly_merged_preview() -> dict:
+    from backend.services.holding_anomaly import (
+        build_board_anomaly_card, build_limit_up_card, merge_anomaly_cards,
+    )
+    c1 = build_limit_up_card("三花智控", "002050", 22.94, 10.0, 1.6e8, 2.4, 18.7e8)
+    c2 = build_board_anomaly_card("三花智控", "002050", "up",
+                                  peak_amt=2.3e8, cur_amt=0.9e8, surge_ratio=3.1)
+    return _card_json(merge_anomaly_cards("三花智控", "002050", [c1, c2]))
+
+
+register("风险预警", "持仓异动·多项合并",
+         "同一时点多项异动合并一张卡(涨停+封板异动): 各项结论行→最重家族建议→逐项明细折叠",
+         _anomaly_merged_preview(),
+         "同tick触发≥2项自动合并 · 家族取最重(离场>风险>机会)")
+
 
 # ═══════════════════════════════════════════
-# 卖出信号
+# 四、风险预警家族
 # ═══════════════════════════════════════════
-register("卖出信号", "弱势极限止损卖出", "弱势极限持仓触发止损条件, 提醒卖出",
-         _card_v2("🔴 卖出信号 · 三花智控", "green", [
-             _md("**三花智控**　`002050`\n现价 **18.20** ▼**-3.20%**"),
-             _md("📊 成本21.50 当前18.20 浮亏**-15.3%**"),   # 关键数字前置(浮盈/成本)
-             _md("📊 所属行业：通用设备 ｜ 关联热点：固态电池·锂电\n退潮📉 · 今日涨停 **2** 家 · 近3日 7→4→2 走弱"),
-             _collapsible("📌 **我的策略**　弱势极限建仓·跌破MA60剩半清仓…",
-                          "弱势极限建仓(左侧出场) · 跌破MA60×0.97 剩半清仓 · 持仓12天 · 入场2026-05-20@22.80 最高@24.50(+7.5%)未触发止盈"),
-             _md("🎯 个股实情：收盘价跌破MA60×0.97(剩半清仓) · 持仓12天"),
-         ]), "盘中实时 · 止损触发立即推送")
 
-# ═══════════════════════════════════════════
-# 3b. 尾盘破位警戒 (v1.7.582 均线+连续N日; v1.7.586 叠加主力成本线维度)
-# ═══════════════════════════════════════════
-register("卖出信号", "尾盘破位警戒", "持仓14:40贴线判跌破MA5/MA10/MA20(同时破多档只报最深)+主力成本线(放量起涨点最低价), 带连续几日标注, 每日尾盘报直到收复自动消失",
-         _card_v2("📉 尾盘破位警戒 · 2只持仓", "orange", [
-             # 换行文本行版式(手机端不截): 名称+现价 一行, 破位标注(均线最深+🔴主力成本线)一行, 静音链接一行
-             _md("**圣泉集团(605589)**　现价 55.70（-2.9%）\n"
-                 "　破MA20·连续3日　┃　🔴跌破主力成本区¥57.01(06-11放量起涨)\n"
-                 "　[🔕 当日不提醒](#)　·　[🔕 本周不提醒](#)"),
-             _md("**兆易创新(603986)**　现价 118.50（-1.4%）\n"
-                 "　破MA10·今日新破\n"
-                 "　[🔕 当日不提醒](#)　·　[🔕 本周不提醒](#)"),
-             _md("均线同破多档只报最深；🔴主力成本区=放量起涨K线最低价(跌破=资金弃守,仅提示非硬卖点)；收复自动消失。"),
-         ]), "交易日尾盘14:40 · 均线贴线判+主力成本线 · 破均线或跌破成本线即入卡 · 连续N日从日线回算 · 收复即消失")
+# 手工镜像 · market_risk_controller 修复中(0716 import SyntaxError, 同事在修) —
+# 大盘退潮/空仓/谨慎/降级 4 张状态卡暂保留手工 JSON, 该文件修复后改直调
+# emit_risk_dimension / _push_state_card 版式重新对齐。
+register("风险预警", "大盘退潮·减仓", "强势股赚钱效应消失, 提醒减仓(手工镜像·待market_risk修复后直调)",
+         _v2("📛 大盘风控·退潮提示", [
+             card_kit.heading_md("退潮维度 1 项触发 · 当前大盘风控 🟡 谨慎"),
+             _md("✅ 涨停家数5日均骤降至 **32** 家（昨 48）\n"
+                 "✅ 昨日涨停股今日溢价均值 **-1.8%**（转负）"),
+             card_kit.advice("整板在抽血，谨慎追高"),
+         ], "orange", summary="大盘风控 退潮提示 当前谨慎", tags=[("谨慎", "orange")]),
+         "盘中实时 · 涨停骤降/溢价转负触发 · 当日按维度集合去重")
 
-# ═══════════════════════════════════════════
-# 3c. 二波过前高 (v1.7.597 分时形态提醒, 只提醒不落信号库)
-# ═══════════════════════════════════════════
-register("买入信号", "二波过前高", "盘中分时二波过前高实时提醒: 第一波放量冲高→回落降温→第二波放量拉升创当日新高(确认后报), 全自选每股每天一次, 只提醒不落信号库; v1.7.625起所有触发规则大白话逐条列出",
-         _card_v2("🔥 二波过前高 · 卫星化学(002648)", "red", [
-             _md("**卫星化学(002648)**　现价 **¥23.69**（**+4.1%**）\n"
-                 "　触发条件（全中才提醒）：\n"
-                 "　✅ 第一波冲高：10:12 摸到 **¥23.40**\n"
-                 "　✅ 回落降温：冲高后回落 **-1.8%**（要求 ≥1.5%）\n"
-                 "　✅ 二波放量：最近4分钟量能是全天平均的 **2.1 倍**（要求 ≥1.8 倍）\n"
-                 "　✅ 二波过前高：拉升 **+1.5%**（要求 ≥0.8%），现价超过第一波高点、创当日新高\n"
-                 "　✅ 20日线向上：MA20 **¥22.15** ≥ 3天前的 ¥21.90，趋势没掉头\n"
-                 "　✅ 不是死票：今天已成交 **4.6 亿**（要求 ≥0.5 亿）\n"
-                 "　✅ 没贴涨停板：距板还有 **15.9%**，买得进\n"
-                 "　[📈 看分时图](#)\n"
-                 "　[🔕 当日不提醒](#)　·　[🔕 本周不提醒](#)"),
-             _md("抬头看一眼·形态提示非买卖建议(历史多为隔日T+1~T+3小余温, 当日≈走平)。"),
-         ]), "盘中09:45~15:00每30秒 · 纯读分时缓存判二波过前高 · 每股每天一次 · surge_snooze逐票静音 · 20日线上翘闸(v1.7.623)")
-
-# ═══════════════════════════════════════════
-# 4. 减仓提示
-# ═══════════════════════════════════════════
-register("风险预警", "大盘退潮·减仓", "强势股赚钱效应消失, 提醒减仓",
-         _card_v1("🌊 大盘退潮·减仓提示", "orange",
-                  "涨停家数5日均骤降至 **32** 家, 昨日涨停股今日溢价均值 **-1.8%**\n\n"
-                  "强势方向赚钱效应正在消失 — 这不是恐慌而是\"没得赚了\"。\n"
-                  "建议: 减仓至半仓, 持仓加速止盈节奏, 不开新仓。"), "盘中实时 · 涨停骤降/溢价转负触发")
-
-# ═══════════════════════════════════════════
-# 4b. 板块共振·禁补仓 (v1.7.598 语境化避险提示, 回测背书, 不落信号库)
-# ═══════════════════════════════════════════
-register("风险预警", "板块共振·禁补仓", "大盘正常但某行业集体大跌(超出大盘≥20pp)时, 自选池命中行业合并提示禁抄底/禁补仓; 回测背书该语境抄底期望为负; 恐慌普跌日不适用不发",
-         _card_v2("⛔ 板块共振·禁补仓 · 2个行业", "orange", [
-             _md("| 行业 | 大跌占比 | 自选命中 |\n"
-                 "| --- | --- | --- |\n"
-                 "| 有色金属-能源金属-锂 | 100%(6/6) | 💼融捷股份 -10.0% |\n"
-                 "| 电力设备-电池化学品 | 71%(27/38) | 💼天华新能 -15.8% / 海科新源 -7.0% |"),
-             _md("👉 行业集体杀跌，等止跌再说，别抄底别补仓"),
-             _collapsible("回测依据（点击展开）",
-                          "全市场回测(2023~2026): 行业集体大跌时抄底/补仓，持有5~20天期望为负，"
-                          "日胜率仅33%~47%。\n\n"
-                          "筛选条件: 仅纳入已破位下跌(距峰≤-15% + 收MA20下 + MA20拐头)的票，"
-                          "均线上方的强势票即便跟跌也不提示。\n\n"
-                          "全市场大跌占比 5.2%（恐慌普跌日≥10%时不适用本提示）。"),
-         ]), "交易日尾盘14:30 · 全市场+行业大跌占比判定 · 命中票再过个股破位闸 · 自选池命中才发 · 不落信号库")
-
-# ═══════════════════════════════════════════
-# 4c. 弱势极限·候选快照 (v1.7.610 可视化改造: 纯文本→v2卡片+表格+折叠参数)
-# ═══════════════════════════════════════════
-register("买入信号", "弱势极限·候选快照", "14:45尾盘单独推(v2卡片版): 股票池中当前符合弱势极限条件的候选, 表格化展示+技术参数折叠",
-         _card_v2("📉 弱势极限·3只候选", "blue", [
-             _md("| 股票 | 现价 | 涨跌 |\n"
-                 "| --- | --- | --- |\n"
-                 "| 京东方A(000725) | 3.45 | -8.52% |\n"
-                 "| 中国平安(601318) | 42.10 | -6.23% |\n"
-                 "| 恒瑞医药(600276) | 28.90 | -7.15% |"),
-             _collapsible("技术参数（点击展开）",
-                          "**京东方A** 成交2,345万\nMA20距 -12.3% | 缩量至峰55% | 偏离MA20 -15%\n\n"
-                          "**中国平安** 成交8,901万\nMA20距 -10.1% | 缩量至峰48% | 偏离MA20 -12%\n\n"
-                          "**恒瑞医药** 成交1,567万\nMA20距 -14.5% | 缩量至峰42% | 偏离MA20 -18%"),
-         ]), "交易日14:45 · 股票池扫描弱势极限条件 · 无命中不推")
-
-# ═══════════════════════════════════════════
-# 5. 市场风险 RED
-# ═══════════════════════════════════════════
-register("风险预警", "市场风险·空仓(升级)", "跌破空仓线, 状态升到最高危档(v1.7.588 带档位+触发线)",
-         _card_v2("🔴 市场风险 · 升到「空仓」档", "red", [
+register("风险预警", "市场风险·空仓(升级)",
+         "跌破空仓线, 状态升到最高危档(手工镜像·待market_risk修复后直调)",
+         _v2("🔴 市场风险 · 升到「空仓」档", [
              _md("**🟡 谨慎　→　🔴 空仓（最高危）**"),
              _md("盘面大跌：自选池158只，只 **18%** 在涨、平均 **-2.18%**"),
              _md("<font color='grey'>触发线：<22%在涨 且 平均跌超2% = 空仓</font>"),
-             _md("👉 **立即停开新仓、别抄底，今天先保命。（16:40收盘复核，才定这档是否延续到明天）**"),
-         ]), "10:00-14:30每5分(缓冲带+冷静期防打脸)+14:40预升级+16:40复核")
+             card_kit.advice("立即停开新仓、别抄底，今天先保命"),
+         ], "red", summary="市场风险 谨慎→空仓 只18%在涨", tags=[("空仓", "red")]),
+         "10:00-14:30每5分(缓冲带+冷静期防打脸)+14:40预升级+16:40复核")
 
-# ═══════════════════════════════════════════
-# 6. 市场风险 YELLOW(升级到谨慎)
-# ═══════════════════════════════════════════
-register("风险预警", "市场风险·谨慎(升级)", "盘面转弱, 升到谨慎档",
-         _card_v2("🟡 市场风险 · 升到「谨慎」档", "yellow", [
+register("风险预警", "市场风险·谨慎(升级)",
+         "盘面转弱, 升到谨慎档(手工镜像·待market_risk修复后直调)",
+         _v2("🟡 市场风险 · 升到「谨慎」档", [
              _md("**🟢 正常　→　🟡 谨慎（谨慎档）**"),
              _md("盘面转弱：自选池158只，只 **26%** 在涨、平均 **-1.20%**"),
              _md("<font color='grey'>触发线：<28%在涨 或 平均跌超1% = 谨慎</font>"),
-             _md("👉 **注意控制仓位、别追高。（16:40收盘再定档）**"),
-         ]), "10:00-14:30每5分+16:40复核")
+             card_kit.advice("注意控制仓位、别追高"),
+         ], "yellow", summary="市场风险 正常→谨慎 只26%在涨", tags=[("谨慎", "orange")]),
+         "10:00-14:30每5分+16:40复核")
 
-# ═══════════════════════════════════════════
-# 6b. 市场风险·降级(诚实措辞, v1.7.588): 跌势缓和才降, 不叫"回暖"误导
-# ═══════════════════════════════════════════
-register("风险预警", "市场风险·降到谨慎(降级)", "明显转好过退出缓冲线才降档, 措辞诚实不叫回暖",
-         _card_v2("🟡 市场风险 · 降到「谨慎」档", "yellow", [
+register("风险预警", "市场风险·降到谨慎(降级)",
+         "明显转好过退出缓冲线才降档, 措辞诚实不叫回暖(手工镜像·待market_risk修复后直调)",
+         _v2("🟡 市场风险 · 降到「谨慎」档", [
              _md("**🔴 空仓　→　🟡 谨慎（谨慎档）**"),
-             _md("跌势明显缓和：自选池158只，只 **42%** 在涨、平均 **-0.6%**\n——是没那么急了，不是转多。"),
-             _md("👉 **空仓警报解除，可小仓试错、别重仓。（16:40收盘最终定档）**"),
-         ]), "10:00-14:30每5分 · 涨跌比≥35%且均值≥-1.2% 且距上次变档≥30分钟才降")
+             _md("跌势明显缓和：自选池158只，**42%** 在涨、平均 **-0.6%**\n——是没那么急了，不是转多。"),
+             card_kit.advice("空仓警报解除，可小仓试错、别重仓"),
+         ], "yellow", summary="市场风险 空仓→谨慎 跌势缓和", tags=[("谨慎", "orange")]),
+         "10:00-14:30每5分 · 涨跌比≥35%且均值≥-1.2% 且距上次变档≥30分钟才降")
+
+
+# ── 解除卡: 直调 card_kit.dismiss_card(状态型预警闭环标准卡型) ──
+
+register("风险预警", "预警解除(标准解除卡)",
+         "状态型预警结束时的灰header解除卡(card_kit.dismiss_card): 写明解除条件+生效期间小结",
+         _card_json(card_kit.dismiss_card(
+             "市场风险·空仓预警", issued_str="07-10 09:35", days_active=4,
+             condition_md="自选池涨跌比 **46%** ≥ 45% 且平均 **-0.2%** ≥ -0.3%（连续 2 个检查点，防贴线反复）",
+             period_md="生效期间 上证 **-2.1%**，自选池平均 **-3.4%**，期间买点信号 0 开仓",
+             advice_text="警报解除，可逐步恢复试仓",
+         )),
+         "状态型预警(空仓/情绪冰点/退潮)结束时收尾 · 防抖=超缓冲带或持续N周期 · 一次性事件卡不发解除")
+
+
+# ── 聚合卡: 直调 card_kit.aggregate_card(风暴合并标准卡型) ──
+
+register("风险预警", "集中触发·聚合卡(标准聚合卡)",
+         "同族信号90秒内凑够≥3条合并一张(card_kit.aggregate_card): 归因行+全短列表+建议+折叠, 普跌日防轰炸",
+         _card_json(card_kit.aggregate_card(
+             "跌破MA10", rows=[
+                 ("天华新能", card_kit.pct_md(-6.8), "跌破MA10"),
+                 ("融捷股份", card_kit.pct_md(-9.2), "跌破MA10"),
+                 ("海科新源", card_kit.pct_md(-5.4), "跌破MA10"),
+             ],
+             cause_md="大盘急跌 **-1.8%**，锂电板块共振下杀（板块内 5/7 只自选同跌）",
+             advice_text="板块共振跌，禁抄底，等企稳再看",
+             window="10:42~10:44", tag="板块共振",
+             table_headers=["股票", "跌幅", "信号"],
+             fold_summary="现价明细与合并口径",
+             fold_detail=("天华新能 现价 ¥26.10\n融捷股份 现价 ¥33.85\n海科新源 现价 ¥18.42\n\n"
+                          "合并口径: 同族信号 90 秒窗口内 ≥3 条合并一张, 各票原卡不再单发。"),
+         )),
+         "同族信号90秒窗口≥3条自动合并 · 归因共因进彩签 · 长值下沉折叠")
+
+
+# ── 板块共振·禁补仓: 直调 sector_cocrash_guard.build_cocrash_card ──
+
+def _cocrash_preview() -> dict:
+    from backend.services.sector_cocrash_guard import build_cocrash_card
+    sectors = {
+        "有色金属-能源金属-锂": {"ratio": 1.0, "down": 6, "total": 6},
+        "电力设备-电池化学品": {"ratio": 0.71, "down": 27, "total": 38},
+    }
+    hits = [
+        {"code": "300390", "name": "天华新能", "pct": -15.8,
+         "industry": "电力设备-电池化学品", "held": True},
+        {"code": "002192", "name": "融捷股份", "pct": -10.0,
+         "industry": "有色金属-能源金属-锂", "held": True},
+        {"code": "301292", "name": "海科新源", "pct": -7.0,
+         "industry": "电力设备-电池化学品", "held": False},
+    ]
+    return _card_json(build_cocrash_card(0.052, sectors, hits))
+
+
+register("风险预警", "板块共振·禁补仓",
+         "大盘正常但某行业集体大跌(超出大盘≥20pp)时, 自选池命中行业合并提示禁抄底/禁补仓; 回测背书",
+         _cocrash_preview(),
+         "交易日尾盘14:30 · 全市场+行业大跌占比判定 · 命中票再过个股破位闸 · 不落信号库")
+
+# 手工镜像 · 恐慌底机会提示: 构卡内联在 cash_alert EOD 编排里, 按现行文案对齐。
+register("风险预警", "恐慌底·机会提示",
+         "昨停溢价5日均下穿0, 5年仅9次的机会窗(手工镜像·对齐现行EOD文案)",
+         _card_v1("⚡ 恐慌底·机会提示", "orange",
+                  "昨日涨停股溢价5日均下穿0(现 **-0.52%**) — 5年仅出现9次, "
+                  "全部对应恐慌大底(2022-04-26 / 2024-01-31 / 2024-08-23 等).\n\n"
+                  "该窗口内买点历史胜率 85.7%/单笔 +10.0%, 其中弱势极限(左侧)是主力收割模型.\n"
+                  "提示: 这不是风险预警而是机会窗 — 恐慌加速末段, 弱势极限信号此时质量最高, 可按纪律执行."),
+         "16:40 EOD评估触发 · 5年仅9次")
+
 
 # ═══════════════════════════════════════════
-# 7. 竞价分析卡 (表格类)
+# 五、黑天鹅预警(直调 blackswan_alerts._build_card, 两区域合并卡)
 # ═══════════════════════════════════════════
-register("盘面分析", "竞价分析·板块强弱", "9:26集合竞价撮合后推板块强弱硬数据卡",
-         _card_v2("📊 竞价分析 · 06-15", "blue", [
-             _md("🕤 **09:26 集合竞价**　上证 +0.35%　深证 +0.52%　创业板 +0.71%　科创50 +0.44%　|　腾讯板块榜 · 用时 1.2s"),
-             # 竞价最强 TOP5: 换行文本行(涨幅前置短列, 板块名/领涨股全名, 手机窄屏换行不截), 领涨命中自选标红
-             _md("🔥 **竞价最强 TOP5**（28行业 + 86概念）"),
-             _md("\n".join([
-                 "<font color='red'>+2.3%</font>　**半导体**　领涨 <font color='red'>北方华创</font>",
-                 "<font color='red'>+1.8%</font>　**AI算力**　领涨 浪潮信息",
-                 "<font color='red'>+1.5%</font>　**机器人**　领涨 绿的谐波",
-                 "<font color='red'>+1.2%</font>　**低空经济**　领涨 亿航智能",
-                 "<font color='red'>+0.9%</font>　**军工**　领涨 中航沈飞"])),
-             _md("💼 **持仓关联板块**"),
-             _md("\n".join([
-                 "<font color='red'>+2.1%</font>　**通富微电**　行业3/28",
-                 "<font color='red'>+1.4%</font>　**江海股份**　被动元件概念"])),
-             # 昨日热点·今晨承接: 换行文本行(判级+溢价前置, 题材全名不截)
-             _md("🔁 **昨日热点 · 今晨承接**　强承接1 一般1 转弱1"),
-             _md("\n".join([
-                 "<font color='red'>✅ 强承接</font>　<font color='red'>+2.3%</font>　⭐半导体",
-                 "<font color='grey'>🔶 一般</font>　<font color='red'>+0.5%</font>　光伏",
-                 "<font color='green'>⚠️ 转弱</font>　<font color='green'>-0.3%</font>　券商"])),
-             _md("<font color='grey'>✅强承接 🔶一般 ⚠️转弱　溢价=昨停今竞均涨　⭐=自选有票</font>"),
-             _md("<font color='grey'>领涨红=命中自选 · 数据源:腾讯板块榜</font>"),
-         ]), "交易日9:26定时推送")
+
+def _blackswan_preview() -> dict:
+    from backend.services.blackswan_alerts import _build_card
+    ann_hits = [
+        {"code": "002217", "name": "合力泰", "tags": "立案调查", "date": "2026-04-29",
+         "title": "关于公司及实际控制人收到中国证监会立案告知书的公告",
+         "url": "https://www.cninfo.com.cn/"},
+        {"code": "300442", "name": "润泽科技", "tags": "交易所问询函", "date": "2026-05-10",
+         "title": "关于对深圳证券交易所年报问询函的回复公告", "url": ""},
+    ]
+    ann_verdicts = {
+        "002217": {"emoji": "🔴", "severity": "高",
+                   "text": "实控人遭证监会立案，信披违法实锤，退市与索赔风险，持仓应规避"},
+        "300442": {"emoji": "🟡", "severity": "中",
+                   "text": "常规年报审核问询及中介回复，程序性环节非造假质疑，影响有限"},
+    }
+    fin_hits = [
+        {"code": "600110", "name": "诺德股份", "score": 85, "year": 2025,
+         "flags": [{"label": "连续亏损", "brief": ""}, {"label": "累计亏损", "brief": "-1.1亿"},
+                   {"label": "存贷双高", "brief": ""}]},
+        {"code": "600172", "name": "黄河旋风", "score": 78, "year": 2025,
+         "flags": [{"label": "连续亏损", "brief": ""}, {"label": "累计亏损", "brief": "-27.2亿"},
+                   {"label": "高杠杆", "brief": "91%"}]},
+        {"code": "300059", "name": "东方财富", "score": 62, "year": 2025,
+         "flags": [{"label": "利润现金流背离", "brief": ""}, {"label": "高杠杆", "brief": "77%"}]},
+        {"code": "300657", "name": "弘信电子", "score": 45, "year": 2025,
+         "flags": [{"label": "累计亏损", "brief": "-3.8亿"}, {"label": "高杠杆", "brief": "80%"}]},
+    ]
+    return _card_json(_build_card(ann_hits, fin_hits, ann_verdicts))
+
+
+register("黑天鹅预警", "自选股黑天鹅预警",
+         "风险公告(监管硬信号·每只挂AI逐股研判)+财务红旗(年报指标)合并一张两区域卡, 18:30一次",
+         _blackswan_preview(),
+         "交易日18:30定时执行 · 两区域常驻(某类无新增标「本次无新增」) · ≥1区域有新增才发")
+
 
 # ═══════════════════════════════════════════
-# 8. 收盘复盘 (表格 + 信号汇总)
+# 六、盘面分析 / 情报家族(蓝卡)
 # ═══════════════════════════════════════════
-register("盘面分析", "收盘复盘", "收盘后汇总当日信号命中 + 买点跟踪",
-         _card_v2("📋 收盘复盘 · 06-13", "blue", [
-             # 今日信号 — 与真实 notifier._signals_tables 一致(2列 名称|信号; 卖出按三组)
-             _md("📊 **今日信号** 共5个（🟢买3 🔴卖2）"),
-             _md("**🟢 个股信号（3）**"),
-             _md(_mdtable(
-                 [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}],
-                 [{"name": "多氟多", "sig": "回踩10MA缩量后突破昨高"},
-                  {"name": "中科曙光", "sig": "缩量后放量突破"},
-                  {"name": "宁德时代", "sig": "弱势极限"}])),
-             # 卖出按"主动止盈/被动止损/纪律清仓"三组各一张小表(v1.7.538)
-             _md("**🔴 卖出（3）**"),
-             _md("🟢 主动止盈（1）"),
-             _md(_mdtable(
-                 [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}],
-                 [{"name": "通富微电", "sig": "止盈减仓 +7%"}])),
-             _md("🔴 被动止损（1）"),
-             _md(_mdtable(
-                 [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}],
-                 [{"name": "宁德时代", "sig": "跌破MA20 / 浮亏止损 -10%"}])),
-             _md("⏳ 纪律清仓（1）"),
-             _md(_mdtable(
-                 [{"name": "name", "display_name": "名称"}, {"name": "sig", "display_name": "信号"}],
-                 [{"name": "浪潮信息", "sig": "弱势极限 持满T+15 清仓"}])),
-             # 买点盈利跟踪 — 与真实 notifier._buy_tracking_tables 一致(换行文本行: 差额红绿前置+名称买点全名不截)
-             _md("💹 **买点盈利跟踪**（截至 15:00）"),
-             _md("**📍 今日买点 2只 · 均+1.0%（1红1绿）**"),
-             _md("\n".join([
-                 "<font color='red'>+6.20%</font>　**浪潮信息**　缩量突破",
-                 "<font color='green'>-4.20%</font>　**通富微电**　回踩MA10"])),
-         ]), "交易日15:05定时推送")
 
-# ═══════════════════════════════════════════
-# 9. 资金回流板块预警
-# ═══════════════════════════════════════════
-register("盘面分析", "资金回流·板块预警", "板块涨≥1%+龙头涨停+全市场前5板块均涨≥5%",
-         _card_v2("📊 资金回流·板块预警", "blue", [
-             # 与真实 capital_inflow_scanner 一致: 板块头 md + 前N股/自选个股换行文本行(涨幅前置+名称代码成交额全名不截, 自选⭐)
+# ── 竞价播报·开盘共性: 直调 auction_summary_analyst._build_auction_card ──
+
+def _auction_summary_preview() -> dict:
+    from backend.services.auction_summary_analyst import _build_auction_card
+    d = {"headline": "抢筹积极高开为主", "vibe": "高开家数明显多于低开，抢筹氛围",
+         "style": "小盘题材更强，权重平稳", "kill": "无明显杀跌方向",
+         "action": "开盘顺势别追高，等回踩确认",
+         "mainlines": [{"direction": "AI算力", "reps": "中贝通信、鸿博股份"},
+                       {"direction": "机器人", "reps": "三花智控、绿的谐波"}]}
+    indices = [{"name": "上证指数", "pct_change": 0.35},
+               {"name": "深证成指", "pct_change": 0.52},
+               {"name": "创业板指", "pct_change": 0.71},
+               {"name": "科创50", "pct_change": 0.44}]
+    text, elements, meta = _build_auction_card(d, 8, 21, indices, 1.2)
+    card = card_kit.Card(
+        title="📊 盘面播报", elements=elements, fallback=text, family="intel",
+        summary=card_kit.summary_text("盘面播报", meta.get("headline"),
+                                      f"涨停预排{meta.get('near_lu', 0)}只"))
+    return _card_json(card)
+
+
+register("盘面分析", "竞价播报·开盘共性",
+         "9:26集合竞价AI开盘共性: heading定调+KPI三栏(上证竞价/涨停预排/高开≥5%)+题材主线+方法论折叠",
+         _auction_summary_preview(),
+         "交易日9:26 · 与竞价板块强弱合并成「📊 竞价播报」一张卡推送")
+
+
+# ── 竞价分析·板块强弱: 构卡内联在 async 网络编排里 —— 手工镜像,
+#    用其真实纯件(_board_row/_relay_advice) + card_kit 按 build_auction_sector_part 版式逐行对齐 ──
+
+def _auction_sector_preview() -> dict:
+    from backend.services.auction_sector_strength import _board_row, _relay_advice
+    my_codes = {"002371", "002156"}
+    top5 = [
+        {"name": "半导体", "pct": 2.3, "leader_name": "北方华创", "leader_code": "002371"},
+        {"name": "AI算力", "pct": 1.8, "leader_name": "浪潮信息", "leader_code": "000977"},
+        {"name": "机器人", "pct": 1.5, "leader_name": "绿的谐波", "leader_code": "688017"},
+        {"name": "低空经济", "pct": 1.2, "leader_name": "宗申动力", "leader_code": "001696"},
+        {"name": "军工", "pct": 0.9, "leader_name": "中航沈飞", "leader_code": "600760"},
+    ]
+    n_hy, n_gn, up_n, down_n = 31, 86, 19, 11
+    n_ok, n_weak = 1, 1
+    # 结论区: KPI 三栏(上证竞价 / 最强板块 / 昨日热点承接) — 与 service 同序
+    elements: list = [card_kit.kpi_row([
+        ("上证竞价", "+0.35%", "red"),
+        ("最强 半导体", "+2.3%", "red"),
+        ("昨日热点承接", f"{n_ok}承/{n_weak}弱", None),
+    ])]
+    elements.append(_md(f"{n_hy}个一级行业竞价　" + card_kit.long_short_bar(down_n, up_n)))
+    elements.append(_md(f"🔥 **竞价最强 TOP5**（{n_hy}行业 + {n_gn}概念）"))
+    elements.append(card_kit.short_table(
+        ["板块", "涨幅", "领涨"], [_board_row(b, my_codes) for b in top5]))
+    elements.append(_md("💼 **持仓关联板块**"))
+    elements.append(card_kit.short_table(
+        ["持仓", "涨幅", "板块位"],
+        [("**通富微电**", card_kit.pct_md(2.1), "行业3/31"),
+         ("**江海股份**", card_kit.pct_md(1.4), "被动元件")]))
+    elements.append(_md("🔁 **昨日热点 · 今晨承接**"))
+    elements.append(card_kit.short_table(
+        ["题材", "承接", "溢价"],
+        [("⭐半导体", "<font color='red'>✅强承接</font>", card_kit.pct_md(2.3, bold=False)),
+         ("光伏", "<font color='grey'>○一般</font>", card_kit.pct_md(0.5, bold=False)),
+         ("券商", "<font color='green'>⚠️转弱</font>", card_kit.pct_md(-0.3, bold=False))]))
+    elements.append(card_kit.advice(_relay_advice(n_ok, n_weak)))
+    elements.append(card_kit.fold(
+        "行业最弱与口径说明",
+        "❄️ **行业最弱**\n-1.2%　煤炭\n-0.9%　银行\n-0.7%　石油石化\n\n"
+        "🕤 四指数竞价　上证指数 +0.35%　深证成指 +0.52%　创业板指 +0.71%　科创50 +0.44%\n\n"
+        "📐 口径：✅强承接 ○一般 ⚠️转弱；溢价=昨日该题材涨停股今晨竞价涨幅均值；"
+        "⭐=自选池有票；领涨标红=命中自选；数据源 腾讯板块榜 · 用时 1.2s"))
+    card = card_kit.Card(
+        title="📊 竞价分析", elements=elements,
+        fallback="【竞价分析】竞价最强 半导体+2.3%…(预览样例)", family="intel",
+        subtitle="竞价板块强弱 · 腾讯板块榜",
+        summary=card_kit.summary_text("竞价分析", "最强半导体+2.3%", f"承接{n_ok}/转弱{n_weak}"))
+    return _card_json(card)
+
+
+register("盘面分析", "竞价分析·板块强弱",
+         "9:26竞价板块强弱硬数据卡(手工镜像·用真实纯件_board_row/_relay_advice按service版式对齐): "
+         "KPI三栏+多空条+最强TOP5+持仓关联+昨日承接",
+         _auction_sector_preview(),
+         "交易日9:26定时推送 · 与开盘共性合并一张卡")
+
+
+# ── 资金进攻方向: 直调 attack_direction_analyst._build_card ──
+
+def _attack_preview() -> dict:
+    from backend.services.attack_direction_analyst import _build_card
+    hot = [
+        {"theme": "机器人", "state": "升温", "limit_up": 6, "max_height": 3,
+         "samples": ["三花智控", "绿的谐波", "兆威机电", "鸣志电器"]},
+        {"theme": "固态电池", "state": "启动", "limit_up": 4, "max_height": 2,
+         "samples": ["三祥新材", "上海洗霸"]},
+        {"theme": "半导体", "state": "启动", "limit_up": 3, "max_height": 2,
+         "samples": ["长电科技"]},
+    ]
+    lead = [{"industry": "半导体", "pct_today": 3.2},
+            {"industry": "汽车零部件", "pct_today": 2.1},
+            {"industry": "电力设备", "pct_today": 1.4}]
+    watch_hits = [
+        {"name": "三花智控", "code": "002050", "hold": True, "where": "机器人", "strong": True},
+        {"name": "通富微电", "code": "002156", "hold": False, "where": "半导体", "strong": False},
+    ]
+    elements = _build_card(hot, lead, watch_hits, "启动 · 封板率72% · 涨停45家 · 最高4板", False)
+    card = card_kit.Card(
+        title="📊 资金进攻方向", elements=elements,
+        fallback="【今日资金进攻方向】主线清晰: 机器人…(预览样例)", family="intel",
+        subtitle="开盘一刻钟 · 涨停扎堆 + 领涨行业双口径",
+        summary=card_kit.summary_text("进攻方向", "机器人", "涨停6家"))
+    return _card_json(card)
+
+
+register("盘面分析", "资金进攻方向·09:45",
+         "开盘15分钟, 涨停扎堆题材(涨停池)+领涨行业(板块榜)双口径, 共振标🔥双确认, 叠自选/持仓命中",
+         _attack_preview(),
+         "交易日09:45定时执行 · 无明显主线时顶部改「资金分散·观望为主」照推")
+
+
+# ── 收盘复盘: 直调 review_summary._build_review_card ──
+
+def _review_preview() -> dict:
+    from backend.services.review_summary import COMPARE_DAYS, _build_review_card
+    cmp = {"buy": {"evaluated": 20, "success": 11, "success_rate": 55.0,
+                   "pending": 3, "avg_p5": 1.23},
+           "sell": {"evaluated": 10, "success": 6, "success_rate": 60.0,
+                    "pending": 1, "avg_p5": -0.5}}
+    top = [{"signal_name": "缩量后放量突破（右侧）", "success_rate": 71.0, "success": 5, "evaluated": 7},
+           {"signal_name": "强势起点", "success_rate": 67.0, "success": 6, "evaluated": 9}]
+    weak = [{"signal_name": "弱势极限", "success_rate": 40.0, "success": 2, "evaluated": 5}]
+    text, elements, meta = _build_review_card(3, 2, 1, 0, cmp, top, weak)
+    card = card_kit.Card(
+        title="📊 收盘复盘", elements=elements, fallback=text, family="intel",
+        subtitle=f"近 {COMPARE_DAYS} 天实际收盘口径",
+        summary=card_kit.summary_text("收盘复盘", "买3卖2", meta.get("buy_rate_str")))
+    return _card_json(card)
+
+
+register("盘面分析", "收盘复盘",
+         "收盘后复盘摘要: KPI三栏(今日买/卖/胜率)+买卖点胜率强度条+最好/警惕榜+口径折叠",
+         _review_preview(),
+         "交易日盘后定时推送 · 排在 outcome 回填之后")
+
+
+# ── 涨停复盘: 直调 limit_up_archive.build_review_card ──
+
+def _limit_up_preview() -> dict:
+    from backend.services.limit_up_archive import build_review_card
+    meta = {"limit_up_count": 45, "limit_up_history": 58, "limit_down_count": 3,
+            "broken_board_count": 13, "seal_rate": 0.78}
+    boards = [
+        {"name": "天安新材", "code": "603725", "height": 4, "streak_label": "4连板",
+         "reason": "机器人+人形机器人"},
+        {"name": "胜宏科技", "code": "300476", "height": 3, "streak_label": "3连板",
+         "reason": "PCB+算力"},
+        {"name": "三祥新材", "code": "603663", "height": 2, "streak_label": "2连板",
+         "reason": "固态电池"},
+        {"name": "绿的谐波", "code": "688017", "height": 2, "streak_label": "2连板",
+         "reason": "机器人+减速器"},
+        {"name": "长电科技", "code": "600584", "height": 1, "streak_label": "首板",
+         "reason": "半导体+封测"},
+        {"name": "上海洗霸", "code": "603200", "height": 1, "streak_label": "首板",
+         "reason": "固态电池"},
+    ]
+    return _card_json(build_review_card("20260716", meta, boards, link="#"))
+
+
+register("盘面分析", "涨停复盘",
+         "收盘后涨停池复盘: KPI三栏(涨停/封板率/跌停)+连板梯队短表+热点分布+一句话定性",
+         _limit_up_preview(),
+         "交易日15:35 · 存档当日涨停池 + 推复盘卡")
+
+
+# ── 板块轮动三张: 直调 sector_rotation_scanner._build_*_card(alert_throttle 卡槽) ──
+
+def _rotation_wts_preview() -> dict:
+    from backend.services.sector_rotation_scanner import _build_weak_to_strong_card
+    items = [
+        {"theme": "PCB", "yest": 1, "limit_up": 4, "max_height": 4, "broken": 0,
+         "samples": ["胜宏科技", "景旺电子", "生益科技"]},
+        {"theme": "算力服务器", "yest": 2, "limit_up": 4, "max_height": 4, "broken": 0,
+         "samples": ["工业富联", "沪电股份"]},
+    ]
+    title, elements = _build_weak_to_strong_card(items)
+    return _v2(title, elements, "blue")
+
+
+register("盘面分析", "板块弱转强·启动",
+         "题材早盘冷→涨停家数快速抬升, 状态跃迁即推",
+         _rotation_wts_preview(),
+         "交易日每3分钟扫描 · 弱转强启动跃迁即推, 同题材当日仅一次")
+
+
+def _rotation_wts_failed_preview() -> dict:
+    from backend.services.sector_rotation_scanner import _build_wts_failed_card
+    items = [{"theme": "机器人", "yest": 3, "peak": 7, "limit_up": 3,
+              "samples": ["天安新材", "长盛轴承"]}]
+    title, elements = _build_wts_failed_card(items)
+    return _v2(title, elements, "blue")
+
+
+register("盘面分析", "板块弱转强·失败",
+         "早先推过启动的题材涨停回落, 补一条失败提醒(每题材当日一次)",
+         _rotation_wts_failed_preview(),
+         "早先弱转强启动后回落到冷/退潮才推 · 同题材当日仅一次")
+
+
+def _rotation_stw_preview() -> dict:
+    from backend.services.sector_rotation_scanner import _build_strong_to_weak_card
+    items = [
+        {"theme": "光通信", "yest": 5, "limit_up": 2, "broken": 4,
+         "samples": ["中际旭创", "新易盛"], "holds": "中际旭创"},
+        {"theme": "固态电池", "yest": 4, "limit_up": 1, "broken": 3,
+         "samples": ["三祥新材", "上海洗霸"]},
+    ]
+    title, elements = _build_strong_to_weak_card(items)
+    return _v2(title, elements, "blue")
+
+
+register("盘面分析", "板块强转弱·退潮",
+         "热门题材涨停回落/封板大面积松动(炸板), 状态跃迁即推, 持仓踩线单独列出",
+         _rotation_stw_preview(),
+         "交易日每3分钟扫描 · 强转弱退潮跃迁即推, 同题材当日仅一次")
+
+
+# ── 次日板块预测 / 真假强势 / 尾盘决策: 直调真实构卡(合并卡由真实部件组装) ──
+
+_PRED_GROUPS = {
+    "弱转强候选": [{"theme": "创新药", "traj": "0→1→1→3", "today": 3,
+                    "reason": "近3日低迷(均0.7), 今日回升至3家, 次日或反弹启动",
+                    "points": [("07-11", 0), ("07-14", 1), ("07-15", 1), ("07-16", 3)]}],
+    "强转弱候选": [{"theme": "光通信", "traj": "5→5→6→3", "today": 3,
+                    "reason": "近3日均5家高位, 今日3家较昨(6)回落, 次日防退潮",
+                    "points": [("07-11", 5), ("07-14", 5), ("07-15", 6), ("07-16", 3)]}],
+    "强势延续": [{"theme": "半导体", "traj": "4→5→6→6", "today": 6,
+                  "reason": "高位企稳, 次日有望延续",
+                  "points": [("07-11", 4), ("07-14", 5), ("07-15", 6), ("07-16", 6)]},
+                 {"theme": "机器人", "traj": "3→4→6→6", "today": 6, "reason": "主线延续",
+                  "points": [("07-11", 3), ("07-14", 4), ("07-15", 6), ("07-16", 6)]},
+                 {"theme": "PCB", "traj": "2→3→4→4", "today": 4, "reason": "梯队完整",
+                  "points": [("07-11", 2), ("07-14", 3), ("07-15", 4), ("07-16", 4)]}],
+    "疑似终结": [{"theme": t, "traj": "", "reason": ""}
+                 for t in ("数据中心电源", "液冷服务器", "半导体石英", "印尼锂盐", "参股算力")],
+}
+
+
+def _prediction_parts() -> tuple:
+    """(text, elements, meta) — 直调 _push_prediction(return_only=True), 该路径纯格式化零I/O。"""
+    from backend.services.sector_rotation_scanner import _push_prediction
+    return asyncio.run(_push_prediction(_PRED_GROUPS, return_only=True))
+
+
+def _strength_parts() -> tuple:
+    from backend.services.strength_quality_scanner import _build_strength_card
+    real = [
+        {"name": "国际复材", "code": "301526", "industry": "玻璃玻纤", "stock_5d_cum": 59.58,
+         "score": 105, "is_real_strong": True,
+         "criteria": [{"delta": 25, "name": "逆势创新高"}, {"delta": 20, "name": "多头排列"}]},
+        {"name": "中际旭创", "code": "300308", "industry": "光通信", "stock_5d_cum": 11.26,
+         "score": 85, "is_real_strong": True,
+         "criteria": [{"delta": 25, "name": "逆势创新高"}, {"delta": 20, "name": "量缩健康"}]},
+    ]
+    observe = [
+        {"name": "华正新材", "code": "603186", "stock_5d_cum": 38.79, "score": 60, "criteria": []},
+        {"name": "云南锗业", "code": "002428", "stock_5d_cum": 23.73, "score": 55, "criteria": []},
+    ]
+    return _build_strength_card(real, observe, 42, 3210.78, -4.77, 50)
+
+
+def _prediction_preview() -> dict:
+    text, elements, meta = _prediction_parts()
+    card = card_kit.Card(
+        title="📊 次日板块预测", elements=elements, fallback=text, family="intel",
+        subtitle="收盘前启发式预判 · 未回测",
+        summary=card_kit.summary_text(
+            "次日预测", f"弱转强{meta['wts']}", f"强转弱{meta['stw']}", f"延续{meta['cont']}"))
+    return _card_json(card)
+
+
+register("盘面分析", "次日板块预测",
+         "收盘前用多日涨停序列+今日质地做次日强弱预判(启发式未回测): KPI三栏+头号候选柱状图+理由折叠",
+         _prediction_preview(),
+         "交易日14:30计算 · 并入14:40尾盘决策合并卡 · 疑似终结折叠计数不堆名")
+
+
+def _strength_preview() -> dict:
+    text, elements, meta = _strength_parts()
+    card = card_kit.Card(
+        title="📊 真假强势评分快照", elements=elements, fallback=text, family="intel",
+        subtitle="尾盘 · 全天成交约九成已定",
+        summary=card_kit.summary_text(
+            "真假强势", f"真强势{meta['real']}只", f"观望{meta['observe']}只",
+            f"最高{meta['top']}" if meta.get("top") else ""))
+    return _card_json(card)
+
+
+register("盘面分析", "真假强势评分快照",
+         "盘中给股票池打真假强势分: KPI三栏+真强势Top5短表+全名单折叠, 真强势=企稳首日率先放量上攻者",
+         _strength_preview(),
+         "交易日14:30计算 · 并入14:40尾盘决策合并卡")
+
+
+def _tail_decision_preview() -> dict:
+    """尾盘决策合并卡 — 与 tail_decision.run_tail_decision_1440 同法组装(分节符+三部分真实元素)。"""
+    from backend.services.weak_extreme_scanner import build_weak_extreme_section
+    sq_text, sq_elements, sq_meta = _strength_parts()
+    pred_text, pred_elements, pred_meta = _prediction_parts()
+    weak_hits = [{"code": "600276", "name": "恒瑞医药", "close": 27.42, "pct": -1.15,
+                  "amount": 6.2e8, "detail": "MA20距-1.2% | 地量(近10日最低×1.05、均量×0.62)"}]
+    section = build_weak_extreme_section(weak_hits)
+
+    def _sep(title: str) -> dict:
+        return _md(f"<font color='grey'>━━━━━━ {title} ━━━━━━</font>")
+
+    elements = ([_sep("真假强势评分")] + list(sq_elements)
+                + [_sep("次日板块预测")] + list(pred_elements)
+                + [_sep("弱势极限·尾盘候选"), _md(section)])
+    bits = [f"真强势{sq_meta.get('real', 0)}只", f"弱转强候选{pred_meta.get('wts', 0)}",
+            f"弱势极限{len(weak_hits)}只"]
+    card = card_kit.Card(
+        title="📊 尾盘决策", elements=elements,
+        fallback="【尾盘决策】\n" + sq_text + "\n" + pred_text + "\n" + section,
+        family="intel", subtitle="真假强势 + 次日板块预测 + 弱势极限",
+        summary=card_kit.summary_text("尾盘决策", *bits))
+    return _card_json(card)
+
+
+register("盘面分析", "尾盘决策合并卡",
+         "14:40三合一: 真假强势评分+次日板块预测+弱势极限尾盘候选合成一张卡, 任一失败仍发其余",
+         _tail_decision_preview(),
+         "交易日14:40 · 各部分独立计算 · 全空则不发")
+
+# 手工镜像 · 资金回流·板块预警: 构卡内联在 capital_inflow_scanner 编排里, 按现行版式对齐。
+register("盘面分析", "资金回流·板块预警",
+         "板块涨≥1%+龙头涨停+全市场前5板块均涨≥5%(手工镜像·对齐capital_inflow现行版式)",
+         _v2("📊 资金回流·板块预警", [
              _md("**半导体**　板块 +3.2%\n龙头 **北方华创** +9.98%(涨停)　前5股均涨 +4.5%"),
              _md("📈 板块前5股"),
              _md("\n".join([
@@ -432,286 +901,194 @@ register("盘面分析", "资金回流·板块预警", "板块涨≥1%+龙头涨
                  "<font color='red'>+2.10%</font>　⭐**通富微电** 002156 · 成交3.1亿·额第12"])),
              _md("⭐ 你自选的该板块个股（1只）"),
              _md("<font color='red'>+2.10%</font>　⭐**通富微电** 002156 · 成交3.1亿·额第12"),
-         ]), "盘中30秒扫描 · 同板块同日仅一次")
+         ], "blue", summary="资金回流 半导体+3.2% 龙头北方华创涨停"),
+         "盘中30秒扫描 · 同板块同日仅一次")
 
-# ═══════════════════════════════════════════
-# 9b. 资金进攻方向·09:45 (确定性双口径, v1.7.587)
-# ═══════════════════════════════════════════
-register("盘面分析", "资金进攻方向·09:45", "开盘15分钟, 涨停扎堆题材(涨停池)+领涨行业(板块榜)双口径, 题材命中领涨行业标🔥双确认, 叠自选/持仓命中",
-         _card_v2("📈 今日资金进攻方向·09:45", "blue", [
-             # 与真实 attack_direction_analyst._build_card 一致: 情绪行 + 涨停扎堆题材2列表(代表股下沉) + 领涨行业2列表 + 自选命中
-             _md("**主线清晰** ｜ 情绪：启动 · 封板率72% · 涨停45家 · 最高4板"),
-             _md("🔥 **涨停扎堆题材**（资金真金白银）"),
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "lu", "display_name": "涨停"}],
-                 [{"theme": "机器人·升温", "lu": "6家·最高3板"},
-                  {"theme": "固态电池·启动", "lu": "4家·最高2板"},
-                  {"theme": "半导体·🔥双确认", "lu": "3家·最高2板"}])),
-             _md("代表股\n• 机器人: 三花智控、绿的谐波、兆威机电 等4只\n• 固态电池: 三祥新材、上海洗霸\n• 半导体: 长电科技"),
-             _md("📊 **领涨行业**（板块涨幅榜）"),
-             _md(_mdtable(
-                 [{"name": "ind", "display_name": "行业"}, {"name": "pct", "display_name": "涨幅"}],
-                 [{"ind": "半导体", "pct": "+3.2%"},
-                  {"ind": "汽车零部件", "pct": "+2.1%"},
-                  {"ind": "电力设备", "pct": "+1.4%"}])),
-             _md("⭐ **你的自选/持仓命中**\n"
-                 "• 三花智控(002050) 持仓 → 在【机器人】今日主攻\n"
-                 "• 通富微电(002156) 自选 → 在【半导体】领涨行业"),
-         ]), "交易日09:45定时执行 · 无明显主线时顶部改「资金分散·观望为主」照推")
-
-# ═══════════════════════════════════════════
-# 10. 信号EOD存疑复核
-# ═══════════════════════════════════════════
-register("系统通知", "信号EOD复核·存疑", "收盘后自动复核当日全部信号, 标记存疑项",
-         _card_v2("信号EOD复核: 3条存疑", "blue", [
-             _md("以下信号在收盘复核中标记为**存疑**, 请人工确认:"),
-             # 与真实 signal_eod_audit 一致: 2列(时间·标的·信号 | 疑点)
-             _md(_mdtable(
-                 [{"name": "who", "display_name": "时间 · 标的 · 信号"},
-                  {"name": "note", "display_name": "疑点"}],
-                 [{"who": "10:15 002407多氟多 回踩10MA缩量后突破昨高", "note": "K线收盘价与新浪快照偏离>2%"},
-                  {"who": "13:20 300750宁德时代 弱势极限", "note": "触发时量比1.8>阈值1.5, 量未真缩"}])),
-         ]), "交易日17:00定时执行")
-
-# ═══════════════════════════════════════════
-# 11. 博主发帖
-# ═══════════════════════════════════════════
-register("系统通知", "博主发帖跟踪", "同花顺博主新帖推送",
-         _card_v1("📣 博主发帖", "orange",
-                  "**全能的野人** 刚刚发帖:\n\n"
-                  "「今天情绪明显退潮, 涨停家数不到40家, 各位注意风控。"
-                  "我自己的仓位已经从8成降到3成, 等情绪冰点过去再说。」\n\n"
-                  "[查看原帖](https://t.10jqka.com.cn/uid_xxx)"), "交易日9-10点5分/10-15点20分/盘后60分/非交易日20:00")
-
-# ═══════════════════════════════════════════
-# 11b. 自定义预警 / 均线快捷提醒 (v1.7.626)
-# ═══════════════════════════════════════════
-register("系统通知", "自定义预警·均线提醒", "个股自定义预警触发合并卡: 均线快捷提醒(碰线±0.5%·每天一次)大白话+数字加粗, 普通自定义退回条件摘要",
-         _card_v2("🔔 自定义预警", "blue", [
-             _md("【自定义预警】触发 2 条\n\n"
-                 "▲ **润建股份(002929)**\n"
-                 "   现价 **58.10**（+2.2%） — 股价碰到20日线：现价 **58.10**，MA20 **58.05**"
-                 "（±0.5%以内算碰线，今天不再重复报）\n"
-                 "▲ **多氟多(002407)** · 回踩接回\n"
-                 "   现价 **31.50**（-1.8%） — 满足: 价格≤32 且 接近MA10(±2%)\n\n"
-                 "(一次性预警已自动停用, 需要可在股票池重新启用; 均线提醒每天最多报一次, 明天自动继续盯)"),
-         ]), "交易时段随池扫描节奏 · 均线快捷提醒=弹窗一键开关(10/20/60日线·碰线±0.5%·每天一次) · 普通自定义一次性触发")
-
-# ═══════════════════════════════════════════
-# 12. 空仓预警解除 (GREEN)
-# ═══════════════════════════════════════════
-register("风险预警", "市场风险·预警解除", "全面回稳过退出线, 恢复正常操作",
-         _card_v2("🟢 市场风险 · 预警解除", "green", [
-             _md("**🟡 谨慎　→　🟢 正常（正常）**"),
-             _md("盘面回稳：自选池158只，**48%** 在涨、平均 **+0.3%**"),
-             _md("👉 **恢复正常操作。（16:40收盘最终定档）**"),
-         ]), "涨跌比≥45%且均值≥-0.3%才解除 · 距上次变档≥30分钟")
-
-# ═══════════════════════════════════════════
-# 13. 恐慌底机会提示
-# ═══════════════════════════════════════════
-register("风险预警", "恐慌底·机会提示", "昨停溢价5日均下穿0, 5年仅9次的机会窗",
-         _card_v1("⚡ 恐慌底·机会提示", "orange",
-                  "昨日涨停股溢价5日均下穿0(现 **-0.52%**) — 5年仅出现9次, "
-                  "全部对应恐慌大底(2022-04-26 / 2024-01-31 / 2024-08-23 等).\n\n"
-                  "该窗口内买点历史胜率 85.7%/单笔 +10.0%, 其中弱势极限(左侧)是主力收割模型.\n"
-                  "提示: 这不是风险预警而是机会窗 — 恐慌加速末段, 弱势极限信号此时质量最高, 可按纪律执行."), "16:40 EOD评估触发 · 5年仅9次")
-
-# ═══════════════════════════════════════════
-# 14. 板块弱转强·启动 (盘中即时)
-# ═══════════════════════════════════════════
-register("盘面分析", "板块弱转强·启动", "题材早盘冷→涨停家数快速抬升, 状态跃迁即推",
-         _card_v2("🟢 板块弱转强·启动", "blue", [
-             # 与真实 sector_rotation_scanner 一致: 2列(题材·质地 | 昨→今涨停), 代表股下沉
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "lu", "display_name": "昨→今涨停"}],
-                 [{"theme": "PCB·4板", "lu": "1→4家"},
-                  {"theme": "算力服务器·4板", "lu": "2→4家"}])),
-             _md("代表股\n• PCB: 胜宏科技、景旺电子\n• 算力服务器: 工业富联、沪电股份"),
-         ]), "交易日每3分钟扫描 · 弱转强启动跃迁即推, 同题材当日仅一次")
-
-# ═══════════════════════════════════════════
-# 14b. 板块弱转强·失败 (盘中即时, v1.7.565)
-# ═══════════════════════════════════════════
-register("盘面分析", "板块弱转强·失败", "早先推过启动的题材涨停回落, 补一条失败提醒(每题材当日一次)",
-         _card_v2("⚠️ 板块弱转强·失败", "blue", [
-             # 与真实 sector_rotation_scanner._build_wts_failed 一致: 2列(题材·昨N | 峰值→现), 代表股下沉
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "pk", "display_name": "峰值→现"}],
-                 [{"theme": "机器人·昨3", "pk": "7→3家"}])),
-             _md("代表股\n• 机器人: 天安新材、长盛轴承"),
-         ]), "早先弱转强启动后回落到冷/退潮才推 · 同题材当日仅一次")
-
-# ═══════════════════════════════════════════
-# 15. 板块强转弱·退潮 (盘中即时)
-# ═══════════════════════════════════════════
-register("盘面分析", "板块强转弱·退潮", "热门题材涨停回落/封板大面积松动(炸板), 状态跃迁即推",
-         _card_v2("🔴 板块强转弱·退潮", "blue", [
-             # 与真实 sector_rotation_scanner._build_strong_to_weak 一致: 2列(题材·炸N | 昨→今涨停), 代表股/持仓踩线下沉
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "lu", "display_name": "昨→今涨停"}],
-                 [{"theme": "光通信·炸4", "lu": "5→2家"},
-                  {"theme": "固态电池·炸3", "lu": "4→1家"}])),
-             _md("代表股\n• 光通信: 中际旭创、新易盛\n• 固态电池: 三祥新材、上海洗霸"),
-             _md("⚠️ 你持仓踩此线\n• 光通信: 中际旭创"),
-         ]), "交易日每3分钟扫描 · 强转弱退潮跃迁即推, 同题材当日仅一次")
-
-# ═══════════════════════════════════════════
-# 16. 次日板块预测 (14:30 收盘前)
-# ═══════════════════════════════════════════
-register("盘面分析", "次日板块预测", "收盘前用多日涨停序列+今日质地做次日强弱预判(启发式未回测)",
-         _card_v2("📅 次日板块预测", "blue", [
-             _md("**📅 次日板块预测**　_收盘前启发式预判, 未回测, 仅供布局参考_"),
-             _md("🟢弱转强 1　·　🔴强转弱 1　·　⬆️强势延续 3　·　⚰️疑似终结 137"),
-             # 与真实 sector_rotation_scanner 一致: 每组 2列(题材|近期轨迹)+理由下沉逐行
-             _md("🟢 **弱转强候选**（1）"),
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "traj", "display_name": "近期轨迹"}],
-                 [{"theme": "创新药", "traj": "0→1→1→3"}])),
-             _md("• 创新药: 近3日低迷(均0.7), 今日回升至3家, 次日或反弹启动"),
-             _md("🔴 **强转弱候选**（1）"),
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "traj", "display_name": "近期轨迹"}],
-                 [{"theme": "光通信", "traj": "3→5→6→3"}])),
-             _md("• 光通信: 近3日均5家高位, 今日3家较昨(6)回落, 次日防退潮"),
-             _md("⬆️ **强势延续**（3）"),
-             _md(_mdtable(
-                 [{"name": "theme", "display_name": "题材"}, {"name": "traj", "display_name": "近期轨迹"}],
-                 [{"theme": "半导体", "traj": "4→5→6→6"}])),
-             _md("• 半导体: 高位企稳, 次日有望延续"),
-             _md("⚰️ 疑似终结 137 个（已沉寂, 不展开）：某退潮老题材、数据中心电源、液冷服务器、半导体石英、印尼锂盐、参股算力 等"),
-         ]), "交易日14:30定时执行 · 启发式未回测 · 疑似终结折叠计数不堆名")
-
-# ═══════════════════════════════════════════
-# 17. 真假强势评分快照 (14:30 盘中)
-# ═══════════════════════════════════════════
-register("盘面分析", "真假强势评分快照", "盘中给股票池打真假强势分, 真强势=企稳首日率先放量上攻者",
-         _card_v2("📊 真假强势评分快照", "blue", [
-             _md("**📊 真假强势评分快照**　_14:30 盘中_"),
-             _md("沪指 3210.78　·　5日 -4.77%　|　🟢真强势 34　·　🟡观望 8"),
-             # 与真实 strength_quality_scanner 一致: 2列(评分前置 | 个股·5日·加分并进一格)
-             _md("🟢 **真强势**（34 只，展示前 15）"),
-             _md(_mdtable(
-                 [{"name": "score", "display_name": "评分"}, {"name": "info", "display_name": "个股 · 5日 · 加分"}],
-                 [{"score": "105分", "info": "国际复材 301526　5日+59.58%　+25逆势创新高 +20多头排列"},
-                  {"score": "85分", "info": "中际旭创 300308　5日+11.26%　+25逆势创新高 +20量缩健康"}])),
-             _md("🟡 **观望**（展示前 8 只）"),
-             _md(_mdtable(
-                 [{"name": "score", "display_name": "评分"}, {"name": "info", "display_name": "个股 · 5日"}],
-                 [{"score": "60分", "info": "华正新材 603186　5日+38.79%"},
-                  {"score": "55分", "info": "云南锗业 002428　5日+23.73%"}])),
-             _md("💡 真强势=大盘企稳首日率先放量上攻者, 才是买点; 观望=强度够但未确认, 等放量再跟"),
-         ]), "交易日14:30定时执行 · 盘中评分快照")
-
-# ═══════════════════════════════════════════
-# 18. 错过消息回顾 (推送开关关→开补发)
-# ═══════════════════════════════════════════
-register("系统通知", "错过消息回顾", "推送开关关闭期间错过的关键信号(买/卖/减仓/急跌预警), 重新打开时汇总补发一卡",
-         _card_v2("📮 错过消息回顾", "blue", [
+# 手工镜像 · 错过消息回顾: 构卡内联在 push_backfill 编排里, 按现行版式对齐。
+register("系统通知", "错过消息回顾",
+         "推送开关关闭期间错过的关键信号(手工镜像·对齐push_backfill现行版式), 重新打开时汇总补发一卡",
+         _v2("📮 错过消息回顾", [
              _md("**📮 错过消息回顾**　_推送开关关闭期间错过的关键信号, 现汇总补发_"),
              _md("**⚠️ 当前市场风险档: ⚡ YELLOW 谨慎**"),
-             # 与真实 push_backfill 一致: 换行文本行(类型加粗前置 + 时间·标的·信号全名不截)
              _md("\n".join([
-                 "**🟢买入**　06-18 10:30 **国际复材** 301526 缩量突破",
-                 "**🟡减仓**　06-18 13:05 **中际旭创** 300308 接近前高",
-                 "**🔴卖出**　06-18 14:12 **兆易创新** 603986 弱势止损"])),
-         ]), "推送开关关→开时触发 · 只补关键信号 · 最近24h/最多30条 · 飞书企微各自独立")
+                 "**🟢买入**　07-16 10:30 **国际复材** 301526 缩量突破",
+                 "**🟡减仓**　07-16 13:05 **中际旭创** 300308 接近前高",
+                 "**🔴卖出**　07-16 14:12 **兆易创新** 603986 弱势止损"])),
+         ], "blue", summary="错过消息回顾 3条关键信号补发"),
+         "推送开关关→开时触发 · 只补关键信号 · 最近24h/最多30条")
 
 
 # ═══════════════════════════════════════════
-# 19. 自选股黑天鹅预警 (风险公告+财务红旗 合并单卡, v1.7.488/493/504/506)
+# 七、系统通知 / 系统家族(灰卡)
 # ═══════════════════════════════════════════
-register("黑天鹅预警", "自选股黑天鹅预警", "风险公告(监管硬信号·每只挂AI逐股研判)+财务红旗(年报指标)合并一张两区域卡, 18:30一次",
-         _card_v2("⚠️ 自选股黑天鹅预警", "blue", [
-             # 风险公告 — 与真实 risk_announcement_scanner.ann_table 一致: 2列(股票|风险类型)+公告标题/AI研判下沉逐股一行
-             _md("**🚨 风险公告（2）** 监管/财务硬信号 · 每只票 AI 抓公告正文逐股研判(严重度🔴高/🟡中/⚪低)"),
-             _md(_mdtable(
-                 [{"name": "stock", "display_name": "股票"}, {"name": "tag", "display_name": "风险类型"}],
-                 [{"stock": "合力泰 002217", "tag": "立案调查"},
-                  {"stock": "润泽科技 300442", "tag": "交易所问询函"}])
-                 + "\n\n"
-                 + "• 合力泰 关于公司及实际控制人收到证监会立...（04-29） 🤖🔴高·实控人遭证监会立案，信披违法实锤，退市与索赔风险，持仓应规避\n"
-                 + "• 润泽科技 关于对深交所年报问询函的回复公...（05-10） 🤖🟡中·常规年报审核问询及中介回复，程序性环节非造假质疑，影响有限"),
-             # 财务红旗 — 与真实 financial_risk_scanner.fin_table 一致: 2列(股票|告警级别·分数)+红旗明细下沉逐股一行
-             _md("**📉 财务红旗（4）** 年报指标打分"),
-             _md(_mdtable(
-                 [{"name": "stock", "display_name": "股票"}, {"name": "level", "display_name": "告警级别"}],
-                 [{"stock": "诺德股份 600110", "level": "🔴高危85"},
-                  {"stock": "黄河旋风 600172", "level": "🔴高危78"},
-                  {"stock": "东方财富 300059", "level": "🟠中危62"},
-                  {"stock": "弘信电子 300657", "level": "🟡关注45"}])
-                 + "\n\n"
-                 + "• 诺德股份 连续亏损·累计亏损-1.1亿·存贷双高\n"
-                 + "• 黄河旋风 连续亏损·累计亏损-27.2亿·高杠杆91%\n"
-                 + "• 东方财富 利润现金流背离·高杠杆77%\n"
-                 + "• 弘信电子 累计亏损-3.8亿·高杠杆80%"),
-             _md("**纯提示, 不影响买卖点。** 监管/财务红旗多为 ST 黑天鹅前兆。"),
-         ]), "交易日18:30定时执行 · 两区域常驻(某类无新增标「本次无新增」) · ≥1区域有新增才发")
+
+def _audit_preview() -> dict:
+    from backend.services.signal_eod_audit import build_audit_card
+    suspects = [
+        ({"name": "多氟多", "code": "002407", "signal_name": "回踩10MA缩量后突破昨高",
+          "triggered_at": "2026-07-16 10:15:00"}, "触发价与新浪快照昨收不符: 触发时昨收=30.9"),
+        ({"name": "宁德时代", "code": "300750", "signal_name": "弱势极限",
+          "triggered_at": "2026-07-16 13:20:00"}, "触发时量比1.8超合理上限, 量未真缩"),
+    ]
+    return _card_json(build_audit_card(suspects, "2026-07-16", n_ok=9, n_unverified=1))
+
+
+register("系统通知", "信号EOD复核·存疑",
+         "收盘后自动复核当日全部信号: 灯串+存疑短表(股票|信号|结论)+疑点明细折叠, 只标记未删",
+         _audit_preview(),
+         "交易日17:00定时执行")
+
+
+def _blogger_preview() -> dict:
+    from backend.services.blogger_post_scanner import build_post_card
+    post = {
+        "blogger_name": "全能的野人", "posted_at": datetime.now() - timedelta(minutes=6),
+        "content": ("今天情绪明显退潮, 涨停家数不到40家, 各位注意风控。\n"
+                    "我自己的仓位已经从8成降到3成, 等情绪冰点过去再说。"),
+        "stock_codes": [], "url": "https://t.10jqka.com.cn/",
+        "like_num": 156, "comment_num": 43, "images": [],
+    }
+    return _card_json(build_post_card(post))
+
+
+register("系统通知", "博主发帖跟踪",
+         "同花顺博主新帖: 结论行=博主名+要点一句, 互动/个股数据行, 帖子全文进折叠",
+         _blogger_preview(),
+         "交易日9-10点5分/10-15点20分/盘后60分/非交易日20:00")
+
+
+def _custom_alert_preview() -> dict:
+    from backend.services.custom_alert_scanner import build_alert_card
+    items = [
+        {"code": "002929", "name": "润建股份", "price": 58.10, "pct_change": 2.2,
+         "note": "", "preset": "ma20", "ma_value": 58.05, "repeat_daily": True,
+         "conditions": []},
+        {"code": "002407", "name": "多氟多", "price": 31.50, "pct_change": -1.8,
+         "note": "回踩接回", "preset": "", "ma_value": None, "repeat_daily": False,
+         "conditions": [{"dim": "price", "op": "lte", "value": 32},
+                        {"dim": "ma_near", "ma": 10, "band": 2}]},
+    ]
+    title, fallback, elements = build_alert_card(items)
+    # 发送走 send_dual_card_to(多用户 webhook), 模板默认 blue, 无信封字段 — 与真实一致
+    return _v2(title, elements, "blue")
+
+
+register("系统通知", "自定义预警·均线提醒",
+         "个股自定义预警触发合并卡: 均线快捷提醒(碰线±0.5%·每天一次)大白话+普通自定义条件摘要, 明细折叠",
+         _custom_alert_preview(),
+         "交易时段随池扫描节奏 · 均线快捷提醒=弹窗一键开关 · 普通自定义一次性触发")
+
+
+def _data_health_preview() -> dict:
+    from backend.services.data_health import build_health_card
+    events = [
+        {"kind": "index_trends_frozen",
+         "seg": "10:31~10:39 大盘分时一度冻结 8 分钟, 现在已恢复正常", "recovered": True},
+        {"kind": "market_stats_empty",
+         "seg": "13:02 涨跌家数返回空, 目前可能还没恢复(系统会继续自动跳过)", "recovered": False},
+    ]
+    return _card_json(build_health_card(events))
+
+
+register("系统通知", "数据源健康预警",
+         "行情数据源波动即时预警: 灯串(大盘分时/涨跌家数/个股日K)+异常项+影响说明+要不要处理折叠",
+         _data_health_preview(),
+         "行情自检每轮检查 · 波动期间系统自动跳过异常数据不误报")
+
+
+def _system_digest_preview() -> dict:
+    from backend.services.system_health import build_digest_card
+    items = [
+        ("博主发帖", "「全能的野人」连续3次拉取失败: cookie过期(需重抓 get_by_uid)", "10:05"),
+        ("数据源交叉校验", "上证收盘价与备用源偏差 0.6% 超阈值", "15:12"),
+        ("博主发帖", "「全能的野人」拉取已恢复", "15:40"),
+    ]
+    return _card_json(build_digest_card(items))
+
+
+register("系统通知", "系统健康·盘后汇总",
+         "各类系统故障当日合并、盘后一次汇总(不实时刷屏): 灯串+异常清单+汇总口径折叠",
+         _system_digest_preview(),
+         "交易日盘后 · 当日无故障不推 · 紧急的行情源健康预警仍即时推")
 
 
 # ═══════════════════════════════════════════
-# 20. 持仓研判晚报 (交易日前夜20:00, 逐股数据体检+AI次日方向性建议, v1.7.x)
+# 八、持仓研判晚报(直调 holding_brief.build_brief_card)
 # ═══════════════════════════════════════════
-register("持仓研判晚报", "持仓研判晚报", "交易日前夜20:00逐股数据体检+AI次日方向性建议(持/减/清/加+目标价/止损价), 客观概率源自全市场五年同类形态前向分布",
-         _card_v2("📋 持仓研判晚报", "blue", [
-             _md("**次日大盘环境**：风险偏低，可正常持仓"),
-             # 与真实 holding_brief 一致: 逐股换行文本块(建议+名称前置, 目标止损/理由各独立行, 全名不截)
-             _md("\n".join([
-                 "🟢 **持有**　**京东方A** 000725",
-                 "现价 7.18 · 多头站均线　浮盈 +12.0% · 持 5天",
-                 "目标 7.60 · 止损 6.70",
-                 "🤖 量能延续板块第二强，同类形态次日↑58%"])),
-             _md("\n".join([
-                 "🟡 **减仓**　**沪电股份** 002463",
-                 "现价 151.0 · 高位放量滞涨　浮盈 +24.0% · 持 11天",
-                 "目标 150 · 止损 140",
-                 "🤖 高位放量滞涨，同类形态次日↑47%偏弱"])),
-             _md("**AI研判仅供参考，最终决策在你。** 客观概率源自全市场五年同类形态回测。"),
-         ]), "交易日前夜20:00定时执行 · 内部判「明天是交易日」才发(周五晚/节假日前不发) · 空仓只发一行「今日空仓」")
+
+def _brief_preview() -> dict:
+    from backend.services.holding_brief import build_brief_card
+    payloads = [
+        {"name": "京东方A", "code": "000725", "price": 7.18, "state": "多头站均线",
+         "profit_pct": 12.0, "hold_days": 5},
+        {"name": "沪电股份", "code": "002463", "price": 151.00, "state": "高位放量滞涨",
+         "profit_pct": 24.0, "hold_days": 11},
+        {"name": "三花智控", "code": "002050", "price": 21.80, "state": "缩量回踩",
+         "profit_pct": -2.1, "hold_days": 3},
+    ]
+    verdicts = {
+        "000725": {"action": "持有", "target": 7.60, "stop": 6.70,
+                   "reason": "量能延续板块第二强，同类形态次日↑58%"},
+        "002463": {"action": "减仓", "target": 150, "stop": 140,
+                   "reason": "高位放量滞涨，同类形态次日↑47%偏弱"},
+        "002050": {"action": "持有", "target": 23.50, "stop": 20.80,
+                   "reason": "缩量回踩MA10企稳，机器人主线仍在"},
+    }
+    return _card_json(build_brief_card(payloads, verdicts, "风险偏低，可正常持仓"))
+
+
+register("持仓研判晚报", "持仓研判晚报",
+         "交易日前夜20:00逐股数据体检+AI次日方向性建议(持/减/清/加+目标价/止损价), "
+         "客观概率源自全市场五年同类形态前向分布",
+         _brief_preview(),
+         "交易日前夜20:00 · 内部判「明天是交易日」才发 · 空仓只发一行「今日空仓」")
 
 
 # ═══════════════════════════════════════════
-# 财报披露日历(防御) + 预增榜(进攻·克制) v1.7.573
+# 九、盘后提醒(披露日历 / 预增榜)
 # ═══════════════════════════════════════════
-register("盘后提醒", "财报披露日历·近期", "自选/持仓里未来7天内要披露定期报告的票, 盘前提醒(防御避险)",
-         _card_v2("📅 财报披露日历·近期", "blue", [
-             _md("你的自选/持仓里未来7天内有 **3** 只披露定期报告。\n"
-                 "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。"),
-             # 与真实 disclosure_reminder 一致: 换行文本行(披露日前置加粗 + 名称/代码/报告类型全名不截)
-             _md("\n".join([
-                 "**2025-08-15** · 3天后　🔴**宁德时代**(300750) 2025半年报",
-                 "**2025-08-18** · 6天后　**比亚迪**(002594) 2025半年报",
-                 "**2025-08-19** · 7天后　**隆基绿能**(601012) 2025半年报"])),
-         ]), "交易日 08:40 · 自选+持仓未来7天内有披露才发")
 
-register("盘后提醒", "预增榜·当日正向业绩预告", "盘后把当日新出的正向业绩预告捞出来(自选置顶+全市场大幅预增), 克制使用",
-         _card_v2("📈 预增榜·当日正向业绩预告", "red", [
-             _md("新出正向业绩预告 **937** 条。⚠️ 回测: 好业绩涨在公告那一下、之后D+2→D+5阴跌(利好兑现), "
-                 "只做快进快出别追高; 埋伏仅「预增」有小edge。"),
-             # v1.7.x markdown表格: 三列各格都短(名称+类型/净利变动/发布MM-DD), 关键值净利变动手机直接可见不用点开
-             _md("**🎯 你的自选/持仓命中 1 只**（🔴持仓 ⭐自选）\n\n"
-                 "| 股票 | 净利变动 | 发布 |\n| --- | --- | --- |\n"
-                 "| 🔴华银电力 预增 | +3601%~+4423% | 07-05 |"),
-             _md("**全市场大幅预增 Top3**（按净利变动幅度）\n\n"
-                 "| 股票 | 净利变动 | 发布 |\n| --- | --- | --- |\n"
-                 "| 南方精工 扭亏 | +28647%~+35784% | 07-05 |\n"
-                 "| 三和管桩 预增 | +3091%~+3889% | 07-04 |\n"
-                 "| 某某股份 预增 | +500%~+800% | 07-05 |"),
-         ]), "每日 18:30 · 当日有正向预告才发 · 克制使用(非埋伏神器)")
+def _disclosure_preview() -> dict:
+    from datetime import date
+    from backend.services.disclosure_reminder import build_disclosure_card
+    base = date.today()
+    rows = [
+        {"code": "300750", "name": "宁德时代", "report_type": "2",
+         "appoint_date": (base + timedelta(days=3)).isoformat(), "report_year": base.year},
+        {"code": "002594", "name": "比亚迪", "report_type": "2",
+         "appoint_date": (base + timedelta(days=6)).isoformat(), "report_year": base.year},
+        {"code": "601012", "name": "隆基绿能", "report_type": "2",
+         "appoint_date": (base + timedelta(days=7)).isoformat(), "report_year": base.year},
+    ]
+    return _card_json(build_disclosure_card(rows, hold_codes={"300750"}, today=base))
 
 
-# ── 快捷设置动作行: 个股买入/卖出信号卡底部统一追加(与真实推送 1:1, 实推由 push_pref.build_quick_actions_md 生成) ──
-# 预览里链接做视觉展示(指向 # ), 真实推送是带 HMAC 签名的 /api/quick/set 链接
-_QUICK_ACTIONS_DEMO = "[🔕 今日免打扰](#)　·　[🔕 静音此股](#)"
-# 卖出/减仓卡多一个「已卖出」: 点了这只票从持仓消失 + 压后续卖出/持仓提醒(与实推 1:1)
-_QUICK_ACTIONS_DEMO_SELL = _QUICK_ACTIONS_DEMO + "　·　[✅ 已卖出](#)"
+register("盘后提醒", "财报披露日历·近期",
+         "自选/持仓里未来7天内要披露定期报告的票, 盘前提醒(防御避险): 全短列表+回测依据折叠",
+         _disclosure_preview(),
+         "交易日 08:40 · 自选+持仓未来7天内有披露才发")
 
-for _tpl in TEMPLATES:
-    if _tpl["category"] in ("买入信号", "卖出信号"):
-        _els = _tpl["card"].get("body", {}).get("elements")
-        if isinstance(_els, list):
-            _demo = _QUICK_ACTIONS_DEMO_SELL if _tpl["category"] == "卖出信号" else _QUICK_ACTIONS_DEMO
-            _els.append(_md(_demo))
+
+def _forecast_preview() -> dict:
+    from backend.services.earnings_forecast_scan import build_forecast_card
+    mine = [{"code": "600744", "name": "华银电力", "predict_type": "预增",
+             "amp_lower": 3601, "amp_upper": 4423, "notice_date": "2026-07-05"}]
+    others = [
+        {"code": "603889", "name": "南方精工", "predict_type": "扭亏",
+         "amp_lower": 28647, "amp_upper": 35784, "notice_date": "2026-07-05"},
+        {"code": "003037", "name": "三和管桩", "predict_type": "预增",
+         "amp_lower": 3091, "amp_upper": 3889, "notice_date": "2026-07-04"},
+        {"code": "001210", "name": "金房能源", "predict_type": "预增",
+         "amp_lower": 500, "amp_upper": 800, "notice_date": "2026-07-05"},
+    ]
+    good = mine + others
+    return _card_json(build_forecast_card(good, mine, others, hold_codes={"600744"}))
+
+
+register("盘后提醒", "预增榜·当日正向业绩预告",
+         "盘后把当日新出的正向业绩预告捞出来(自选置顶+全市场大幅预增), 机会族红卡, 克制使用",
+         _forecast_preview(),
+         "每日 18:30 · 当日有正向预告才发 · 克制使用(非埋伏神器)")
 
 
 # ── API ──
@@ -720,7 +1097,6 @@ for _tpl in TEMPLATES:
 async def list_templates(user: Annotated[dict, Depends(get_current_user)]):
     """返回所有飞书推送模版列表(含示例卡片JSON + 触发时机)."""
     import os
-    from datetime import datetime
     mtime = os.path.getmtime(__file__)
     updated = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
     return {"templates": TEMPLATES, "updated_at": updated}
