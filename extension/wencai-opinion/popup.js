@@ -78,6 +78,7 @@ function loadHistory() {
 }
 
 $('save').onclick = save;
+$('tokToggle').onclick = () => { const i = $('token'); const on = i.type === 'password'; i.type = on ? 'text' : 'password'; $('tokToggle').textContent = on ? '隐藏' : '显示'; };
 $('askGo').onclick = () => { const q = $('askInput').value.trim(); if (q) runBg(q); };
 $('askInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const q = $('askInput').value.trim(); if (q) runBg(q); } });
 load(); loadHistory(); loadQuota();

@@ -21,8 +21,6 @@
   </div>
 
   <div class="sec">
-    <div class="row"><label>服务器地址</label><input id="serverUrl" type="text" placeholder="http://124.71.75.5"></div>
-    <div class="row"><label>上报密钥 token</label><input id="token" type="text" placeholder="分发包已预填，一般不用动"></div>
     <div class="row"><label>我的昵称（留空自动用同花顺账号号）</label><input id="uploader" type="text" placeholder="选填，如：老王"></div>
   </div>
 
@@ -43,6 +41,16 @@
     <div class="row"><label>定时跑哪些问题（每行一条；留空=跑第一条预置）</label>
       <textarea id="schedQuestions" rows="2" placeholder="留空则跑第一条预置问题"></textarea></div>
   </div>
+
+  <details class="adv">
+    <summary>⚙️ 高级设置（服务器/密钥，已预置，一般不用动）</summary>
+    <div class="advbd">
+      <div class="row"><label>服务器地址</label><input id="serverUrl" type="text" placeholder="http://124.71.75.5"></div>
+      <div class="row"><label>上报密钥 token
+        <span class="link" id="tokToggle">显示</span></label>
+        <input id="token" type="password" placeholder="分发包已预置"></div>
+    </div>
+  </details>
 
   <div class="foot"><button id="save" class="btn">保存设置</button><span id="saveMsg" class="savemsg"></span></div>
   <script src="popup.js"></script>
