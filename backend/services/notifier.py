@@ -540,6 +540,7 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
                              pct_change: float = 0.0,
                              model_stats: dict | None = None,
                              signal_id: str = "") -> bool:
+    """个股信号推送对外入口: 闸门(生产IP/用户/推送偏好) → 风暴聚合拦截(离场族) → 直发。"""
     # IP 网关：只允许生产服务器 IP 推送，本地开发跳过避免重复
     if not await is_production():
         ip = await get_outbound_ip()
@@ -556,9 +557,6 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
             logger.info(f"用户{user_id}不存在，跳过: {name}({code}) {signal_name}")
             return False
         username = user.get("username", "")
-    cfg = load_config()
-    lark_webhook = cfg.get("lark_webhook", "")
-    lark_on = bool(cfg.get("lark_enabled", False))
 
     # 推送偏好闸门(快捷设置): 个股snooze/模型今日关/已标记 → 全渠道不推; 今日免打扰 → 仅静音飞书
     mute_lark = False
@@ -587,6 +585,44 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
                 logger.info(f"[push_pref] 新一轮突破, 撤销条件静音放行: {name}({code}) {signal_name}")
     except Exception as e:
         logger.warning(f"[push_pref] 闸门异常, 放行: {e}")
+
+    # ── 机制一·风暴聚合窗口(v1.7.642, 基线第五节聚合卡): 离场族个股信号闸后进 90s 缓冲 ──
+    # 全部闸门已过才进缓冲(聚合器只决定合并发/逐张发, 不再过滤); 同窗 ≥3 条合并聚合卡防普跌日
+    # 轰炸, <3 条到期按原参数逐发不丢失。只聚卖出/减仓(买点晚 90 秒可能误事且机会不成灾);
+    # 大盘急跌(plunge)不进缓冲(它本来就是全局一张)。拦截异常一律放行直发, 绝不因聚合弄丢推送。
+    if direction in ("sell", "reduce") and code:
+        try:
+            from backend.services import storm_aggregator
+            if await storm_aggregator.intercept("exit", dict(
+                    code=code, name=name, signal_name=signal_name, direction=direction,
+                    price=price, detail=detail, user_id=user_id, strategy=strategy,
+                    pct_change=pct_change, model_stats=model_stats, signal_id=signal_id,
+                    username=username, mute_lark=mute_lark)):
+                return True
+        except Exception as e:
+            logger.warning(f"[storm] 聚合拦截异常, 改直发: {e}")
+
+    return await _send_wechat_signal_direct(
+        code=code, name=name, signal_name=signal_name, direction=direction,
+        price=price, detail=detail, user_id=user_id, strategy=strategy,
+        pct_change=pct_change, model_stats=model_stats, signal_id=signal_id,
+        username=username, mute_lark=mute_lark)
+
+
+async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
+                                     direction: str, price: float, detail: str,
+                                     user_id: int | None = None,
+                                     strategy: str = "",
+                                     pct_change: float = 0.0,
+                                     model_stats: dict | None = None,
+                                     signal_id: str = "",
+                                     username: str = "",
+                                     mute_lark: bool = False) -> bool:
+    """构卡+发送(闸门后半程, 勿直接对外调用——闸门在 send_wechat_signal)。
+    风暴聚合缓冲到期逐发也走这里: 原参数全量回放, 不丢字段。"""
+    cfg = load_config()
+    lark_webhook = cfg.get("lark_webhook", "")
+    lark_on = bool(cfg.get("lark_enabled", False))
 
     # v1.7.x: 市场风险预警期间, 买点推送统一标记 (替代v1.7.406空仓预警)
     if direction == "buy":

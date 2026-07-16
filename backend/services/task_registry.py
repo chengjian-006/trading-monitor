@@ -72,6 +72,17 @@ from backend.services.system_health import run_system_health_digest
 logger = logging.getLogger(__name__)
 
 
+async def flush_alert_throttle_and_storm():
+    """既有 60s 周期 flush 任务(alert_throttle_flush)扩展: 节流缓冲 + 风暴聚合窗口到期兜底。
+    storm_aggregator 主结算靠 90s 一次性定时器, 这里只兜「定时器丢失/入队时无事件循环」。"""
+    await flush_alert_throttle()
+    try:
+        from backend.services.storm_aggregator import flush_expired
+        await flush_expired()
+    except Exception as e:
+        logger.warning(f"[storm] 周期兜底 flush 异常: {e}")
+
+
 async def rebuild_trade_rounds():
     """收盘后给所有用户重建交易回合 (FIFO 聚合交割单 + 归因买点)。"""
     from backend.models import repository
@@ -106,7 +117,7 @@ TASK_HANDLERS: dict[str, object] = {
     "run_auction_0926": run_auction_0926,
     "run_auction_sector_strength": run_auction_sector_strength,
     "refresh_market_overview": refresh_market_overview,
-    "flush_alert_throttle": flush_alert_throttle,
+    "flush_alert_throttle": flush_alert_throttle_and_storm,
     "backfill_signal_outcomes": backfill_signal_outcomes,
     "snapshot_signal_perf": snapshot_signal_perf,
     "refresh_stock_tags": refresh_stock_tags,

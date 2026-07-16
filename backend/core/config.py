@@ -18,6 +18,10 @@ DEFAULT_CONFIG = {
         {"start": "09:15", "end": "11:30"},
         {"start": "13:00", "end": "15:00"},
     ],
+    # 机制一·风暴聚合窗口(v1.7.642): 离场/风险族个股信号 window 秒内 ≥3 条合并一张聚合卡
+    # (card_kit.aggregate_card, 防普跌日轰炸); <3 条到期原样逐发。见 services/storm_aggregator.py。
+    "storm_aggregate_enabled": True,
+    "storm_aggregate_window": 90,
     "anthropic_api_key": "",
     "ai_report_enabled": True,
     "sso_enabled": True,
