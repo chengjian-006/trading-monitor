@@ -119,45 +119,48 @@ def build_weak_extreme_section(we_hits: list[dict]) -> str:
     return f"■ 弱势极限·收盘候选 ({len(we_hits)}只)\n\n{we_lines}"
 
 
-def build_weak_extreme_elements(we_hits: list[dict]) -> list:
-    """v2 卡片版: md_table + 折叠技术参数。返回 elements 列表供 send_dual_card。"""
-    from backend.services.lark_notifier import md_element, md_table_str, collapsible_element
-    if not we_hits:
-        return []
-    columns = [
-        {"name": "stock", "display_name": "股票"},
-        {"name": "price", "display_name": "现价"},
-        {"name": "pct", "display_name": "涨跌"},
-    ]
-    rows = []
+_WEAK_ADVICE = "等收盘确认再入场，左侧耐心持有"
+
+
+def build_weak_extreme_card(we_hits: list[dict], slot: str = "尾盘快照"):
+    """基线 v1.1 结构卡: 机会家族(买点候选=红, 原 blue 升级)。五区骨架:
+    结论行 → 全短列表(股票|现价|涨跌, 长值成交额/技术参数下沉折叠) → 👉建议 → 折叠技术参数。
+    返回 card_kit.Card, 经 notifier.send_card 发送; fallback 纯文本保 PushPlus 同源信息量。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+    n = len(we_hits)
+    first = we_hits[0]
+    if n == 1:
+        title = f"📈 弱势极限 · {first['name']}({first['code']})"
+        concl = (f"**{first['name']}({first['code']})** 触发弱势极限地量，"
+                 f"现价 **{first['close']:.2f}**（{card_kit.pct_md(first.get('pct', 0))}）")
+        summary = card_kit.summary_text(
+            first["name"], first["code"], "弱势极限",
+            f"{first['close']:.2f}", f"{first.get('pct', 0):+.2f}%")
+    else:
+        title = f"📈 弱势极限 · {n}只"
+        concl = f"自选池 **{n}只** 触发弱势极限地量（缩量贴线·收盘候选）"
+        summary = card_kit.summary_text(f"{n}只", "弱势极限收盘候选")
+    elements = [md_element(concl)]
+    if n > 1:  # 单只时结论行已含全部短值, 免一行表
+        rows = [(f"{h['name']}({h['code']})", f"{h['close']:.2f}",
+                 card_kit.pct_md(h.get("pct", 0), bold=False)) for h in we_hits]
+        elements.append(card_kit.short_table(["股票", "现价", "涨跌"], rows))
+    elements.append(card_kit.advice(_WEAK_ADVICE))
     detail_lines = []
     for h in we_hits:
-        pct = h.get("pct", 0)
-        pct_str = f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
-        amt_str = f" {_fmt_amount(h.get('amount', 0))}" if h.get("amount") else ""
-        rows.append({
-            "stock": f"{h['name']}({h['code']})",
-            "price": f"{h['close']:.2f}",
-            "pct": pct_str,
-        })
-        detail_lines.append(f"**{h['name']}**{amt_str}\n{h['detail']}")
-    elements = [md_element(md_table_str(columns, rows))]
+        amt_str = f"　成交 {_fmt_amount(h.get('amount', 0))}" if h.get("amount") else ""
+        detail_lines.append(f"**{h['name']}({h['code']})**{amt_str}\n{h['detail']}")
     if detail_lines:
-        elements.append(collapsible_element(
-            "技术参数（点击展开）",
-            "\n\n".join(detail_lines),
-        ))
-    return elements
-
-
-def build_weak_extreme_fallback(we_hits: list[dict]) -> str:
-    """PushPlus 纯文本兜底。"""
-    lines = []
-    for h in we_hits:
-        pct = h.get("pct", 0)
-        pct_str = f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
-        lines.append(f"{h['name']}({h['code']}) {h['close']:.2f} {pct_str}")
-    return "\n".join(lines)
+        elements.append(card_kit.fold("技术参数（点击展开）", "\n\n".join(detail_lines)))
+    fallback = (f"【弱势极限·{slot}】{n}只候选\n\n"
+                + "\n\n".join(_format_hit_line(h) for h in we_hits)
+                + f"\n\n👉 {_WEAK_ADVICE}")
+    return card_kit.Card(
+        title=title, elements=elements, fallback=fallback,
+        family="opportunity", summary=summary,
+        subtitle="收盘入场 · 左侧", tags=[("买点候选", "red")],
+    )
 
 
 async def scan_weak_extreme_snapshot():
@@ -185,9 +188,7 @@ async def scan_weak_extreme_snapshot():
     if not we_hits:
         logger.info(f"[weak_extreme_snapshot] {slot} 无命中, 不推送(收盘汇总会带确认)")
         return
-    title = f"📉 弱势极限·{len(we_hits)}只候选"
-    elements = build_weak_extreme_elements(we_hits)
-    fallback = f"【弱势极限·{slot}】{len(we_hits)}只\n\n{build_weak_extreme_fallback(we_hits)}"
-
-    sent = await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="blue")
+    # 基线 v1.1: 结构卡(买点候选=机会家族红, 原 blue), 摘要/副标题/彩签走 send_card 信封
+    card = build_weak_extreme_card(we_hits, slot)
+    sent = await notifier.send_card(card)
     logger.info(f"[weak_extreme_snapshot] {slot} 弱势极限{len(we_hits)}只 推送={sent}")

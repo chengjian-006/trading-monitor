@@ -93,6 +93,47 @@ def test_describe_hit_custom_fallback():
     assert "满足: 价格≥9.5" in describe_hit(it)
 
 
+def test_build_alert_card_single():
+    # 基线 v1.1 五区骨架: 结论 → 全短列表(股票|现价|涨跌) → 👉建议 → 折叠明细
+    from backend.services.custom_alert_scanner import build_alert_card
+    items = [{"code": "600519", "name": "贵州茅台", "price": 1580.0, "pct_change": 2.34,
+              "conditions": [{"dim": "price", "op": "gte", "value": 1500}],
+              "note": "", "preset": "", "repeat_daily": False, "ma_value": None}]
+    title, content, elements = build_alert_card(items)
+    assert title == "🔔 自定义预警 · 贵州茅台(600519)"
+    assert "满足: 价格≥1500" in elements[0]["content"]
+    tbl = elements[1]["content"]
+    assert tbl.splitlines()[0] == "| 股票 | 现价 | 涨跌 |"
+    assert "1580.00" in tbl and "+2.3%" in tbl
+    assert elements[2]["content"].startswith("👉 **")
+    assert elements[3]["tag"] == "collapsible_panel"
+    # fallback 同源信息量: 明细 + 建议 + 一次性说明
+    assert "现价 **1580.00**" in content
+    assert "👉 对照预警条件核实，按计划操作" in content
+    assert "一次性预警已自动停用" in content
+
+
+def test_build_alert_card_multi_and_none_pct():
+    from backend.services.custom_alert_scanner import build_alert_card
+    items = [
+        {"code": "600519", "name": "贵州茅台", "price": 1580.0, "pct_change": None,
+         "conditions": [{"dim": "price", "op": "gte", "value": 1500}],
+         "note": "", "preset": "", "repeat_daily": False, "ma_value": None},
+        {"code": "601689", "name": "拓普集团", "price": 58.39, "pct_change": -1.2,
+         "conditions": [{"dim": "ma_near", "ma": 20, "band": 0.5}],
+         "note": "", "preset": "ma20", "repeat_daily": True, "ma_value": 58.10},
+    ]
+    title, content, elements = build_alert_card(items)
+    assert title == "🔔 自定义预警 · 2只"
+    assert "同时触发 **2** 条" in elements[0]["content"]
+    tbl = elements[1]["content"]
+    assert "| 贵州茅台(600519) | 1580.00 | - |" in tbl  # 无涨跌数据显示 -
+    assert "-1.2%" in tbl
+    # 折叠明细含大白话触发描述; foot 两种说明都带上
+    assert "股价碰到20日线" in content
+    assert "一次性预警已自动停用" in content and "均线提醒每天最多报一次" in content
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

@@ -8,6 +8,11 @@ from backend.services.ma_break_watch import (
 from backend.services import push_pref as pp
 
 
+def _tb(card):
+    """基线 v1.1 改版后 build_watch_card 返回 Card; fallback 保留旧版行式全文(同源信息量)。"""
+    return card.title, card.fallback
+
+
 # ── find_cost_line: 识别最近放量起涨点成本线(用户0705逻辑) ──
 
 def _flat_then_start():
@@ -50,7 +55,7 @@ def test_card_shows_cost_break():
     items = [{"name": "圣泉集团", "code": "605589", "price": 55.70, "pct": -2.9,
               "streaks": {5: 3, 10: 3, 20: 3},
               "cost_break": {"price": 57.01, "date": "2026-06-11"}, "actions_md": ""}]
-    title, body = build_watch_card(items)
+    title, body = _tb(build_watch_card(items))
     assert "跌破主力成本区" in body and "57.01" in body and "06-11" in body
 
 
@@ -59,7 +64,7 @@ def test_card_cost_break_alone_still_shown():
     items = [{"name": "甲", "code": "000001", "price": 20.0, "pct": -1.0,
               "streaks": {5: 0, 10: 0, 20: 0},
               "cost_break": {"price": 21.0, "date": "2026-06-20"}, "actions_md": ""}]
-    title, body = build_watch_card(items)
+    title, body = _tb(build_watch_card(items))
     assert "甲" in body and "跌破主力成本区" in body
 
 
@@ -125,7 +130,7 @@ def test_card_reports_only_deepest_ma():
         {"name": "圣泉集团", "code": "605589", "price": 28.30, "pct": -2.1,
          "streaks": {5: 3, 10: 1, 20: 0}, "actions_md": ""},
     ]
-    title, body = build_watch_card(items)
+    title, body = _tb(build_watch_card(items))
     assert "尾盘破位警戒" in title and "1只" in title
     assert "圣泉集团" in body and "605589" in body
     assert "破MA10·今日新破" in body               # 最深档=MA10, 用MA10自己的连续天数
@@ -140,7 +145,7 @@ def test_card_multiple_stocks_and_actions():
         {"name": "乙", "code": "000002", "price": 20.0, "pct": -3.0,
          "streaks": {5: 1, 10: 1, 20: 1}, "actions_md": ""},
     ]
-    title, body = build_watch_card(items)
+    title, body = _tb(build_watch_card(items))
     assert "2只" in title
     assert "甲" in body and "乙" in body
     assert "[当日不提醒](http://x)" in body
@@ -162,7 +167,7 @@ def test_watch_ma_is_20_only():
 
 
 def test_card_watch_section_rendered():
-    title, body = build_watch_card([], [_watch()])
+    title, body = _tb(build_watch_card([], [_watch()]))
     assert "1只自选" in title
     assert "只报这一次" in body                      # 自选段语义: 只在转弱当天报
     assert "丙(300123)" in body and "8.55" in body
@@ -172,7 +177,7 @@ def test_card_watch_section_rendered():
 
 
 def test_card_watch_without_buy_signal_falls_back():
-    title, body = build_watch_card([], [_watch(model="", model_at="")])
+    title, body = _tb(build_watch_card([], [_watch(model="", model_at="")]))
     assert "手工加入, 无买点信号记录" in body
     assert "当初买点" not in body
 
@@ -180,7 +185,7 @@ def test_card_watch_without_buy_signal_falls_back():
 def test_card_both_sections_titled_and_separated():
     holds = [{"name": "甲", "code": "000001", "price": 10.0, "pct": -1.0,
               "streaks": {5: 2, 10: 0, 20: 0}, "actions_md": ""}]
-    title, body = build_watch_card(holds, [_watch()])
+    title, body = _tb(build_watch_card(holds, [_watch()]))
     assert "1只持仓" in title and "1只自选" in title
     assert "【持仓 · 每日尾盘复报直到收复】" in body
     assert "【自选 · 今日新跌破MA20 · 只报这一次】" in body
@@ -191,7 +196,7 @@ def test_card_holdings_only_unchanged_when_no_watch():
     """回归: 没有自选破位时, 卡片不能冒出空的自选段。"""
     holds = [{"name": "甲", "code": "000001", "price": 10.0, "pct": -1.0,
               "streaks": {5: 2, 10: 0, 20: 0}, "actions_md": ""}]
-    title, body = build_watch_card(holds)
+    title, body = _tb(build_watch_card(holds))
     assert "1只持仓" in title and "自选" not in title
     assert "自选" not in body
 
@@ -199,7 +204,7 @@ def test_card_holdings_only_unchanged_when_no_watch():
 def test_watch_section_caps_rows_and_discloses_omission():
     """大盘暴跌日可能几十只 —— 截断可以, 静默截断不行(飞书4000字符会无声吃掉尾部)。"""
     many = [_watch(name=f"股{i}", code=f"{i:06d}", dist=-float(i)) for i in range(1, 26)]
-    title, body = build_watch_card([], many)
+    title, body = _tb(build_watch_card([], many))
     assert "25只自选" in title                       # 标题报总数, 不报截断后的数
     assert "另有 10 只新破MA20未列出" in body        # 25 - 15 = 10
     assert "股1(000001)" in body                     # 破得最深的留下
@@ -207,7 +212,7 @@ def test_watch_section_caps_rows_and_discloses_omission():
 
 
 def test_watch_section_no_omission_note_when_under_cap():
-    title, body = build_watch_card([], [_watch()])
+    title, body = _tb(build_watch_card([], [_watch()]))
     assert "未列出" not in body
 
 
@@ -219,6 +224,46 @@ def test_watch_filter_semantics_via_streaks():
 
     already = [10.0] * 23 + [9.0, 9.0]                  # 前两日已收在MA20下方
     assert break_streaks(already, price=9.0)[20] >= 2   # 老早破了 → 不再喊
+
+
+# ── 基线 v1.1 Card 结构: 家族色 / 短表 / 折叠长值 / 动作行 ──
+
+def _hold_item(**kw):
+    base = {"name": "圣泉集团", "code": "605589", "price": 55.70, "pct": -2.9,
+            "streaks": {5: 3, 10: 3, 20: 3},
+            "cost_break": {"price": 57.01, "date": "2026-06-11"},
+            "actions_md": "[当日不提醒](http://x)　·　[已卖出](http://y)"}
+    base.update(kw)
+    return base
+
+
+def test_card_family_exit_green():
+    card = build_watch_card([_hold_item()])
+    assert card.family == "exit" and card.template == "green"
+
+
+def test_card_elements_short_table_and_fold():
+    card = build_watch_card([_hold_item()], [_watch()])
+    joined = str(card.elements)
+    # 持仓/自选各一张全短列表格(≤3列), 破位/当初买点短值入表
+    tables = [e for e in card.elements if e.get("tag") == "markdown" and "| 股票 |" in e.get("content", "")]
+    assert len(tables) == 2
+    assert "| 股票 | 涨跌 | 破位 |" in tables[0]["content"]
+    assert "MA20·3日+🔴成本线" in tables[0]["content"]
+    assert "| 股票 | 涨跌 | 当初买点 |" in tables[1]["content"]
+    # 长值(现价/距MA/成本线价格)下沉折叠, 表格里不出现
+    assert "55.70" not in tables[0]["content"] and "57.01" not in tables[0]["content"]
+    folds = [e for e in card.elements if e.get("tag") == "collapsible_panel"]
+    fold_text = str(folds)
+    assert "¥55.70" in fold_text and "¥57.01" in fold_text and "距MA20 -1.8%" in fold_text
+    assert "👉" in joined                        # 行动建议区
+    # 快捷动作行(逐票 snooze+已卖出)永远最后
+    assert "当日不提醒" in card.elements[-1]["content"] and "已卖出" in card.elements[-1]["content"]
+
+
+def test_card_summary_counts_sections():
+    card = build_watch_card([_hold_item()], [_watch()])
+    assert "1只持仓" in card.summary and "1只自选" in card.summary and "破位" in card.summary
 
 
 # ── push_pref: ma_watch_snooze kind ──

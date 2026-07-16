@@ -73,19 +73,45 @@ def price_recovered(current_price: float, first_stop_price: float) -> bool:
 def build_escalation_card(*, name: str, code: str, day_n: int,
                           first_stop_date: str, first_stop_price: float, first_stop_pct: float,
                           current_price: float, current_pct: float, extra_loss_yuan: int,
-                          actions_md: str = "") -> tuple[str, str]:
-    """升级红卡 (title, body_md)。body 走 lark_md(飞书/微信通用)。"""
-    title = f"🚨 止损未执行·第{day_n}天 · {name}"
-    lines = [
-        f"**{name}({code})**",
+                          actions_md: str = "", history_md: str = ""):
+    """纪律升级红卡(基线 v1.1): family=risk_hot —— 唯一允许绿越级红的纪律升级卡。
+    返回 card_kit.Card, 经 notifier.send_card 发送(修复旧 send_dual 未传 template 一直蓝卡的 bug)。
+    history_md: 历史喊单明细(逐日触发记录), 进折叠区。"""
+    from backend.services.card_kit import Card, advice, fold, kpi_row, pct_md, summary_text
+    from backend.services.lark_notifier import md_element
+
+    title = f"🚨 止损未执行 · {name}({code})"
+    detail = history_md or (f"{first_stop_date[5:]} 首次触发止损 @¥{first_stop_price:.2f}"
+                            f"（{first_stop_pct:+.0f}%），此后连续 {day_n} 天未执行")
+    elements: list = [
+        kpi_row([
+            ("现价", f"¥{current_price:.2f}"),
+            ("首次止损价", f"¥{first_stop_price:.2f}"),
+            ("累计多亏", f"¥{extra_loss_yuan:,.0f}", "red"),
+        ]),
+        md_element(f"当前 {pct_md(current_pct)}，首次止损位在 {pct_md(first_stop_pct, bold=False)}"
+                   f" 时就该砍，扛着不砍已多亏 **¥{extra_loss_yuan:,.0f}**"),
+        advice("止损离场，别等反弹"),
+        fold("历史喊单明细", detail),
+    ]
+    if actions_md:                    # 快捷动作行(stop_snooze + 已卖出)永远最后
+        elements.append(md_element(actions_md))
+
+    fb_lines = [
+        f"🚨 止损未执行·第{day_n}天 {name}({code})",
         f"首次止损 {first_stop_date[5:]} @{first_stop_price:.2f}（{first_stop_pct:+.0f}%）未执行",
-        f"现价 {current_price:.2f}　当前 **{current_pct:+.1f}%**",
-        "━━━━━━━━━━━━━━",
-        f"若首次止损执行，已少亏 **¥{extra_loss_yuan:,.0f}**",
+        f"现价 {current_price:.2f}　当前 {current_pct:+.1f}%",
+        f"若首次止损执行，已少亏 ¥{extra_loss_yuan:,.0f}",
+        "👉 止损离场，别等反弹",
     ]
     if actions_md:
-        lines.append(actions_md)
-    return title, "\n".join(lines)
+        fb_lines.append(actions_md)
+    return Card(
+        title=title, elements=elements, fallback="\n".join(fb_lines), family="risk_hot",
+        summary=summary_text(name, f"止损未执行第{day_n}天", f"现价¥{current_price:.2f}"),
+        subtitle=f"连续{day_n}天未执行 · 首次触发 {first_stop_date[5:]}",
+        tags=[(f"第{day_n}天", "red")],
+    )
 
 
 def recent_trading_days_desc(n: int = 30, today=None) -> list[str]:
@@ -191,11 +217,14 @@ async def stop_escalation_tick():
         if sold_md:
             actions = (actions + "　·　" + sold_md) if actions else sold_md
 
-        title, body = build_escalation_card(
+        hist_md = "\n".join(
+            f"{str(f['d'])[5:10]} 触发止损 @¥{float(f.get('price') or 0):.2f}" for f in fires)
+        card = build_escalation_card(
             name=name, code=code, day_n=run,
             first_stop_date=str(first["d"])[:10], first_stop_price=first_price, first_stop_pct=first_pct,
-            current_price=price, current_pct=cur_pct, extra_loss_yuan=loss, actions_md=actions)
+            current_price=price, current_pct=cur_pct, extra_loss_yuan=loss, actions_md=actions,
+            history_md=hist_md)
         try:
-            await notifier.send_dual(body, lark_title=title)
+            await notifier.send_card(card)
         except Exception as e:
             logger.warning(f"[stop_escalation] 推送失败({code}): {e}")

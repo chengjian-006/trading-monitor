@@ -158,21 +158,37 @@ def test_throttle_load_restores_counts_from_db_snapshot():
     assert t.throttled("000001", "profit_protect", "2026-06-16") is False
 
 
-# ---------- 文案: 关键事实出现 ----------
+# ---------- 文案(基线 v1.1 Card): 关键事实出现 ----------
 
 def test_near_high_msg_contains_facts():
-    title, elements, fallback = build_near_high_msg("平安银行", "000001", 11.85, 12.05, "2026-05-21")
-    assert "平安银行" in title
-    assert "000001" in fallback
-    assert "11.85" in fallback and "12.05" in fallback
-    assert len(elements) >= 2
+    card = build_near_high_msg("平安银行", "000001", 11.85, 12.05, "2026-05-21")
+    assert "接近前高 · 平安银行(000001)" in card.title
+    assert card.family == "exit" and card.template == "green"
+    assert "000001" in card.fallback
+    assert "11.85" in card.fallback and "12.05" in card.fallback
+    joined = str(card.elements)
+    assert "距60日前高" in joined and "👉" in joined
+    assert "▰" in joined or "▱" in joined            # card_kit.strength_bar 进度条
+    # 价格长值下沉折叠
+    folds = [e for e in card.elements if e.get("tag") == "collapsible_panel"]
+    assert folds and "¥11.85" in str(folds[0]) and "¥12.05" in str(folds[0])
+    assert "平安银行" in card.summary and "接近前高" in card.summary
 
 
 def test_profit_protect_msg_contains_facts_and_advisory():
-    title, elements, fallback = build_profit_protect_msg(
+    card = build_profit_protect_msg(
         "测试股份", "000XXX", peak_gain=0.183, cur_gain=0.014,
         cost=10.0, advisory="动量突破回踩常是洗盘，留意而非急走", model_name="缩量突破")
-    assert "测试股份" in title
-    assert "18.3" in fallback and "1.4" in fallback
-    detail_text = " ".join(str(e) for e in elements)
-    assert "缩量突破" in detail_text
+    assert "盈利保护 · 测试股份(000XXX)" in card.title
+    assert card.family == "exit" and card.template == "green"
+    assert "18.3" in card.fallback and "1.4" in card.fallback
+    # KPI 三栏 = 当前盈利/峰值盈利/已回吐, 价格长值(成本)下沉折叠
+    kpi = card.elements[0]
+    assert kpi["tag"] == "column_set" and len(kpi["columns"]) == 3
+    kpi_text = str(kpi)
+    assert "+1.4%" in kpi_text and "+18.3%" in kpi_text and "92%" in kpi_text
+    assert "¥10.00" not in kpi_text
+    folds = [e for e in card.elements if e.get("tag") == "collapsible_panel"]
+    fold_text = str(folds)
+    assert "¥10.00" in fold_text                       # 价格明细折叠
+    assert "缩量突破" in fold_text and "洗盘" in fold_text   # 建仓信息折叠保留

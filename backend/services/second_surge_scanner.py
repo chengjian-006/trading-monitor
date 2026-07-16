@@ -184,9 +184,10 @@ async def run_second_surge_scan():
         return
     # 同tick多只按二波放量倍数降序(更猛的在前)
     hits.sort(key=lambda h: h["r"].get("vol_mult", 0), reverse=True)
-    title, body = ss.build_surge_card(hits, p)
+    # 基线 v1.1: 结构卡(机会家族红卡 + 锁屏摘要/彩签), PushPlus 走 fallback 纯文本
+    card = ss.build_surge_card_v2(hits, p)
     try:
-        await notifier.send_dual(body, lark_title=title, template="red")
+        await notifier.send_card(card)
     except Exception as e:
         logger.warning(f"[second_surge] 推送失败: {e}")
     logger.info(f"[second_surge] 本轮命中{len(hits)}只: {[h['code'] for h in hits]}")

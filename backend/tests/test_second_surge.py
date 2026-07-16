@@ -146,6 +146,55 @@ class TestMa20Rising:
         assert ma20_rising([10.0] * 23, lookback=3) is True
 
 
+class TestSurgeCardV2:
+    """基线 v1.1 结构卡 build_surge_card_v2: 机会家族红卡 + 五区骨架 + 信封字段。"""
+
+    def _item(self, code="600000", name="测试", action_md=""):
+        r = detect_second_surge(_mk(_POS_PRICES, _POS_VOLS), 100.0, P, code=code, name=name)
+        r["ma20_now"] = 98.50
+        r["ma20_prev"] = 97.20
+        r["amount_yi"] = 2.3
+        return {"name": name, "code": code, "r": r, "action_md": action_md}
+
+    def test_structure_single(self):
+        from backend.services.second_surge import build_surge_card_v2
+        it = self._item(action_md="[🔕 当日不提醒](http://x/a)　·　[🔕 本周不提醒](http://x/b)")
+        c = build_surge_card_v2([it], P)
+        assert c.title == "🔥 二波过前高 · 测试(600000)"
+        assert c.family == "opportunity" and c.template == "red"
+        assert c.tags == [("二波", "red")]
+        assert c.subtitle == "形态提示 · 非买卖建议"
+        # 锁屏摘要: 名/代码/事件/现价/涨幅
+        assert "测试" in c.summary and "600000" in c.summary
+        assert "二波过前高" in c.summary and "¥105.00" in c.summary
+        # 结论行 + ✅ 触发清单(card_kit.checklist 口径: 实测值加粗 + 要求门槛)
+        body0 = c.elements[0]["content"]
+        assert body0.startswith("**测试(600000)**")
+        assert "**¥105.00**" in body0 and "+5.0%" in body0
+        for cond in ("第一波冲高", "回落降温", "二波放量", "二波过前高",
+                     "20日线向上", "不是死票", "没贴涨停板"):
+            assert f"✅ {cond}" in body0, cond
+        assert "（要求 ≥1.5%）" in body0
+        # 👉 建议 → 折叠口径 → 快捷动作行(永远最后)
+        assert c.elements[1]["content"] == "👉 **抬头看一眼，形态提示非买卖建议**"
+        assert c.elements[2]["tag"] == "collapsible_panel"
+        last = c.elements[-1]["content"]
+        assert "看分时图" in last and "当日不提醒" in last and "本周不提醒" in last
+        # fallback = 原纯文本卡(PushPlus 同源信息量)
+        assert "触发条件（全中才提醒）" in c.fallback
+        assert "10jqka.com.cn/600000" in c.fallback
+
+    def test_structure_multi(self):
+        from backend.services.second_surge import build_surge_card_v2
+        c = build_surge_card_v2([self._item(), self._item(code="600001", name="乙")], P)
+        assert c.title == "🔥 二波过前高 · 2只"
+        assert "2只" in c.summary
+        # 多只合并: 逐股结论+清单 → 建议 → 折叠 → 动作行(带股票名前缀)
+        assert "**乙(600001)**" in c.elements[1]["content"]
+        last = c.elements[-1]["content"]
+        assert "测试：" in last and "乙：" in last
+
+
 class TestScannerDedup:
     def test_daily_dedup_and_crossday_reset(self):
         from backend.services import second_surge_scanner as sc

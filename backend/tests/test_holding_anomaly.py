@@ -290,3 +290,81 @@ def test_seal_weaken_msg_fields():
 def test_board_open_msg_fields():
     msg = build_board_open_msg("京东方A", "000725", 6.50, 8.0, "up")
     assert "开板" in msg
+
+
+# ---------- 卡片构建(基线 v1.1): family 按异动方向 + 结论/建议/折叠 + 合并卡 ----------
+
+def test_anomaly_family_mapping():
+    from backend.services.holding_anomaly import ANOMALY_FAMILY
+    assert ANOMALY_FAMILY["limit_up"] == "opportunity"      # 涨停/急拉 = 机会(red)
+    assert ANOMALY_FAMILY["surge"] == "opportunity"
+    assert ANOMALY_FAMILY["limit_down"] == "exit"           # 跌停/急跌/开板 = 离场(green)
+    assert ANOMALY_FAMILY["plunge"] == "exit"
+    assert ANOMALY_FAMILY["board_open"] == "exit"
+    assert ANOMALY_FAMILY["board_anomaly"] == "risk"        # 封板异动 = 风险(orange)
+
+
+def test_limit_up_card_structure():
+    from backend.services.holding_anomaly import build_limit_up_card
+    card = build_limit_up_card("京东方A", "000725", 6.66, 10.0, 1.2e8, 2.3, 1.86e9)
+    assert card.title == "🔥 持仓涨停 · 京东方A(000725)"
+    assert card.family == "opportunity" and card.template == "red"
+    # 结论行(heading) + 👉建议 + 折叠明细 三件套
+    assert card.elements[0]["text_size"] == "heading" and "涨停" in card.elements[0]["content"]
+    assert "👉" in card.elements[1]["content"]
+    assert card.elements[2]["tag"] == "collapsible_panel"
+    assert "1.2亿" in str(card.elements[2])                  # 封单明细进折叠
+    assert "京东方A" in card.summary and "000725" in card.summary
+    assert "涨停" in card.fallback and "1.2亿" in card.fallback   # fallback 同源信息量
+
+
+def test_plunge_card_is_exit_green():
+    from backend.services.holding_anomaly import build_plunge_card
+    card = build_plunge_card("京东方A", "000725", -4.8, 3, 5.80, -6.2)
+    assert card.family == "exit" and card.template == "green"
+    assert "急速跳水 · 京东方A(000725)" in card.title
+    assert "-4.8" in card.elements[0]["content"]
+
+
+def test_board_anomaly_card_is_risk_orange():
+    from backend.services.holding_anomaly import build_board_anomaly_card
+    card = build_board_anomaly_card("麦捷科技", "300319", "up", peak_amt=1.307e9, cur_amt=6.46e8)
+    assert card.family == "risk" and card.template == "orange"
+    assert "封板异动 · 麦捷科技(300319)" in card.title
+    assert "封单大幅减少" in card.elements[0]["content"]
+    assert "13.07亿" in str(card.elements[2])
+
+
+def test_board_open_card_is_exit():
+    from backend.services.holding_anomaly import build_board_open_card
+    card = build_board_open_card("京东方A", "000725", 6.50, 8.0, "up")
+    assert card.family == "exit"
+    assert "涨停开板 · 京东方A(000725)" in card.title
+
+
+def test_merge_anomaly_cards_keeps_merged_shape():
+    from backend.services.holding_anomaly import (
+        build_limit_up_card, build_board_anomaly_card, merge_anomaly_cards)
+    c1 = build_limit_up_card("麦捷科技", "300319", 12.34, 20.0, 1.2e8, 2.3, 1.86e9)
+    c2 = build_board_anomaly_card("麦捷科技", "300319", "up", surge_ratio=2.3)
+    merged = merge_anomaly_cards("麦捷科技", "300319", [c1, c2])
+    assert merged.title == "📣 持仓异动 · 麦捷科技(300319)"
+    assert merged.family == "risk"                     # opportunity+risk → 取更重的 risk
+    assert merged.tags == [("2项异动", "orange")]
+    # 结论行逐项在前, 建议一条, 折叠明细逐项在后
+    headings = [e for e in merged.elements if e.get("text_size") == "heading"]
+    folds = [e for e in merged.elements if e.get("tag") == "collapsible_panel"]
+    advices = [e for e in merged.elements
+               if e.get("tag") == "markdown" and "👉" in e.get("content", "")]
+    assert len(headings) == 2 and len(folds) == 2 and len(advices) == 1
+    assert "2 项" in merged.fallback and "──────────" in merged.fallback
+    assert "涨停" in merged.summary
+
+
+def test_merge_anomaly_cards_exit_dominates():
+    from backend.services.holding_anomaly import (
+        build_surge_card, build_plunge_card, merge_anomaly_cards)
+    c1 = build_surge_card("甲", "000001", 5.2, 3, 6.40, 8.3)
+    c2 = build_plunge_card("甲", "000001", -4.8, 3, 5.80, -6.2)
+    merged = merge_anomaly_cards("甲", "000001", [c1, c2])
+    assert merged.family == "exit"                     # 有离场向就按 exit

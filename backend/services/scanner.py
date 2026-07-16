@@ -564,6 +564,48 @@ async def _emit_one_signal(sig, *, code: str, name: str, df, rt,
     return detail, priority
 
 
+def _build_multi_signal_body(strong_items: list, *, name: str, code: str,
+                              price: float, stock_pct: float, amount_suffix: str,
+                              strategy: str, stats_map: dict, risk_line: str = "") -> str:
+    """多强档信号合并推送正文(基线 v1.1 五区骨架文本): 结论行 → 明细 → 👉建议。
+    纯函数便于单测; 正文不写时间(标题栏已带), 数字实测值加粗, 涨跌用 pct_md。"""
+    from backend.services import card_kit
+    has_sell = any(s.direction == "sell" for s, _ in strong_items)
+    has_buy = any(s.direction == "buy" for s, _ in strong_items)
+    arrow = "▼" if has_sell else "▲"
+    label = "多信号触发" if has_sell else "多买点叠加"
+    # 结论区(必有): 标的 + 发生了什么 + 关键数(现价/涨跌)
+    lines = [f"{arrow} **{label} · {name}({code})**　现价 **{price:.2f}**"
+             f"（{card_kit.pct_md(stock_pct)}）{amount_suffix}"]
+    if risk_line:
+        lines.append(risk_line)
+    lines.append("")
+    # 明细区: 逐信号一段(信号名加粗 + 触发依据逐条 + 买点战绩)
+    for sig, detail in strong_items:
+        sig_arrow = "▼" if sig.direction == "sell" else ("▲" if sig.direction == "buy" else "•")
+        lines.append(f"{sig_arrow} **{sig.signal_name}**")
+        for seg in detail.split("|"):
+            seg = seg.strip()
+            if seg:
+                lines.append(f"　· {seg}")
+        if sig.direction == "buy":
+            oneline = notifier.model_stats_oneline(stats_map.get(sig.signal_id))
+            if oneline:
+                lines.append(f"　· {oneline}")
+        lines.append("")
+    # 行动建议区(必有): 有操作策略给策略, 否则按方向给一句大白话
+    if strategy:
+        advice_text = strategy
+    elif has_sell and has_buy:
+        advice_text = "买卖信号并存，先核实卖点再动手"
+    elif has_sell:
+        advice_text = "多卖点共振，优先核实离场"
+    else:
+        advice_text = "多买点共振，按最强模型跟进"
+    lines.append(f"👉 **{advice_text}**")
+    return "\n".join(lines).rstrip()
+
+
 async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
                                user_id: int, price: float, stock_pct: float,
                                strategy: str, amount_suffix: str, now_str: str):
@@ -611,47 +653,36 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
         )
         return
 
-    has_sell = any(s.direction == "sell" for s, _ in strong_items)
-    arrow = "▼" if has_sell else "▲"
-    label = "多信号触发" if has_sell else "多买点叠加"
-    pct_str = f"+{stock_pct:.2f}%" if stock_pct >= 0 else f"{stock_pct:.2f}%"
-    lines = [f"【{label}】{arrow} {name}({code})  {price:.2f} {pct_str}{amount_suffix}", ""]
+    # ── 基线 v1.1 改造取舍(0716): 维持 send_wechat_text 文本通道, 不换 send_card 结构卡 ──
+    # send_card/send_dual_card 不支持 mute_lark(今日免打扰=只静音飞书、其余渠道照常, v1.7.569
+    # 由推送偏好闸逐信号算出后透传); 换结构卡要么丢掉静音语义、要么误伤全渠道, 风险大于收益。
+    # 故通道不动, 只把正文升级为五区骨架文本(结论行→明细→👉建议), 排版规范同结构卡。
     # v1.7.569: 合并推送补 RED/YELLOW 市场风险标记(原来只有单信号 send_wechat_signal 有, 合并分支丢了)
-    if any(s.direction == "buy" for s, _ in strong_items):
+    risk_line = ""
+    has_buy = any(s.direction == "buy" for s, _ in strong_items)
+    if has_buy:
         try:
             from backend.services.market_risk_controller import get_risk_state
             _rs = await get_risk_state()
             if _rs == "RED":
-                lines.insert(1, "⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓")
+                risk_line = "⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓"
             elif _rs == "YELLOW":
-                lines.insert(1, "⚡ 市场风险·谨慎(YELLOW): 轻度预警, 注意风控")
+                risk_line = "⚡ 市场风险·谨慎(YELLOW): 轻度预警, 注意风控"
         except Exception:
             pass
     # 多买点合并推送也带上各买点历史胜率(与单条推送口径一致)
     stats_map = {}
-    if any(s.direction == "buy" for s, _ in strong_items):
+    if has_buy:
         try:
             from backend.services.buy_model_stats import get_buy_model_stats
             stats_map = await get_buy_model_stats()
         except Exception as e:
             logger.warning(f"[scan] 取买点战绩失败(合并推送): {e}")
-    for sig, detail in strong_items:
-        sig_arrow = "▼" if sig.direction == "sell" else ("▲" if sig.direction == "buy" else "•")
-        lines.append(f"┌─ {sig_arrow} {sig.signal_name} · {now_str[11:16]} ─")
-        for seg in detail.split("|"):
-            seg = seg.strip()
-            if seg:
-                lines.append(f"│ {seg}")
-        if sig.direction == "buy":
-            ms = stats_map.get(sig.signal_id)
-            oneline = notifier.model_stats_oneline(ms)
-            if oneline:
-                lines.append(f"│ {oneline}")
-        lines.append("└─────────────")
-        lines.append("")
-    if strategy:
-        lines.append(f"📋 操作策略: {strategy}")
-    await notifier.send_wechat_text("\n".join(lines).rstrip(), mute_lark=mute_lark)
+    body = _build_multi_signal_body(
+        strong_items, name=name, code=code, price=price, stock_pct=stock_pct,
+        amount_suffix=amount_suffix, strategy=strategy, stats_map=stats_map,
+        risk_line=risk_line)
+    await notifier.send_wechat_text(body, mute_lark=mute_lark)
     logger.info(f"Signal: 合并推送 {name}({code}) {len(strong_items)}个强档信号 -> user {user_id}")
 
 
@@ -794,12 +825,14 @@ async def _log_gate_ab(code: str, name: str, df, rt) -> None:
         # 9:45 首次命中 → 盘中推送(标注模型测试中), 每股每日一次
         if code not in _gate_ab_done["pushed"]:
             _gate_ab_done["pushed"].add(code)
+            # 基线 v1.1 排版对齐(低价值内部实验卡, 不上结构卡): 结论前置 + 数字加粗 +
+            # 正文不写时间(标题栏已带) + 👉建议收尾。
             seal_txt = "⚠️ 当前已涨停,仅供观察" if sealed else "比正式版(10:00)早15分钟"
-            msg = (f"【模型测试中 · 9:45提前版】缩量后放量突破\n"
-                   f"{name}({code})  现价{price:.2f}  距突破线 {rec['gap_pct']:+.1f}%\n"
-                   f"{now.strftime('%H:%M')} 命中 · 全天预估成交额{rec['amount_est_yi']:.1f}亿 · {seal_txt}\n"
-                   f"———\n"
-                   f"这是 9:45 提前门槛的 A/B 测试信号,非正式买点,仅供你对比观察是否值得提前;正式推送仍为 10:00 版。")
+            msg = (f"⚡ 缩量后放量突破（9:45提前版·模型测试中） · {name}({code})\n"
+                   f"现价 **{price:.2f}**　距突破线 **{rec['gap_pct']:+.1f}%**　"
+                   f"全天预估成交额 **{rec['amount_est_yi']:.1f} 亿**\n"
+                   f"{seal_txt}\n"
+                   f"👉 **仅对比观察，非正式买点，正式推送仍为10:00版**")
             try:
                 await notifier.send_wechat_text(msg)
             except Exception:

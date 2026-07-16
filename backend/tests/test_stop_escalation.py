@@ -77,19 +77,43 @@ class TestBuildEscalationCard:
             name="阳光电源", code="300274", day_n=3,
             first_stop_date="2026-06-12", first_stop_price=147.03, first_stop_pct=-12.0,
             current_price=126.79, current_pct=-24.3, extra_loss_yuan=4048,
-            actions_md="🔕 当日不提醒　·　🔕 本周不提醒")
+            actions_md="🔕 当日不提醒　·　🔕 本周不提醒",
+            history_md="06-12 触发止损 @¥147.03\n06-15 触发止损 @¥139.20")
 
-    def test_title_marks_days(self):
-        title, _ = self._card()
-        assert "止损未执行" in title and "3" in title and "阳光电源" in title
+    def test_family_is_red_escalation(self):
+        # 修真bug: 号称红卡但旧 send_dual 没传 template 一直蓝 → 现走 risk_hot(red)
+        card = self._card()
+        assert card.family == "risk_hot" and card.template == "red"
 
-    def test_body_has_key_numbers(self):
-        _, body = self._card()
+    def test_title_formula_and_day_tag(self):
+        card = self._card()
+        assert "止损未执行" in card.title and "阳光电源(300274)" in card.title
+        assert card.tags == [("第3天", "red")]
+        assert "连续3天" in card.subtitle and "06-12" in card.subtitle
+
+    def test_summary_for_lockscreen(self):
+        card = self._card()
+        assert "阳光电源" in card.summary and "第3天" in card.summary and "126.79" in card.summary
+
+    def test_elements_kpi_advice_fold_actions(self):
+        card = self._card()
+        kpi = card.elements[0]
+        assert kpi["tag"] == "column_set" and len(kpi["columns"]) == 3
+        joined = str(card.elements)
+        assert "¥126.79" in joined and "¥147.03" in joined and "4,048" in joined
+        assert "👉 **止损离场" in joined
+        # 折叠区带历史喊单明细; 动作行(快捷链接)永远最后
+        folds = [e for e in card.elements if e.get("tag") == "collapsible_panel"]
+        assert folds and "06-15 触发止损" in str(folds[0])
+        assert "当日不提醒" in card.elements[-1]["content"]
+
+    def test_fallback_has_key_numbers(self):
+        body = self._card().fallback
         assert "300274" in body
         assert "147.03" in body            # 首次止损价
         assert "126.79" in body            # 现价
         assert "4,048" in body or "4048" in body   # 累计多亏(可带千分位)
 
-    def test_body_carries_snooze_actions(self):
-        _, body = self._card()
+    def test_fallback_carries_snooze_actions(self):
+        body = self._card().fallback
         assert "当日不提醒" in body and "本周不提醒" in body

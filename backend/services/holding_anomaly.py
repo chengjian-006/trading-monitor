@@ -216,6 +216,134 @@ def build_board_open_msg(name, code, price, pct, side) -> str:
             f"{seal_word}被打开，留意回封 or 反向")
 
 
+# ── 卡片构建(基线 v1.1): family 按异动方向 —— 涨停/急拉=opportunity(red),
+#    跌停/急跌/开板=exit(green), 封板异动=risk(orange)。build_*_msg 保留为 fallback/明细同源文本。 ──
+
+ANOMALY_FAMILY = {
+    "limit_up": "opportunity", "surge": "opportunity",
+    "limit_down": "exit", "plunge": "exit", "board_open": "exit",
+    "board_anomaly": "risk",
+}
+
+_ANOMALY_EMOJI = {"limit_up": "🔥", "limit_down": "🧊", "surge": "⚡",
+                  "plunge": "🪨", "board_anomaly": "⚠️", "board_open": "💥"}
+
+
+def _anomaly_card(kind: str, name, code, *, event: str, conclusion_md: str,
+                  advice_text: str, detail_md: str, fallback: str, key_fact: str = ""):
+    """单条异动卡: 元素固定三件 [结论行(heading), 👉建议, 折叠明细] —— merge_anomaly_cards 依赖此结构。"""
+    from backend.services import card_kit
+    fam = ANOMALY_FAMILY.get(kind, "risk")
+    return card_kit.Card(
+        title=f"{_ANOMALY_EMOJI.get(kind, '⚠️')} {event} · {name}({code})",
+        elements=[card_kit.heading_md(conclusion_md),
+                  card_kit.advice(advice_text),
+                  card_kit.fold(f"{event}明细", detail_md)],
+        fallback=fallback, family=fam,
+        summary=card_kit.summary_text(name, code, event, key_fact),
+        subtitle="持仓异动提醒",
+        tags=[("持仓异动", card_kit.family_template(fam))],
+    )
+
+
+def _detail_sans_head(msg: str) -> str:
+    """msg 首行是「emoji 名称(代码) 事件」, 卡片标题已覆盖 → 明细折叠只取其余行。"""
+    rest = "\n".join(msg.split("\n")[1:]).strip()
+    return rest or msg
+
+
+def build_limit_up_card(name, code, price, pct, seal_amt, vol_ratio, amount):
+    from backend.services.card_kit import pct_md
+    msg = build_limit_up_msg(name, code, price, pct, seal_amt, vol_ratio, amount)
+    return _anomaly_card(
+        "limit_up", name, code, event="持仓涨停",
+        conclusion_md=f"涨停 ¥{price:.2f} {pct_md(pct)}",
+        advice_text="留意封板强度，防炸板",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=f"¥{price:.2f} {pct:+.1f}%")
+
+
+def build_limit_down_card(name, code, price, pct, seal_amt, amount):
+    from backend.services.card_kit import pct_md
+    msg = build_limit_down_msg(name, code, price, pct, seal_amt, amount)
+    return _anomaly_card(
+        "limit_down", name, code, event="持仓跌停",
+        conclusion_md=f"跌停 ¥{price:.2f} {pct_md(pct)}",
+        advice_text="评估应对，防封死出不去",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=f"¥{price:.2f} {pct:+.1f}%")
+
+
+def build_surge_card(name, code, delta, window_min, price, day_pct):
+    from backend.services.card_kit import pct_md
+    msg = build_surge_msg(name, code, delta, window_min, price, day_pct)
+    return _anomaly_card(
+        "surge", name, code, event="急速拉升",
+        conclusion_md=f"约{window_min}分钟 **{delta:+.1f}pp**，现 ¥{price:.2f}（当日 {pct_md(day_pct)}）",
+        advice_text="留意放量延续或冲高回落",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=f"{window_min}分钟{delta:+.1f}pp")
+
+
+def build_plunge_card(name, code, delta, window_min, price, day_pct):
+    from backend.services.card_kit import pct_md
+    msg = build_plunge_msg(name, code, delta, window_min, price, day_pct)
+    return _anomaly_card(
+        "plunge", name, code, event="急速跳水",
+        conclusion_md=f"约{window_min}分钟 **{delta:+.1f}pp**，现 ¥{price:.2f}（当日 {pct_md(day_pct)}）",
+        advice_text="留意破位，防恐慌杀跌",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=f"{window_min}分钟{delta:+.1f}pp")
+
+
+def build_board_anomaly_card(name, code, side, peak_amt=None, cur_amt=None, surge_ratio=None):
+    msg = build_board_anomaly_msg(name, code, side, peak_amt=peak_amt,
+                                  cur_amt=cur_amt, surge_ratio=surge_ratio)
+    reason = board_anomaly_reason(bool(peak_amt and cur_amt), bool(surge_ratio))
+    seal_word = "涨停" if side == "up" else "跌停"
+    return _anomaly_card(
+        "board_anomaly", name, code, event="封板异动",
+        conclusion_md=f"**{reason}**，仍封{seal_word}",
+        advice_text="留意炸板风险，考虑落袋",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=reason)
+
+
+def build_board_open_card(name, code, price, pct, side):
+    from backend.services.card_kit import pct_md
+    msg = build_board_open_msg(name, code, price, pct, side)
+    seal_word = "涨停" if side == "up" else "跌停"
+    return _anomaly_card(
+        "board_open", name, code, event=f"{seal_word}开板",
+        conclusion_md=f"{seal_word}开板 ¥{price:.2f} {pct_md(pct)}，封单已打光",
+        advice_text="盯回封还是反向，及时应对",
+        detail_md=_detail_sans_head(msg), fallback=msg,
+        key_fact=f"¥{price:.2f} {pct:+.1f}%")
+
+
+def merge_anomaly_cards(name, code, cards):
+    """同 tick 多项异动合并卡: 结论行逐项 → 一条建议(取最重家族那项) → 明细折叠逐项。
+    家族取最重: 有离场向(exit)按 exit, 否则有 risk 按 risk, 否则同首项(opportunity)。"""
+    from backend.services import card_kit
+    n = len(cards)
+    fams = [c.family for c in cards]
+    fam = "exit" if "exit" in fams else ("risk" if "risk" in fams else fams[0])
+    lead = next((c for c in cards if c.family == fam), cards[0])
+    elements = ([c.elements[0] for c in cards]          # 各项结论行
+                + [lead.elements[1]]                    # 建议(最重那项)
+                + [c.elements[2] for c in cards])       # 各项明细折叠
+    events = "、".join(c.title.split(" · ")[0].split(" ", 1)[-1] for c in cards)
+    fallback = (f"📣 {name}({code}) 多重异动（{n} 项）\n\n"
+                + "\n\n──────────\n\n".join(c.fallback for c in cards))
+    return card_kit.Card(
+        title=f"📣 持仓异动 · {name}({code})",
+        elements=elements, fallback=fallback, family=fam,
+        summary=card_kit.summary_text(name, code, f"{n}项异动", events),
+        subtitle=f"同一时点 {n} 项异动合并",
+        tags=[(f"{n}项异动", card_kit.family_template(fam))],
+    )
+
+
 # ── 进程内跟踪器(跨日由 holding_guard tick 配合节流重置; 重启清空可接受) ──
 class PctHistory:
     """每股涨跌幅时序, 供急涨/急跌速率判定。"""

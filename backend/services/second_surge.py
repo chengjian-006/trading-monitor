@@ -130,13 +130,87 @@ def _limit_gap_pct(code: str, name: str, day_pct: float) -> float | None:
 
 def build_surge_card(items: list[dict], params: dict | None = None) -> tuple[str, str]:
     """合并二波过前高提醒卡 (title, body_md)。items 每项 {name, code, r, action_md}。
-    同一tick多只触发合并成一张卡(防突发刷屏); 定性文案不诱导当日买卖。"""
+    同一tick多只触发合并成一张卡(防突发刷屏); 定性文案不诱导当日买卖。
+    v1.1 后此纯文本版仍是结构卡 build_surge_card_v2 的 fallback(PushPlus 同源信息量)。"""
     secs = [surge_section(it["name"], it["code"], it["r"], it.get("action_md", ""), params)
             for it in items]
     n = len(items)
     title = f"🔥 二波过前高 · {items[0]['name']}({items[0]['code']})" if n == 1 else f"🔥 二波过前高 · {n}只"
     body = "\n\n".join(secs) + "\n\n" + _SURGE_TAGLINE
     return title, body
+
+
+def _surge_checklist_rows(name: str, code: str, r: dict, p: dict) -> list[tuple]:
+    """单只票的 ✅ 触发清单行(card_kit.checklist 口径: (条件, 实测值, 门槛))。
+    与 surge_section 同一套 7 条大白话规则(含 20 线/流动性/涨停暗闸)。"""
+    rows = [
+        ("第一波冲高", f"{r['h1_time']} 摸到 ¥{r['H1']:.2f}", ""),
+        ("回落降温", f"-{r['trough_pct']:.1f}%", f"≥{p['pullback_min'] * 100:.1f}%"),
+        (f"二波放量(近{int(p['leg_window'])}分钟)", f"{r['vol_mult']:.1f}×",
+         f"≥{float(p['vol_mult']):.1f}×"),
+        ("二波过前高·创当日新高", f"拉升 +{r['leg_rise_pct']:.1f}%",
+         f"≥{p['leg_rise_min'] * 100:.1f}%"),
+    ]
+    if r.get("ma20_now") is not None and r.get("ma20_prev") is not None:
+        rows.append(("20日线向上", f"MA20 ¥{r['ma20_now']:.2f}",
+                     f"≥{int(p['ma20_up_lookback'])}天前 ¥{r['ma20_prev']:.2f}"))
+    elif p.get("require_ma20_up", True):
+        rows.append(("20日线向上", f"最近{int(p['ma20_up_lookback'])}天没掉头", ""))
+    if r.get("amount_yi") is not None:
+        rows.append(("不是死票", f"今日已成交 {r['amount_yi']:.1f} 亿",
+                     f"≥{p['min_amount_now'] / 1e8:.1f} 亿"))
+    gap = _limit_gap_pct(code, name, r["day_pct"])
+    if gap is not None:
+        rows.append(("没贴涨停板", f"距板 {max(0.0, gap):.1f}%，买得进", ""))
+    else:
+        rows.append(("没贴涨停板", f"距板 >{p['chase_limit_buffer_pct']:.0f}%，买得进", ""))
+    return rows
+
+
+def build_surge_card_v2(items: list[dict], params: dict | None = None):
+    """结构卡版(基线 v1.1): card_kit.Card, 机会家族红卡。五区骨架:
+    结论行(每股) → ✅触发清单(card_kit.checklist 重构 7 条) → 👉建议 → 折叠口径 →
+    快捷动作行(分时图 + surge_snooze 静音, 永远最后)。
+    fallback = build_surge_card 纯文本(PushPlus 保持可读、同源信息量)。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+    p = {**DEFAULT_PARAMS, **(params or {})}
+    n = len(items)
+    first = items[0]
+    title = (f"🔥 二波过前高 · {first['name']}({first['code']})" if n == 1
+             else f"🔥 二波过前高 · {n}只")
+    elements: list = []
+    for it in items:
+        name, code, r = it["name"], it["code"], it["r"]
+        head = (f"**{name}({code})**　现价 **¥{r['price_now']:.2f}**"
+                f"（{card_kit.pct_md(r['day_pct'])}）")
+        elements.append(md_element(
+            head + "\n" + card_kit.checklist(_surge_checklist_rows(name, code, r, p))))
+    elements.append(card_kit.advice("抬头看一眼，形态提示非买卖建议"))
+    elements.append(card_kit.fold("口径说明", _SURGE_TAGLINE))
+    # 快捷动作行(永远最后): 每股 分时图链接 + surge_snooze 静音链接
+    action_lines = []
+    for it in items:
+        line = f"[📈 看分时图](https://stockpage.10jqka.com.cn/{it['code']}/)"
+        if it.get("action_md"):
+            line += "　" + it["action_md"]
+        if n > 1:
+            line = f"{it['name']}：" + line
+        action_lines.append(line)
+    elements.append(md_element("\n".join(action_lines)))
+    if n == 1:
+        summary = card_kit.summary_text(
+            first["name"], first["code"], "二波过前高",
+            f"¥{first['r']['price_now']:.2f}", f"{first['r']['day_pct']:+.1f}%")
+    else:
+        summary = card_kit.summary_text(
+            f"{n}只二波过前高", f"最强 {first['name']} {first['r']['day_pct']:+.1f}%")
+    _, fallback = build_surge_card(items, params)
+    return card_kit.Card(
+        title=title, elements=elements, fallback=fallback,
+        family="opportunity", summary=summary,
+        subtitle="形态提示 · 非买卖建议", tags=[("二波", "red")],
+    )
 
 
 def baseline_vol(vols: list[float]) -> float:

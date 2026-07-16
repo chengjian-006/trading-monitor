@@ -94,73 +94,142 @@ def deepest_broken(streaks: dict[int, int]) -> int | None:
     return max(broken) if broken else None
 
 
-def build_watch_card(items: list[dict], watch_items: list[dict] | None = None) -> tuple[str, str]:
-    """合并警戒卡 (title, body_md)。
+def _short_mark(deep: int | None, days: int, cost: dict | None) -> str:
+    """短表「破位」列短值: MA20·3日 / MA10·新破 / 🔴成本线(可叠加)。长值(价格/日期)进折叠。"""
+    parts = []
+    if deep is not None:
+        parts.append(f"MA{deep}·新破" if days == 1 else f"MA{deep}·{days}日")
+    if cost:
+        parts.append("🔴成本线")
+    return "+".join(parts)
+
+
+def build_watch_card(items: list[dict], watch_items: list[dict] | None = None):
+    """合并警戒卡(基线 v1.1) → card_kit.Card, family=exit(green, 离场族), 经 notifier.send_card 发送。
 
     items(持仓段) 每项:
       {name, code, price, pct(今日涨跌%), streaks:{5:n,10:n,20:n}, cost_break:{price,date}|None, actions_md}
-      每票均线只报最深破位那档(见 deepest_broken); 另叠加「主力成本线」维度(跌破放量起涨点最低价 → 醒目标注)。
+      每票均线只报最深破位那档(见 deepest_broken); 另叠加「主力成本线」维度(跌破放量起涨点最低价)。
       入卡条件 = 破均线 或 跌破成本线(只破成本线也入卡)。每日尾盘复报直到收复。
 
     watch_items(自选段, v1.7.606) 每项:
       {name, code, price, pct, dist_pct(距MA20 %), model(当初买点中文名), model_at(触发日)}
-      只收【今日新跌破 MA20】(昨天还收在线上、今天掉下来), 只在转弱当天报这一次 —— 观察票不持仓、
-      不需要每天喊, 需要的是"这票中期趋势变了, 复盘时重估还留不留在自选里"。
+      只收【今日新跌破 MA20】, 只在转弱当天报这一次。
 
-    换行文本行版式(手机端不截)。
+    排版: 持仓/自选各一张全短列 md_table(股票|涨跌|破位 / 股票|涨跌|当初买点);
+    现价/距MA百分比/成本线价格等长值 + 口径说明下沉折叠; 逐票 snooze/已卖出链接放动作行(最后)。
+    fallback 保留旧版行式全文(同源信息量, PushPlus/回退用)。
     """
-    lines: list[str] = []
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    watch_items = watch_items or []
+    shown = watch_items[:MAX_WATCH_ROWS]        # 已按破位深度排序, 截断留最深的
+    omitted = len(watch_items) - len(shown)
+
+    # ── 持仓段: 短表行 + 折叠明细 + 动作行 + fallback 行式 ──
+    hold_rows: list[tuple] = []
+    hold_detail: list[str] = []
+    action_lines: list[str] = []
+    lines: list[str] = []                       # fallback(旧版行式)
+    n_hold = 0
     for it in items:
         deep = deepest_broken(it["streaks"])
         cost = it.get("cost_break")
         if deep is None and not cost:
             continue
+        n_hold += 1
+        days = it["streaks"][deep] if deep is not None else 0
+        hold_rows.append((it["name"], card_kit.pct_md(it["pct"]), _short_mark(deep, days, cost)))
         marks = []
         if deep is not None:
-            marks.append(_streak_label(deep, it["streaks"][deep]))
+            marks.append(_streak_label(deep, days))
         if cost:
             marks.append(f"🔴跌破主力成本区¥{cost['price']:.2f}({str(cost['date'])[5:10]}放量起涨)")
+        hold_detail.append(f"**{it['name']}({it['code']})** 现价 ¥{it['price']:.2f}　" + "　┃　".join(marks))
+        if it.get("actions_md"):
+            action_lines.append(f"**{it['name']}**　{it['actions_md']}")
+        # fallback 行式(与旧版一致)
         lines.append(f"**{it['name']}({it['code']})**　现价 {it['price']:.2f}（{it['pct']:+.1f}%）")
         lines.append("　" + "　┃　".join(marks))
         if it.get("actions_md"):
             lines.append("　" + it["actions_md"])
         lines.append("")
 
-    watch_items = watch_items or []
-    shown = watch_items[:MAX_WATCH_ROWS]        # 已按破位深度排序, 截断留最深的
-    omitted = len(watch_items) - len(shown)
+    # ── 自选段: 短表行 + 折叠明细 + fallback 行式 ──
+    watch_rows: list[tuple] = []
+    watch_detail: list[str] = []
     wlines: list[str] = []
     for it in shown:
-        wlines.append(f"**{it['name']}({it['code']})**　现价 {it['price']:.2f}（{it['pct']:+.1f}%）"
-                      f"　距MA20 {it['dist_pct']:+.1f}%")
+        watch_rows.append((it["name"], card_kit.pct_md(it["pct"]), it.get("model") or "手工加入"))
         origin = (f"当初买点: {it['model']}（{it['model_at']}）" if it.get("model")
                   else "手工加入, 无买点信号记录")
+        watch_detail.append(f"**{it['name']}({it['code']})** 现价 ¥{it['price']:.2f}　"
+                            f"距MA20 {it['dist_pct']:+.1f}%　{origin}")
+        wlines.append(f"**{it['name']}({it['code']})**　现价 {it['price']:.2f}（{it['pct']:+.1f}%）"
+                      f"　距MA20 {it['dist_pct']:+.1f}%")
         wlines.append(f"　<font color='grey'>{origin}</font>")
         wlines.append("")
+    omit_note = ""
     if omitted > 0:      # 绝不静默截断: 少列了几只必须说出来
-        wlines.append(f"<font color='grey'>…另有 {omitted} 只新破MA20未列出(按破位深度截前{MAX_WATCH_ROWS})，"
-                      f"完整名单见股票池「未站上20线」筛选。</font>")
+        omit_note = (f"…另有 {omitted} 只新破MA20未列出(按破位深度截前{MAX_WATCH_ROWS})，"
+                     f"完整名单见股票池「未站上20线」筛选。")
+        wlines.append(f"<font color='grey'>{omit_note}</font>")
 
     segs = []
-    if lines:
-        segs.append(f"{len(items)}只持仓")
+    if hold_rows:
+        segs.append(f"{n_hold}只持仓")
     if wlines:
         segs.append(f"{len(watch_items)}只自选")
     title = "📉 尾盘破位警戒 · " + " · ".join(segs)
 
+    # ── elements(五区骨架: 数据区短表 → 建议 → 折叠 → 动作行) ──
+    elements: list = []
+    if hold_rows:
+        elements.append(md_element("**持仓 · 每日尾盘复报直到收复**"))
+        elements.append(card_kit.short_table(["股票", "涨跌", "破位"], hold_rows))
+    if watch_rows:
+        elements.append(md_element("**自选 · 今日新跌破MA20 · 只报这一次**"))
+        elements.append(card_kit.short_table(["股票", "涨跌", "当初买点"], watch_rows))
+        if omit_note:
+            elements.append(md_element(f"<font color='grey'>{omit_note}</font>"))
+    elements.append(card_kit.advice("控制仓位，收复均线前别加仓" if hold_rows
+                                    else "复盘重估，决定是否留在自选"))
+
+    detail_parts: list[str] = []
+    if hold_detail:
+        detail_parts.append("**持仓明细**\n" + "\n".join(hold_detail))
+    if watch_detail:
+        detail_parts.append("**自选明细**\n" + "\n".join(watch_detail))
+    notes = ["**口径**", "贴线判: 尾盘现价低于均线即算破位；连续N日=从今日往回逐日收在线下不断链；同破多档只报最深。"]
+    if hold_detail:
+        notes.append("🔴主力成本区=最近放量起涨K线最低价，跌破=资金弃守，仅提示非硬卖点；收复自动消失。")
+    if watch_detail:
+        notes.append("自选段=中期趋势转弱，当初买点由信号库反查，仅供复盘重估是否保留，非卖点。")
+    detail_parts.append("\n".join(notes))
+    elements.append(card_kit.fold("口径与完整明细（现价/距MA/成本线）", "\n\n".join(detail_parts)))
+    if action_lines:                  # 快捷动作行(逐票 ma_watch_snooze + 已卖出)永远最后
+        elements.append(md_element("\n".join(action_lines)))
+
+    # ── fallback(旧版行式, 同源信息量) ──
     parts = []
     if lines:
         parts.append("【持仓 · 每日尾盘复报直到收复】\n" + "\n".join(lines).rstrip())
     if wlines:
         parts.append("【自选 · 今日新跌破MA20 · 只报这一次】\n" + "\n".join(wlines).rstrip())
-    body = "\n\n".join(parts)
-
-    notes = []
+    fb_notes = []
     if lines:
-        notes.append("均线同破多档只报最深；🔴主力成本区=放量起涨K线最低价(跌破=资金弃守,仅提示非硬卖点)；收复自动消失。")
+        fb_notes.append("均线同破多档只报最深；🔴主力成本区=放量起涨K线最低价(跌破=资金弃守,仅提示非硬卖点)；收复自动消失。")
     if wlines:
-        notes.append("自选段=中期趋势转弱, 仅供复盘重估是否保留, 非卖点。")
-    return title, body + "\n\n" + " ".join(notes)
+        fb_notes.append("自选段=中期趋势转弱, 仅供复盘重估是否保留, 非卖点。")
+    fallback = "\n\n".join(parts) + "\n\n" + " ".join(fb_notes)
+
+    summary_segs = " ".join(segs) if segs else "0只"
+    return card_kit.Card(
+        title=title, elements=elements, fallback=fallback, family="exit",
+        summary=card_kit.summary_text(summary_segs, "尾盘破位警戒"),
+        subtitle="持仓每日复报直到收复 · 自选只报转弱当天",
+    )
 
 
 # ══════════════ 自选段(v1.7.606): 今日新跌破 MA20 的观察票 ══════════════
@@ -324,9 +393,9 @@ async def run_ma_break_watch():
                                deepest_broken(it["streaks"]) or 0,
                                it["streaks"].get(deepest_broken(it["streaks"]) or 0, 0)),
                reverse=True)
-    title, body = build_watch_card(items, watch_items)
+    card = build_watch_card(items, watch_items)
     logger.info(f"[ma_break_watch] 持仓破位 {len(items)} 只, 自选今日新破MA20 {len(watch_items)} 只")
     try:
-        await notifier.send_dual(body, lark_title=title, template="orange")
+        await notifier.send_card(card)
     except Exception as e:
         logger.warning(f"[ma_break_watch] 推送失败: {e}")

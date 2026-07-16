@@ -187,9 +187,62 @@ def _fmt_pct(pct) -> str:
     return f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
 
 
+_ALERT_ADVICE = "对照预警条件核实，按计划操作"
+
+
+def build_alert_card(items: list[dict]) -> tuple[str, str, list]:
+    """(lark_title, fallback文本, elements) — 基线 v1.1 五区骨架:
+    结论行 → 全短列表(股票|现价|涨跌) → 👉建议 → 折叠明细(条件长文本下沉)。
+    发送仍走 send_dual_card_to(多用户 webhook 场景, 暂不支持 summary/subtitle 信封字段,
+    调用面刻意保持不变, 只重构 elements 排版)。纯函数便于单测。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+    n_codes = len({it["code"] for it in items})
+    if len(items) == 1:
+        it0 = items[0]
+        title = f"🔔 自定义预警 · {it0['name']}({it0['code']})"
+        concl = f"**{it0['name']}({it0['code']})** {describe_hit(it0)}"
+    else:
+        title = f"🔔 自定义预警 · {n_codes}只"
+        concl = f"同时触发 **{len(items)}** 条自定义预警"
+    rows = [(f"{it['name']}({it['code']})", f"{it['price']:.2f}",
+             card_kit.pct_md(it["pct_change"], bold=False)
+             if it.get("pct_change") is not None else "-")
+            for it in items]
+    has_once = any(not it.get("repeat_daily") for it in items)
+    has_daily = any(it.get("repeat_daily") for it in items)
+    foot = []
+    if has_once:
+        foot.append("一次性预警已自动停用, 需要可在股票池重新启用")
+    if has_daily:
+        foot.append("均线提醒每天最多报一次, 明天自动继续盯")
+    detail_lines = []
+    for it in items:
+        note = f" · {it['note']}" if (it["note"] and not it.get("preset")) else ""
+        detail_lines.append(f"**{it['name']}({it['code']})**{note}\n"
+                            f"现价 **{it['price']:.2f}**（{_fmt_pct(it.get('pct_change'))}）"
+                            f" — {describe_hit(it)}")
+    fold_body = "\n\n".join(detail_lines) + (f"\n\n({'; '.join(foot)})" if foot else "")
+    elements = [
+        md_element(concl),
+        card_kit.short_table(["股票", "现价", "涨跌"], rows),
+        card_kit.advice(_ALERT_ADVICE),
+        card_kit.fold("触发明细与说明", fold_body),
+    ]
+    # fallback(PushPlus/飞书降级纯文本): 同源信息量, 同样按 结论→明细→👉建议 排
+    fb = [f"触发 {len(items)} 条自定义预警" if len(items) > 1 else "触发自定义预警", ""]
+    for line in detail_lines:
+        fb.append(line)
+        fb.append("")
+    fb.append(f"👉 {_ALERT_ADVICE}")
+    if foot:
+        fb.append(f"({'; '.join(foot)})")
+    return title, "\n".join(fb), elements
+
+
 async def _push_user_alerts(user_id: int, items: list[dict]):
-    """把某用户本轮触发的多条预警聚合成一张卡, 发到该用户自己的企微/飞书。"""
-    from backend.services import notifier, lark_notifier
+    """把某用户本轮触发的多条预警聚合成一张卡, 发到该用户自己的飞书/PushPlus。"""
+    from backend.services import notifier
 
     user = await repository.get_user_by_id(user_id)
     if not user:
@@ -200,46 +253,13 @@ async def _push_user_alerts(user_id: int, items: list[dict]):
     lark_webhook = _cfg.get("lark_webhook", "")
     lark_on = bool(_cfg.get("lark_enabled", False))
 
-    head = f"【自定义预警】触发 {len(items)} 条" if len(items) > 1 else "【自定义预警】触发"
-    lines = [head, ""]
-    rows_tbl = []
-    has_once = has_daily = False
-    for it in items:
-        note = f" · {it['note']}" if (it["note"] and not it.get("preset")) else ""
-        lines.append(f"▲ **{it['name']}({it['code']})**{note}")
-        lines.append(f"   现价 **{it['price']:.2f}**（{_fmt_pct(it.get('pct_change'))}） — {describe_hit(it)}")
-        if it.get("repeat_daily"):
-            has_daily = True
-        else:
-            has_once = True
-        rows_tbl.append({
-            "stock": f"{it['name']}({it['code']})",
-            "cond": describe_conditions(it["conditions"]),
-            "price": f"{it['price']:.2f}",
-            "pct": _fmt_pct(it.get("pct_change")),
-        })
-    lines.append("")
-    foot = []
-    if has_once:
-        foot.append("一次性预警已自动停用, 需要可在股票池重新启用")
-    if has_daily:
-        foot.append("均线提醒每天最多报一次, 明天自动继续盯")
-    lines.append(f"({'; '.join(foot)})")
-    content = "\n".join(lines)
-
-    elements = []
-    if lark_on and lark_webhook:
-        # 手机友好2列: 现价+涨跌合成核心可扫列; 触发条件已在正文逐条列出, 不塞长内容进单元格
-        columns = [
-            {"name": "stock", "display_name": "股票", "data_type": "text", "width": "55%"},
-            {"name": "price", "display_name": "现价(涨跌)", "data_type": "text", "width": "45%"},
-        ]
-        md_rows = [{"stock": r["stock"], "price": f"{r['price']}（{r['pct']}）"} for r in rows_tbl]
-        elements = [lark_notifier.md_table(columns, md_rows)]
+    title, content, elements = build_alert_card(items)
+    if not (lark_on and lark_webhook):
+        elements = []          # 飞书未启用时不必构结构卡(与旧行为一致)
 
     await notifier.send_dual_card_to(
         content,
-        lark_title="🔔 自定义预警",
+        lark_title=title,
         elements=elements,
         lark_webhook=lark_webhook, lark_on=lark_on,
     )
