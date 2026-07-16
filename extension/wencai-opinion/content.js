@@ -69,6 +69,13 @@
   .btn { display:inline-block; padding: 8px 14px; background:#1f2937; color:#fff; border-radius: 9px; text-decoration:none; font-size: 12.5px; cursor:pointer; border:none; } .btn:hover { background:#111827; }
   .btn.ghost { background:#fff; color:#1f2937; border:1px solid #d1d9e3; } .btn.ghost:hover { background:#f1f5f9; }
   .fu { display:flex; gap:6px; margin-top:10px; } .fu input { flex:1; padding:7px 10px; border:1px solid #d1d9e3; border-radius:8px; font-size:12.5px; font-family:inherit; }
+  .card { border:1px solid #e2e8f0; border-radius:12px; padding:10px 12px; margin-bottom:10px; background:#f8fafc; }
+  .cardh { font-weight:700; font-size:13px; color:#0f172a; margin-bottom:6px; }
+  .crow { display:flex; gap:8px; align-items:flex-start; padding:3px 0; font-size:13px; line-height:1.5; }
+  .crow .ci { flex-shrink:0; } .crow .cl { flex-shrink:0; width:34px; color:#64748b; } .crow .cv { color:#1f2937; flex:1; }
+  .full-h { font-size:12.5px; color:#64748b; cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; padding:4px 0; } .full-h:hover { color:#334155; }
+  .full-h .ar { font-size:10px; transition:transform .18s; } .full.open .full-h .ar { transform:rotate(90deg); }
+  .full-b { display:none; } .full.open .full-b { display:block; }
   @media (prefers-color-scheme: dark) {
     .wrap { background:#1e293b; color:#e2e8f0; border-color:#334155; }
     .q { background:#172033; color:#cbd5e1; border-color:#334155; } .q b { color:#e2e8f0; }
@@ -78,6 +85,7 @@
     .chip { background:#334155; color:#cbd5e1; border-color:#475569; } .chip.hot { background:#14532d; color:#86efac; border-color:#166534; }
     .btn.ghost { background:#1e293b; color:#e2e8f0; border-color:#475569; } .btn.ghost:hover { background:#334155; }
     .fu input { background:#0f172a; color:#e2e8f0; border-color:#475569; }
+    .card { background:#172033; border-color:#334155; } .cardh { color:#f1f5f9; } .crow .cv { color:#e2e8f0; } .crow .cl { color:#94a3b8; }
   }`;
   const LCSS = `
   :host { all: initial; }
@@ -126,6 +134,21 @@
   function setBodyText(t) { panel().body.innerHTML = '<span class="think">' + esc(t) + '</span>'; }
   function setBodyMd(md, cursor) { const p = panel(); const near = p.body.scrollHeight - p.body.scrollTop - p.body.clientHeight < 70; p.body.innerHTML = mdRender(md) + (cursor ? '<span class="cursor"></span>' : ''); if (near) p.body.scrollTop = p.body.scrollHeight; }
   function setFoot(html) { const p = panel(); p.ft.style.display = 'block'; p.ft.innerHTML = html; return p.ft; }
+  function concCard(c) {
+    const row = (icon, label, val) => val ? '<div class="crow"><span class="ci">' + icon + '</span><span class="cl">' + label + '</span><span class="cv">' + esc(val) + '</span></div>' : '';
+    return '<div class="card"><div class="cardh">🎯 结论速览</div>'
+      + row('📌', '主推', c.stock) + row('🟢', '买点', c.buy) + row('🎯', '止盈', c.takeProfit)
+      + row('🛑', '止损', c.stopLoss) + row('⏳', '周期', c.period) + row('💡', '逻辑', c.logic) + row('⚠️', '风险', c.risk)
+      + '</div>';
+  }
+  function renderResult(conclusion, answerMd) {
+    const p = panel();
+    const hasAny = conclusion && (conclusion.stock || conclusion.buy || conclusion.takeProfit || conclusion.stopLoss || conclusion.logic || conclusion.risk);
+    p.body.innerHTML = (hasAny ? concCard(conclusion) : '')
+      + '<div class="full' + (hasAny ? '' : ' open') + '"><div class="full-h" id="fullh"><span class="ar">▸</span>完整分析</div><div class="full-b">' + mdRender(answerMd) + '</div></div>';
+    const fh = p.body.querySelector('#fullh'); if (fh) fh.onclick = () => p.body.querySelector('.full').classList.toggle('open');
+    if (p.body.scrollTop !== undefined) p.body.scrollTop = 0;
+  }
 
   function openInNewTab(question, answerMd, stockItems) { const url = URL.createObjectURL(new Blob([WOP.buildStandaloneHtml(question, answerMd, stockItems)], { type: 'text/html' })); window.open(url, '_blank'); }
   function copyText(t) { try { navigator.clipboard.writeText(t); } catch (e) { const ta = document.createElement('textarea'); ta.value = t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } }
@@ -145,25 +168,30 @@
     setStage('提问中', '', true); setBodyText('正在向问财提交问题…');
     let res;
     try {
-      res = await WOP.runAimeQuery(question, { deep: s.deepResearch, onUpdate, sessionId: sessionId || undefined, getV: async () => getCookie('v'), getUserId: async () => getCookie('userid') });
+      res = await WOP.runAimeQuery(question, { deep: s.deepResearch, onUpdate, sessionId: sessionId || undefined, askText: question + WOP.FORMAT_SUFFIX, getV: async () => getCookie('v'), getUserId: async () => getCookie('userid') });
     } catch (e) { setStage('失败', 'red'); setBodyText('问财请求失败：' + e.message); return; }
     if (!res.answer.trim()) { setStage('无结果', 'red'); setBodyText('没抓到答案话术（可能被风控，或问题被判为非推荐意图）。'); return; }
-    res.answer = WOP.stripEmbeds(res.answer);   // 去掉内嵌图表占位块噪音, 存库/展示都干净
+    const rawAnswer = res.answer;                                        // 含【】结论标记, 供抽取
+    res.answer = WOP.stripMarkerLine(WOP.stripEmbeds(rawAnswer));        // 展示/存库: 去图表占位块+结论标记行
     panel().sessionId = res.sessionId || '';
-    setStage('已完成', 'green'); setBodyMd(res.answer, false);
+    setStage('已完成', 'green');
+    renderResult(WOP.extractConclusion(rawAnswer, []), res.answer);      // 先按标记出结论卡(主推名来自标记)
 
     const doUpload = async () => {
       setStage('上报中', 'blue', true);
       try {
-        const r = await uploadOpinion(s.serverUrl, { token: s.token, question, answer_text: res.answer, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || getCookie('userid') || '', only_with_stock: !!s.onlyWithStock });
+        const conc = WOP.extractConclusion(rawAnswer, []);
+        const r = await uploadOpinion(s.serverUrl, { token: s.token, question, answer_text: res.answer, reasoning: res.reasoning || '', conclusion: conc, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || getCookie('userid') || '', only_with_stock: !!s.onlyWithStock });
         const items = r.stock_items || (r.stocks || []).map((n) => ({ name: n }));
-        pushHistory({ q: question, answer: res.answer, stocks: items, ts: Date.now() });
+        const c2 = WOP.extractConclusion(rawAnswer, items);              // 有代码后重算(主推可点)
+        renderResult(c2, res.answer);
+        pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: c2, ts: Date.now() });
         if (r.skipped) { setStage('未上报', 'amber'); renderFoot([], res.sources, question, res.answer, '按「仅识别出个股才上报」，本次没抽出个股，未入库。'); }
         else { setStage('✓ 已存档', 'green'); renderFoot(items, res.sources, question, res.answer, ''); }
       } catch (e) { setStage('上报失败', 'red'); setFoot('上报失败：' + esc(e.message)); }
     };
     if (s.autoUpload) doUpload();
-    else { pushHistory({ q: question, answer: res.answer, stocks: [], ts: Date.now() }); const ft = setFoot('<span class="lbl">已获取答案（设置为不自动上报）。</span>' + actsHtml(question, res.answer, [], true)); wireActs(ft, question, res.answer, []); ft.querySelector('#op-up').onclick = doUpload; }
+    else { pushHistory({ q: question, answer: res.answer, stocks: [], conclusion: WOP.extractConclusion(rawAnswer, []), ts: Date.now() }); const ft = setFoot('<span class="lbl">已获取答案（设置为不自动上报）。</span>' + actsHtml(question, res.answer, [], true)); wireActs(ft, question, res.answer, []); ft.querySelector('#op-up').onclick = doUpload; }
   }
 
   function actsHtml(question, answer, items, withUpload) {

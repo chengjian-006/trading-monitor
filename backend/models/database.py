@@ -566,6 +566,8 @@ SCHEMA_STATEMENTS = [
         agent_mode  VARCHAR(20) NOT NULL DEFAULT '',
         trace_id    VARCHAR(64) NOT NULL DEFAULT '',
         uploader    VARCHAR(40) NOT NULL DEFAULT '',
+        reasoning   MEDIUMTEXT,
+        conclusion  JSON,
         created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_time (user_id, created_at)
     )
@@ -1059,6 +1061,9 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_biz_stock_alerts ADD COLUMN repeat_daily TINYINT NOT NULL DEFAULT 0",
     # v1.7.633: 问财观点上报人昵称(共用 token 分发扩展时区分是谁问的)
     "ALTER TABLE cfzy_biz_wencai_opinion ADD COLUMN uploader VARCHAR(40) NOT NULL DEFAULT ''",
+    # v1.7.636: 问财观点 思考过程(reasoning) + 结构化结论(conclusion) 上网页/存档
+    "ALTER TABLE cfzy_biz_wencai_opinion ADD COLUMN reasoning MEDIUMTEXT",
+    "ALTER TABLE cfzy_biz_wencai_opinion ADD COLUMN conclusion JSON",
 ]
 
 

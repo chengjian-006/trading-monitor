@@ -28,9 +28,11 @@ def _setup(monkeypatch, token="SECRET"):
 
     cap = {}
 
-    async def fake_insert(user_id, question, answer_text, stocks, agent_mode, trace_id, uploader=""):
+    async def fake_insert(user_id, question, answer_text, stocks, agent_mode, trace_id,
+                          uploader="", reasoning="", conclusion=None):
         cap.update(user_id=user_id, question=question, answer_text=answer_text,
-                   stocks=stocks, agent_mode=agent_mode, trace_id=trace_id, uploader=uploader)
+                   stocks=stocks, agent_mode=agent_mode, trace_id=trace_id, uploader=uploader,
+                   reasoning=reasoning, conclusion=conclusion)
         return 42
     monkeypatch.setattr(wc.repository, "insert_wencai_opinion", fake_insert)
     return cap

@@ -316,6 +316,8 @@ class OpinionIngestRequest(BaseModel):
     trace_id: str = ""
     agent_mode: str = ""
     uploader: str = ""              # 上报人昵称(共用 token 下区分是谁问的)
+    reasoning: str = ""             # 思考过程(问财 deep_research reasoning), 供网页折叠展示
+    conclusion: dict = {}           # 结构化结论(客户端从话术抽的 主推/买点/止盈/止损/周期/逻辑/风险)
     only_with_stock: bool = False   # True: 话术里没撞出个股就不落库(客户端「仅识别出个股才上报」)
 
 
@@ -335,9 +337,11 @@ async def ingest_opinion(req: OpinionIngestRequest):
     stocks = await _extract_stocks(answer)
     if req.only_with_stock and not stocks:
         return {"ok": True, "skipped": True, "stock_count": 0, "stocks": []}
+    conclusion = req.conclusion if isinstance(req.conclusion, dict) else {}
     oid = await repository.insert_wencai_opinion(
         0, question, answer, stocks, (req.agent_mode or "").strip(),
-        (req.trace_id or "").strip(), (req.uploader or "").strip())
+        (req.trace_id or "").strip(), (req.uploader or "").strip(),
+        (req.reasoning or "").strip(), conclusion)
     return {"ok": True, "id": oid, "stock_count": len(stocks),
             "stocks": [s["name"] for s in stocks], "stock_items": stocks}
 

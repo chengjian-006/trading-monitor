@@ -5,7 +5,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NTag, NPopconfirm, NCollapse, NCollapseItem } from 'naive-ui'
 import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline } from '@vicons/ionicons5'
-import { listWencaiOpinions, deleteWencaiOpinion, addWencaiToPool, type WencaiOpinion } from '../api/wencai'
+import { listWencaiOpinions, deleteWencaiOpinion, addWencaiToPool, type WencaiOpinion, type WencaiConclusion } from '../api/wencai'
 import { useUiStore } from '../stores/ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 
@@ -53,6 +53,17 @@ function renderAnswer(text: string): string {
   return esc
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\n/g, '<br>')
+}
+
+function hasConclusion(c: WencaiConclusion | undefined): boolean {
+  return !!c && !!(c.stock || c.buy || c.takeProfit || c.stopLoss || c.logic || c.risk)
+}
+function conclusionRows(c: WencaiConclusion | undefined) {
+  const defs: [string, string, string | undefined][] = [
+    ['📌', '主推', c?.stock], ['🟢', '买点', c?.buy], ['🎯', '止盈', c?.takeProfit],
+    ['🛑', '止损', c?.stopLoss], ['⏳', '周期', c?.period], ['💡', '逻辑', c?.logic], ['⚠️', '风险', c?.risk],
+  ]
+  return defs.filter((d) => d[2]).map((d) => ({ icon: d[0], label: d[1], val: d[2] as string }))
 }
 
 async function removeOpinion(id: number) {
@@ -131,6 +142,13 @@ onMounted(load)
           </div>
         </div>
 
+        <div v-if="hasConclusion(op.conclusion)" class="concl">
+          <div class="concl-h">🎯 结论速览</div>
+          <div v-for="row in conclusionRows(op.conclusion)" :key="row.label" class="concl-row">
+            <span class="ci">{{ row.icon }}</span><span class="cl">{{ row.label }}</span><span class="cv">{{ row.val }}</span>
+          </div>
+        </div>
+
         <div v-if="op.stocks.length" class="stocks">
           <span class="lbl">提及个股:</span>
           <NTag
@@ -152,8 +170,11 @@ onMounted(load)
         <div v-else class="stocks no-stk">未从话术中识别出具体个股(可能是纯观点/多票对比, 见下方原文)</div>
 
         <NCollapse class="ans-collapse">
-          <NCollapseItem title="展开完整话术" name="ans">
+          <NCollapseItem title="展开完整分析" name="ans">
             <div class="answer" v-html="renderAnswer(op.answer_text)"></div>
+          </NCollapseItem>
+          <NCollapseItem v-if="op.reasoning" title="思考过程" name="rz">
+            <div class="reasoning">{{ op.reasoning }}</div>
           </NCollapseItem>
         </NCollapse>
       </div>
@@ -189,6 +210,13 @@ onMounted(load)
 .add-btn { margin-left: 4px; }
 .ans-collapse { margin-top: 6px; }
 .answer { font-size: 13px; line-height: 1.7; white-space: normal; word-break: break-word; }
+.reasoning { font-size: 12px; line-height: 1.7; color: var(--text-3, #94a3b8); white-space: pre-wrap; word-break: break-word; }
+.concl { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border, rgba(0,0,0,0.08)); border-radius: 10px; background: var(--card-2, rgba(37,99,235,0.04)); }
+.concl-h { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+.concl-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13px; line-height: 1.5; }
+.concl-row .ci { flex-shrink: 0; }
+.concl-row .cl { flex-shrink: 0; width: 34px; color: var(--text-3, #888); }
+.concl-row .cv { flex: 1; }
 
 @media (max-width: 768px) {
   .opinion-view { padding: 12px; }

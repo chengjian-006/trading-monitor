@@ -91,6 +91,16 @@ export interface WencaiOpinionStock {
   primary: boolean
 }
 
+export interface WencaiConclusion {
+  stock?: string
+  buy?: string
+  takeProfit?: string
+  stopLoss?: string
+  period?: string
+  logic?: string
+  risk?: string
+}
+
 export interface WencaiOpinion {
   id: number
   question: string
@@ -99,6 +109,8 @@ export interface WencaiOpinion {
   agent_mode: string
   trace_id: string
   uploader: string
+  reasoning: string
+  conclusion: WencaiConclusion
   created_at: string
 }
 

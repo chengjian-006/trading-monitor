@@ -50,6 +50,49 @@
     closeList(); return html;
   }
 
+  // 结构化结论: 主用「让问财按固定格式输出→解析【】标记」, 没按格式则正则启发式兜底。
+  // 给问句自动追加的格式要求(只发给问财, 不显示/不存)。
+  const FORMAT_SUFFIX = '\n\n请在回答的最末尾，另起一行，用严格固定格式补一条结论小结（某项没有就填「-」，不要额外解释、不要加粗）：\n【标的】x【买点】x【止盈】x【止损】x【周期】x【逻辑】x【风险】x';
+  const MK = { 标的: 'stock', 买点: 'buy', 止盈: 'takeProfit', 止损: 'stopLoss', 周期: 'period', 逻辑: 'logic', 风险: 'risk' };
+
+  function parseMarkers(text) {
+    if (!text || text.indexOf('【标的】') < 0) return null;
+    const out = {}; let hit = 0;
+    for (const k of Object.keys(MK)) {
+      const m = text.match(new RegExp('【' + k + '】\\s*([\\s\\S]*?)(?=【[标买止周逻风]|\\n\\n|$)'));
+      if (m) { const v = m[1].replace(/[*`]/g, '').trim(); out[MK[k]] = (v === '-' || v === '—' || v === '无') ? '' : v.slice(0, 80); hit++; }
+    }
+    return hit >= 3 ? out : null;
+  }
+  // 把结论小结那行从话术里去掉(卡片已单独展示, 正文不重复)
+  function stripMarkerLine(text) { return (text || '').replace(/\n*【标的】[\s\S]*$/, '').trim(); }
+
+  function clipC(s) { s = (s || '').replace(/\*\*/g, '').replace(/^[\s\-•·]+/, '').replace(/\s+/g, ' ').trim(); return s.length > 64 ? s.slice(0, 64) + '…' : s; }
+  function sentenceOf(text, kw) {
+    const re = new RegExp('[^。\\n;；！]*(?:' + kw + ')[^。\\n;；！]*', 'g');
+    const arr = text.match(re);
+    if (!arr) return '';
+    arr.sort((a, b) => (/[\d]/.test(b) ? 1 : 0) - (/[\d]/.test(a) ? 1 : 0));
+    return arr[0];
+  }
+  function extractConclusion(answer, stockItems) {
+    const stockStr = (stockItems && stockItems[0]) ? (stockItems[0].name + (stockItems[0].code ? ' (' + stockItems[0].code + ')' : '')) : '';
+    const marked = parseMarkers(answer);
+    if (marked) { if (!marked.stock) marked.stock = stockStr; return marked; }
+    // 正则兜底
+    const t = stripEmbeds(answer || '');
+    const period = (t.match(/(?:持股|持有|周期)[^。\n]{0,12}?(一周|半个?月|\d+\s*(?:天|日|周|个月))/) || [])[0] || '';
+    return {
+      stock: stockStr,
+      buy: clipC(sentenceOf(t, '买点|买入价|买入区间|建仓|回踩[^。\\n]{0,8}买|低吸')),
+      takeProfit: clipC(sentenceOf(t, '止盈|目标价|目标位|目标先?看')),
+      stopLoss: clipC(sentenceOf(t, '止损|撤退价?|防守位?|跌破[^。\\n]{0,8}(?:清|走|撤|止)')),
+      period: clipC(period),
+      logic: clipC(sentenceOf(t, '一句话策略|核心逻辑|逻辑[:：]|之所以|受益于|催化')),
+      risk: clipC(sentenceOf(t, '风险提示|需(?:要)?警惕|风险[:：]|若跌破|利空|不及预期')),
+    };
+  }
+
   // 独立可读页(新标签打开 / 历史重看 共用)
   function buildStandaloneHtml(question, answerMd, stocks, meta) {
     const chips = (stocks && stocks.length) ? '<div class="stocks">识别个股：' + stocks.map((s, i) => '<span class="chip' + (i === 0 ? ' hot' : '') + '">' + esc(typeof s === 'string' ? s : s.name) + (i === 0 ? ' ·主推' : '') + '</span>').join('') + '</div>' : '';
@@ -112,7 +155,7 @@
       } catch (e) { /* 建会话失败不致命 */ }
     }
     const resp = await fetch('https://www.iwencai.com/gateway/aime/stream-query', {
-      method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(buildBody(question, sessionId, userId, deep)),
+      method: 'POST', credentials: 'include', headers: H, body: JSON.stringify(buildBody(opts.askText || question, sessionId, userId, deep)),
     });
     let res = await readAimeSSE(resp, onUpdate);
     if (res.answer.length < 50 && res.traceId) {
@@ -140,5 +183,5 @@
              deepResearch: d.deep_research_query_times, leftTime: d.left_time };
   }
 
-  root.WOP = { genSessionId, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota };
+  root.WOP = { genSessionId, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, stripMarkerLine };
 })(typeof self !== 'undefined' ? self : this);
