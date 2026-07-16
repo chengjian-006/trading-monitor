@@ -66,12 +66,15 @@ export interface AlertCondition {
   band?: number           // ma_near
   dir?: 'up' | 'down'     // ma_cross
 }
+export type AlertPreset = 'ma10' | 'ma20' | 'ma60'
 export interface StockAlert {
   id: number
   user_id: number
   code: string
   note?: string | null
   conditions: AlertCondition[]
+  preset?: AlertPreset | ''       // 均线快捷提醒标记(空=普通自定义)
+  repeat_daily?: number           // 1=每天最多提醒一次(次日自动恢复)
   enabled: number
   status: 'active' | 'triggered'
   last_triggered_at?: string | null
@@ -95,6 +98,12 @@ export async function createAlert(code: string, conditions: AlertCondition[], no
 
 export async function updateAlert(id: number, params: { conditions?: AlertCondition[]; note?: string; enabled?: number; status?: 'active' | 'triggered' }): Promise<{ ok: boolean }> {
   const { data } = await client.put(`/api/stocks/alerts/${id}`, params)
+  return data
+}
+
+/** 均线快捷提醒一键开关: 开=建「碰线±0.5%·每天一次」预警, 关=删。 */
+export async function togglePresetAlert(code: string, preset: AlertPreset, on: boolean): Promise<{ ok: boolean; id?: number }> {
+  const { data } = await client.post(`/api/stocks/${code}/alerts/preset`, { preset, on })
   return data
 }
 

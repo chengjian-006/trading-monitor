@@ -5,7 +5,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend.services.custom_alert_scanner import (  # noqa: E402
-    build_ctx, eval_conditions, _eval_one, describe_conditions,
+    build_ctx, eval_conditions, _eval_one, describe_conditions, describe_hit,
 )
 
 
@@ -74,6 +74,23 @@ def test_describe():
         {"dim": "pct", "op": "lte", "value": -5},
     ])
     assert "价格≥15.2" in s and "接近MA10(±2%)" in s and "上穿MA20" in s and "涨跌幅≤-5%" in s
+
+
+def test_describe_hit_preset_plain_language():
+    # 均线快捷预设: 大白话"股价碰到X日线" + 现价/均线值加粗
+    it = {"preset": "ma20", "price": 58.39, "ma_value": 58.10,
+          "conditions": [{"dim": "ma_near", "ma": 20, "band": 0.5}]}
+    s = describe_hit(it)
+    assert "股价碰到20日线" in s
+    assert "**58.39**" in s and "**58.10**" in s
+    assert "今天不再重复报" in s
+
+
+def test_describe_hit_custom_fallback():
+    # 普通自定义(无 preset): 退回条件摘要
+    it = {"preset": "", "price": 10.0, "ma_value": None,
+          "conditions": [{"dim": "price", "op": "gte", "value": 9.5}]}
+    assert "满足: 价格≥9.5" in describe_hit(it)
 
 
 if __name__ == "__main__":

@@ -102,6 +102,18 @@ def describe_condition(cond: dict) -> str:
     return "?"
 
 
+def describe_hit(it: dict) -> str:
+    """命中一条预警的大白话描述(推送正文用)。均线快捷预设带上均线实际值对比;
+    普通自定义退回条件摘要。重要数字加粗。"""
+    preset = it.get("preset") or ""
+    ma_val = it.get("ma_value")
+    if preset.startswith("ma") and ma_val:
+        n = preset[2:]
+        return (f"股价碰到{n}日线：现价 **{it['price']:.2f}**，MA{n} **{ma_val:.2f}**"
+                f"（±0.5%以内算碰线，今天不再重复报）")
+    return f"满足: {describe_conditions(it['conditions'])}"
+
+
 def describe_conditions(conditions: list) -> str:
     parts = [describe_condition(c) for c in (conditions or [])]
     return " 且 ".join(parts) if parts else "-"
@@ -136,7 +148,16 @@ async def check_custom_alerts():
             continue
         if not hit:
             continue
-        await alerts_repo.mark_triggered(r["id"], float(price))
+        repeat_daily = bool(r.get("repeat_daily"))
+        await alerts_repo.mark_triggered(r["id"], float(price), repeat_daily=repeat_daily)
+        # 均线快捷预设: 带上均线实际值, 推送里直接给"现价 vs 均线"对比
+        preset = r.get("preset") or ""
+        ma_value = None
+        if preset.startswith("ma"):
+            try:
+                ma_value = ctx["ma"].get(int(preset[2:]))
+            except (ValueError, KeyError):
+                ma_value = None
         triggered_by_user[r["user_id"]].append({
             "code": r["code"],
             "name": r.get("name") or r["code"],
@@ -144,6 +165,9 @@ async def check_custom_alerts():
             "pct_change": r.get("pct_change"),
             "conditions": conditions,
             "note": r.get("note") or "",
+            "preset": preset,
+            "repeat_daily": repeat_daily,
+            "ma_value": ma_value,
         })
 
     for user_id, items in triggered_by_user.items():
@@ -179,19 +203,28 @@ async def _push_user_alerts(user_id: int, items: list[dict]):
     head = f"【自定义预警】触发 {len(items)} 条" if len(items) > 1 else "【自定义预警】触发"
     lines = [head, ""]
     rows_tbl = []
+    has_once = has_daily = False
     for it in items:
-        cond_txt = describe_conditions(it["conditions"])
-        note = f" · {it['note']}" if it["note"] else ""
-        lines.append(f"▲ {it['name']}({it['code']}){note}")
-        lines.append(f"   现价 {it['price']:.2f} ({_fmt_pct(it.get('pct_change'))}) — 满足: {cond_txt}")
+        note = f" · {it['note']}" if (it["note"] and not it.get("preset")) else ""
+        lines.append(f"▲ **{it['name']}({it['code']})**{note}")
+        lines.append(f"   现价 **{it['price']:.2f}**（{_fmt_pct(it.get('pct_change'))}） — {describe_hit(it)}")
+        if it.get("repeat_daily"):
+            has_daily = True
+        else:
+            has_once = True
         rows_tbl.append({
             "stock": f"{it['name']}({it['code']})",
-            "cond": cond_txt,
+            "cond": describe_conditions(it["conditions"]),
             "price": f"{it['price']:.2f}",
             "pct": _fmt_pct(it.get("pct_change")),
         })
     lines.append("")
-    lines.append("(一次性预警, 已自动停用; 需要可在股票池重新启用)")
+    foot = []
+    if has_once:
+        foot.append("一次性预警已自动停用, 需要可在股票池重新启用")
+    if has_daily:
+        foot.append("均线提醒每天最多报一次, 明天自动继续盯")
+    lines.append(f"({'; '.join(foot)})")
     content = "\n".join(lines)
 
     elements = []

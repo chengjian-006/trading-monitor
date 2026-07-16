@@ -88,27 +88,27 @@ def surge_section(name: str, code: str, r: dict, action_md: str = "",
     每条带实测值+门槛, 用户一眼看懂为什么报(0716需求)。action_md=逐票静音链接行(可空)。"""
     p = {**DEFAULT_PARAMS, **(params or {})}
     lines = [
-        f"**{name}({code})**　现价 ¥{r['price_now']:.2f}（{r['day_pct']:+.1f}%）",
+        f"**{name}({code})**　现价 **¥{r['price_now']:.2f}**（**{r['day_pct']:+.1f}%**）",
         "　触发条件（全中才提醒）：",
-        f"　✅ 第一波冲高：{r['h1_time']} 摸到 ¥{r['H1']:.2f}",
-        f"　✅ 回落降温：冲高后回落 -{r['trough_pct']:.1f}%（要求 ≥{p['pullback_min'] * 100:.1f}%）",
-        f"　✅ 二波放量：最近{int(p['leg_window'])}分钟量能是全天平均的 {r['vol_mult']:.1f} 倍"
+        f"　✅ 第一波冲高：{r['h1_time']} 摸到 **¥{r['H1']:.2f}**",
+        f"　✅ 回落降温：冲高后回落 **-{r['trough_pct']:.1f}%**（要求 ≥{p['pullback_min'] * 100:.1f}%）",
+        f"　✅ 二波放量：最近{int(p['leg_window'])}分钟量能是全天平均的 **{r['vol_mult']:.1f} 倍**"
         f"（要求 ≥{float(p['vol_mult']):.1f} 倍）",
-        f"　✅ 二波过前高：拉升 +{r['leg_rise_pct']:.1f}%（要求 ≥{p['leg_rise_min'] * 100:.1f}%），"
-        f"现价 ¥{r['price_now']:.2f} 超过第一波高点、创当日新高",
+        f"　✅ 二波过前高：拉升 **+{r['leg_rise_pct']:.1f}%**（要求 ≥{p['leg_rise_min'] * 100:.1f}%），"
+        f"现价超过第一波高点、创当日新高",
     ]
     # 20日线向上(v1.7.623闸): 扫描器带均线值则展示数值, 否则只写定性一行
     if r.get("ma20_now") is not None and r.get("ma20_prev") is not None:
-        lines.append(f"　✅ 20日线向上：MA20 ¥{r['ma20_now']:.2f} ≥ {int(p['ma20_up_lookback'])}天前的"
+        lines.append(f"　✅ 20日线向上：MA20 **¥{r['ma20_now']:.2f}** ≥ {int(p['ma20_up_lookback'])}天前的"
                      f" ¥{r['ma20_prev']:.2f}，趋势没掉头")
     elif p.get("require_ma20_up", True):
         lines.append(f"　✅ 20日线向上：最近{int(p['ma20_up_lookback'])}天 MA20 没掉头")
     if r.get("amount_yi") is not None:
-        lines.append(f"　✅ 不是死票：今天已成交 {r['amount_yi']:.1f} 亿"
+        lines.append(f"　✅ 不是死票：今天已成交 **{r['amount_yi']:.1f} 亿**"
                      f"（要求 ≥{p['min_amount_now'] / 1e8:.1f} 亿）")
     gap = _limit_gap_pct(code, name, r["day_pct"])
     if gap is not None:
-        lines.append(f"　✅ 没贴涨停板：距板还有 {max(0.0, gap):.1f}%，买得进")
+        lines.append(f"　✅ 没贴涨停板：距板还有 **{max(0.0, gap):.1f}%**，买得进")
     else:
         lines.append(f"　✅ 没贴涨停板：距板 >{p['chase_limit_buffer_pct']:.0f}%，买得进")
     lines.append(f"　[📈 看分时图](https://stockpage.10jqka.com.cn/{code}/)")

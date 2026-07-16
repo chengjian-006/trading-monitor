@@ -2,6 +2,10 @@
 
 一行 = 一条预警 = 内部多条件 AND; 一只股票可挂多条(任一条各自触发=OR 效果)。
 conditions 以 JSON 文本存储, 数组内全部满足才触发。维度见 custom_alert_scanner。
+
+v1.7.626 均线快捷提醒: preset='ma10'|'ma20'|'ma60'(空=普通自定义) 标记一键开关来源;
+repeat_daily=1 的预警触发后【不】置 triggered, 只记 last_triggered_at, 当天不再报、
+次日自动恢复监控(每股每档每天最多一次)。
 """
 import json
 
@@ -40,13 +44,15 @@ async def list_alerts_by_code(user_id: int, code: str) -> list[dict]:
 
 async def list_active_alerts() -> list[dict]:
     """全用户 enabled=1 且 status='active' 的预警, 并带上该票当前行情(price/pct_change/name)。
-    JOIN 股票池(未删除)保证只检测仍在池中的票, 行情取 quote_refresher 维护的实时值。"""
+    JOIN 股票池(未删除)保证只检测仍在池中的票, 行情取 quote_refresher 维护的实时值。
+    repeat_daily 的预警当天已触发过(last_triggered_at=今天)则本日不再出列。"""
     rows = await _fetchall(
-        "SELECT a.id, a.user_id, a.code, a.note, a.conditions, "
+        "SELECT a.id, a.user_id, a.code, a.note, a.conditions, a.preset, a.repeat_daily, "
         "       p.name AS name, p.price AS price, p.pct_change AS pct_change "
         "FROM cfzy_biz_stock_alerts a "
         "JOIN cfzy_biz_stock_pool p ON p.code = a.code AND p.user_id = a.user_id AND p.deleted_at IS NULL "
-        "WHERE a.enabled = 1 AND a.status = 'active'",
+        "WHERE a.enabled = 1 AND a.status = 'active' "
+        "AND (a.repeat_daily = 0 OR a.last_triggered_at IS NULL OR DATE(a.last_triggered_at) < CURDATE())",
     )
     return [_row_conditions(r) for r in rows]
 
@@ -60,16 +66,34 @@ async def get_alert(user_id: int, alert_id: int) -> dict | None:
 
 
 async def create_alert(user_id: int, code: str, conditions: list, note: str = "",
-                       enabled: int = 1) -> int:
+                       enabled: int = 1, preset: str = "", repeat_daily: int = 0) -> int:
     pool = get_pool()
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "INSERT INTO cfzy_biz_stock_alerts (user_id, code, note, conditions, enabled, status) "
-                "VALUES (%s, %s, %s, %s, %s, 'active')",
-                (user_id, code, note or None, json.dumps(conditions, ensure_ascii=False), int(enabled)),
+                "INSERT INTO cfzy_biz_stock_alerts "
+                "(user_id, code, note, conditions, enabled, status, preset, repeat_daily) "
+                "VALUES (%s, %s, %s, %s, %s, 'active', %s, %s)",
+                (user_id, code, note or None, json.dumps(conditions, ensure_ascii=False),
+                 int(enabled), preset or "", int(repeat_daily)),
             )
             return cur.lastrowid
+
+
+async def get_preset_alert(user_id: int, code: str, preset: str) -> dict | None:
+    """该票的某个均线快捷预警(一键开关按 preset 唯一定位)。"""
+    row = await _fetchone(
+        "SELECT * FROM cfzy_biz_stock_alerts WHERE user_id = %s AND code = %s AND preset = %s",
+        (user_id, code, preset),
+    )
+    return _row_conditions(row) if row else None
+
+
+async def delete_preset_alert(user_id: int, code: str, preset: str) -> None:
+    await _execute(
+        "DELETE FROM cfzy_biz_stock_alerts WHERE user_id = %s AND code = %s AND preset = %s",
+        (user_id, code, preset),
+    )
 
 
 async def update_alert(user_id: int, alert_id: int, *, conditions: list | None = None,
@@ -116,8 +140,16 @@ async def delete_alerts_for_stock(user_id: int, code: str) -> None:
     )
 
 
-async def mark_triggered(alert_id: int, price: float | None) -> None:
-    """一次性触发: 置 triggered 失效, 记触发价与时间。"""
+async def mark_triggered(alert_id: int, price: float | None, repeat_daily: bool = False) -> None:
+    """触发登记。一次性: 置 triggered 失效需手动重启;
+    repeat_daily: 保持 active, 只记触发时间(当天不再出 list_active_alerts, 次日自动恢复)。"""
+    if repeat_daily:
+        await _execute(
+            "UPDATE cfzy_biz_stock_alerts SET "
+            "last_triggered_at = NOW(), triggered_price = %s WHERE id = %s",
+            (price, alert_id),
+        )
+        return
     await _execute(
         "UPDATE cfzy_biz_stock_alerts SET status = 'triggered', "
         "last_triggered_at = NOW(), triggered_price = %s WHERE id = %s",

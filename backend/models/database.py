@@ -51,6 +51,8 @@ SCHEMA_STATEMENTS = [
         code              VARCHAR(16) NOT NULL,
         note              VARCHAR(100) NULL,
         conditions        JSON NOT NULL,
+        preset            VARCHAR(12) NOT NULL DEFAULT '',
+        repeat_daily      TINYINT NOT NULL DEFAULT 0,
         enabled           TINYINT NOT NULL DEFAULT 1,
         status            VARCHAR(12) NOT NULL DEFAULT 'active',
         last_triggered_at DATETIME NULL,
@@ -552,6 +554,21 @@ SCHEMA_STATEMENTS = [
         INDEX idx_user (user_id)
     )
     """,
+    # 问财观点参考 (v1.7.627) — 同花顺问财 chat「智能调度」投顾式推荐的存档. 本地油猴代跑(登录态浏览器发 stream-query
+    #   SSE, 走 aime deep_research/普通 agent), 把口语问题的整段话术 + 从话术里撞出的股票 上报落库. 明确是 LLM 观点非回测信号.
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_wencai_opinion (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL DEFAULT 0,
+        question    VARCHAR(255) NOT NULL DEFAULT '',
+        answer_text MEDIUMTEXT,
+        stocks      JSON,
+        agent_mode  VARCHAR(20) NOT NULL DEFAULT '',
+        trace_id    VARCHAR(64) NOT NULL DEFAULT '',
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_time (user_id, created_at)
+    )
+    """,
     # 每日涨停复盘存档 (v1.7.572) — 明细: 每交易日每只涨停股一行(代码/名称/板数/连板标签/涨停概念/涨幅/炸板),
     # 由 run_limit_up_daily 收盘后15:35拉同花顺涨停池写入. 供「每日涨停复盘」看板/导出/推送 + 概念上榜历史分析.
     """
@@ -1035,6 +1052,10 @@ MIGRATION_STATEMENTS = [
     #   (预置榜=0 全局共享, 用户自定义榜=该用户id; strategy_id 全局唯一靠 u{uid}_q{qid} 命名)
     "ALTER TABLE cfzy_sys_wencai_pool ADD COLUMN user_id INT NOT NULL DEFAULT 0",
     "ALTER TABLE cfzy_sys_wencai_pool ADD INDEX idx_user (user_id)",
+    # v1.7.626: 均线快捷提醒 — preset('ma10'|'ma20'|'ma60', 空=普通自定义) 标记一键开关来源;
+    #   repeat_daily=1: 触发后不停用, 每股每档每天最多提醒一次(次日自动恢复监控)
+    "ALTER TABLE cfzy_biz_stock_alerts ADD COLUMN preset VARCHAR(12) NOT NULL DEFAULT ''",
+    "ALTER TABLE cfzy_biz_stock_alerts ADD COLUMN repeat_daily TINYINT NOT NULL DEFAULT 0",
 ]
 
 

@@ -7,8 +7,8 @@ import { AddOutline, TrashOutline, CreateOutline, RefreshOutline } from '@vicons
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { useResponsive } from '../../composables/useResponsive'
 import {
-  fetchStockAlerts, createAlert, updateAlert, deleteAlert,
-  type StockAlert, type AlertCondition, type AlertDim,
+  fetchStockAlerts, createAlert, updateAlert, deleteAlert, togglePresetAlert,
+  type StockAlert, type AlertCondition, type AlertDim, type AlertPreset,
 } from '../../api/stocks'
 
 const props = defineProps<{ show: boolean; code: string; name: string }>()
@@ -20,6 +20,44 @@ const { isPhone } = useResponsive()
 const loading = ref(false)
 const saving = ref(false)
 const list = ref<StockAlert[]>([])
+
+// ── 均线快捷提醒(碰线±0.5%·每股每档每天最多一次) ──
+const PRESETS: { key: AlertPreset; label: string }[] = [
+  { key: 'ma10', label: '10日线' },
+  { key: 'ma20', label: '20日线' },
+  { key: 'ma60', label: '60日线' },
+]
+const presetBusy = ref<Record<string, boolean>>({})
+
+// 快捷开关状态: 该 preset 存在且启用即视为开
+function presetOn(key: AlertPreset): boolean {
+  return list.value.some(a => a.preset === key && !!a.enabled)
+}
+// 自定义列表只显示非快捷预设的(快捷的由上方开关表达, 不进列表防重复/误编辑)
+const customList = computed(() => list.value.filter(a => !a.preset))
+
+async function togglePreset(key: AlertPreset, on: boolean) {
+  presetBusy.value = { ...presetBusy.value, [key]: true }
+  try {
+    await togglePresetAlert(props.code, key, on)
+    await reload()
+    emit('changed')
+    message.success(on ? `已开启${PRESETS.find(p => p.key === key)?.label}提醒` : '已关闭')
+  } catch {
+    message.error('操作失败')
+  } finally {
+    presetBusy.value = { ...presetBusy.value, [key]: false }
+  }
+}
+
+// 快捷提醒今天是否已触发过(展示小标记)。用本地日期, 不用 toISOString(UTC 跨日会错)
+function presetFiredToday(key: AlertPreset): boolean {
+  const a = list.value.find(x => x.preset === key)
+  if (!a?.last_triggered_at) return false
+  const d = new Date()
+  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return a.last_triggered_at.slice(0, 10) === today
+}
 
 // ── 编辑中的草稿(新增或编辑一条预警) ──
 const editingId = ref<number | null>(null)   // null=新增, 数字=编辑该 id
@@ -178,13 +216,24 @@ const modalWidth = computed(() => (isPhone.value ? '94vw' : '600px'))
     :block-scroll="false"
   >
     <div class="alert-modal">
+      <!-- 均线快捷提醒: 一键开关, 碰线±0.5%即报, 每天最多一次 -->
+      <div class="section-title">均线提醒 <span class="and-hint">股价碰到均线(±0.5%)就提醒, 每天最多一次, 次日自动继续盯</span></div>
+      <div class="preset-row" :class="{ 'preset-row--phone': isPhone }">
+        <div v-for="p in PRESETS" :key="p.key" class="preset-item">
+          <span class="preset-label">{{ p.label }}</span>
+          <NTag v-if="presetFiredToday(p.key)" size="tiny" type="warning" :bordered="false">今日已报</NTag>
+          <NSwitch size="small" :value="presetOn(p.key)" :loading="!!presetBusy[p.key]"
+            @update:value="(v: boolean) => togglePreset(p.key, v)" />
+        </div>
+      </div>
+
       <!-- 已有预警列表 -->
-      <div class="section-title">已设预警</div>
+      <div class="section-title" style="margin-top: 14px">已设预警</div>
       <NSpin :show="loading">
-        <div v-if="list.length === 0 && !loading" class="empty-box">
+        <div v-if="customList.length === 0 && !loading" class="empty-box">
           <NEmpty description="还没有预警, 在下方添加" size="small" />
         </div>
-        <div v-for="a in list" :key="a.id" class="alert-row" :class="{ triggered: a.status === 'triggered' }">
+        <div v-for="a in customList" :key="a.id" class="alert-row" :class="{ triggered: a.status === 'triggered' }">
           <div class="alert-row-main">
             <div class="alert-cond">{{ describeAlert(a) }}</div>
             <div class="alert-meta">
@@ -275,6 +324,14 @@ const modalWidth = computed(() => (isPhone.value ? '94vw' : '600px'))
 
 <style scoped>
 .alert-modal { display: flex; flex-direction: column; }
+.preset-row { display: flex; gap: 10px; }
+.preset-row--phone { flex-direction: column; gap: 6px; }
+.preset-item {
+  display: flex; align-items: center; gap: 8px; flex: 1 1 0;
+  padding: 7px 10px; border-radius: 6px;
+  background: var(--card2, #f7f8fa); border: 1px solid var(--border, #eee);
+}
+.preset-label { font-size: 13px; font-weight: 500; color: var(--text1); margin-right: auto; }
 .section-title {
   font-size: 13px; font-weight: 600; color: var(--text2);
   margin: 4px 0 6px; display: flex; align-items: center; gap: 8px;
