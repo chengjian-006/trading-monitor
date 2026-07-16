@@ -34,6 +34,7 @@ async function runBg(question, opts) {
   if (!s.token) throw new Error('未配置 token（点扩展图标在设置里填）');
   const res = await WOP.runAimeQuery(question, { deep: s.deepResearch, getV: () => cookieVal('v'), getUserId: () => cookieVal('userid') });
   if (!res.answer.trim()) throw new Error('没抓到答案（可能被风控或非推荐意图）');
+  res.answer = WOP.stripEmbeds(res.answer);   // 去内嵌图表占位块噪音
   const uid = await cookieVal('userid');
   const r = await uploadTo(s.serverUrl, { token: s.token, question, answer_text: res.answer, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || uid || '', only_with_stock: !!s.onlyWithStock });
   const items = r.stock_items || (r.stocks || []).map((n) => ({ name: n }));

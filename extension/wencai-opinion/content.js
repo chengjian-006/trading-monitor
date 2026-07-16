@@ -148,6 +148,7 @@
       res = await WOP.runAimeQuery(question, { deep: s.deepResearch, onUpdate, sessionId: sessionId || undefined, getV: async () => getCookie('v'), getUserId: async () => getCookie('userid') });
     } catch (e) { setStage('失败', 'red'); setBodyText('问财请求失败：' + e.message); return; }
     if (!res.answer.trim()) { setStage('无结果', 'red'); setBodyText('没抓到答案话术（可能被风控，或问题被判为非推荐意图）。'); return; }
+    res.answer = WOP.stripEmbeds(res.answer);   // 去掉内嵌图表占位块噪音, 存库/展示都干净
     panel().sessionId = res.sessionId || '';
     setStage('已完成', 'green'); setBodyMd(res.answer, false);
 

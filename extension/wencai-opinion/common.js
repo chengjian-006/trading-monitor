@@ -24,12 +24,24 @@
   // ---- markdown 轻量渲染(标题/无序列表/编号段/加粗/代码), 流式部分文本也稳 ----
   function esc(s) { return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
   function inlineMd(s) { return esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>'); }
+  // 去掉问财内嵌图表/模型占位块(```visual{...uuid...}``` 之类, 页面用来渲染图表, 纯文本里是噪音)
+  function stripEmbeds(text) {
+    if (!text) return text || '';
+    let t = String(text);
+    t = t.replace(/```\s*visual[\s\S]*?```/gi, '');   // 闭合的 visual 块
+    t = t.replace(/```\s*visual[\s\S]*$/i, '');        // 流式中途未闭合的尾块
+    t = t.replace(/```[\s\S]*?```/g, (m) => (/"uuid"\s*:/.test(m) ? '' : m));  // 任何含 uuid 的裸块
+    t = t.replace(/\n{3,}/g, '\n\n');
+    return t.trim();
+  }
   function mdRender(src) {
-    const lines = (src || '').split('\n'); let html = '', inList = false, m;
+    const lines = stripEmbeds(src).split('\n'); let html = '', inList = false, m;
     const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
     for (const raw of lines) {
       const line = raw.replace(/\s+$/, '');
       if (!line.trim()) { closeList(); continue; }
+      if (/^```/.test(line)) { closeList(); continue; }                         // 残留的 ``` 标记行丢弃
+      if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.replace(/\s/g, ''))) { closeList(); html += '<hr>'; continue; }  // 分隔线
       if ((m = line.match(/^(#{1,4})\s+(.*)$/))) { closeList(); const lv = m[1].length; html += '<h' + lv + '>' + inlineMd(m[2]) + '</h' + lv + '>'; }
       else if ((m = line.match(/^\s*[-•·]\s+(.*)$/))) { if (!inList) { html += '<ul>'; inList = true; } html += '<li>' + inlineMd(m[1]) + '</li>'; }
       else if ((m = line.match(/^\s*(\d{1,2})[.、]\s+(.*)$/))) { closeList(); html += '<p class="num"><strong>' + m[1] + '. </strong>' + inlineMd(m[2]) + '</p>'; }
@@ -128,5 +140,5 @@
              deepResearch: d.deep_research_query_times, leftTime: d.left_time };
   }
 
-  root.WOP = { genSessionId, buildBody, esc, mdRender, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota };
+  root.WOP = { genSessionId, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota };
 })(typeof self !== 'undefined' ? self : this);

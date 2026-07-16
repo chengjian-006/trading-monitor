@@ -42,7 +42,13 @@ function modeLabel(m: string) {
 
 // 话术轻量渲染: 转义 HTML → **加粗** 转 <strong> → 换行转 <br>
 function renderAnswer(text: string): string {
-  const esc = (text || '')
+  // 先去掉问财内嵌图表/模型占位块(```visual{...uuid...}```), 纯文本里是噪音
+  const cleaned = (text || '')
+    .replace(/```\s*visual[\s\S]*?```/gi, '')
+    .replace(/```[\s\S]*?```/g, (m) => (/"uuid"\s*:/.test(m) ? '' : m))
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  const esc = cleaned
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   return esc
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')

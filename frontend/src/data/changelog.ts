@@ -25,7 +25,7 @@ const changelog: VersionEntry[] = [
         tag: 'new',
       },
       {
-        text: '后端 /opinion 响应加 stock_items（带股票代码，供扩展个股 chip 点击跳转）。扩展 common.js 抽出前后台共用内核（SSE/markdown/独立页/额度/会话续接）。',
+        text: '后端 /opinion 响应加 stock_items（带股票代码，供扩展个股 chip 点击跳转）。扩展 common.js 抽出前后台共用内核（SSE/markdown/独立页/额度/会话续接）。答案渲染过滤掉问财内嵌图表占位块（```visual{uuid}``` 那种纯文本噪音），扩展面板/重看页与网页「问财观点」页都显示干净。',
         tag: 'improve',
       },
     ],
