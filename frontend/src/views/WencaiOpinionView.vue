@@ -109,6 +109,7 @@ onMounted(load)
         <div class="op-top">
           <div class="q">{{ op.question }}</div>
           <div class="meta">
+            <NTag v-if="op.uploader" size="small" type="info" round>{{ op.uploader }}</NTag>
             <NTag size="small" :type="op.agent_mode === 'deep_research' ? 'warning' : 'default'" round>
               {{ modeLabel(op.agent_mode) }}
             </NTag>

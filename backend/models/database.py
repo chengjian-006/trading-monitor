@@ -565,6 +565,7 @@ SCHEMA_STATEMENTS = [
         stocks      JSON,
         agent_mode  VARCHAR(20) NOT NULL DEFAULT '',
         trace_id    VARCHAR(64) NOT NULL DEFAULT '',
+        uploader    VARCHAR(40) NOT NULL DEFAULT '',
         created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_time (user_id, created_at)
     )
@@ -1056,6 +1057,8 @@ MIGRATION_STATEMENTS = [
     #   repeat_daily=1: 触发后不停用, 每股每档每天最多提醒一次(次日自动恢复监控)
     "ALTER TABLE cfzy_biz_stock_alerts ADD COLUMN preset VARCHAR(12) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_alerts ADD COLUMN repeat_daily TINYINT NOT NULL DEFAULT 0",
+    # v1.7.633: 问财观点上报人昵称(共用 token 分发扩展时区分是谁问的)
+    "ALTER TABLE cfzy_biz_wencai_opinion ADD COLUMN uploader VARCHAR(40) NOT NULL DEFAULT ''",
 ]
 
 

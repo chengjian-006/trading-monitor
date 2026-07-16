@@ -9,7 +9,8 @@ from backend.models.repo._db import _execute, _fetchall, _fetchone
 
 
 async def insert_opinion(user_id: int, question: str, answer_text: str,
-                         stocks: list[dict], agent_mode: str, trace_id: str) -> int:
+                         stocks: list[dict], agent_mode: str, trace_id: str,
+                         uploader: str = "") -> int:
     """插入一条问财观点, 返回新行 id。"""
     from backend.models.database import get_pool
     pool = get_pool()
@@ -17,11 +18,11 @@ async def insert_opinion(user_id: int, question: str, answer_text: str,
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT INTO cfzy_biz_wencai_opinion "
-                "(user_id, question, answer_text, stocks, agent_mode, trace_id) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
+                "(user_id, question, answer_text, stocks, agent_mode, trace_id, uploader) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (user_id, question[:255], answer_text or "",
                  json.dumps(stocks or [], ensure_ascii=False), (agent_mode or "")[:20],
-                 (trace_id or "")[:64]),
+                 (trace_id or "")[:64], (uploader or "")[:40]),
             )
             return cur.lastrowid
 

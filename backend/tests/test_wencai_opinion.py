@@ -28,9 +28,9 @@ def _setup(monkeypatch, token="SECRET"):
 
     cap = {}
 
-    async def fake_insert(user_id, question, answer_text, stocks, agent_mode, trace_id):
+    async def fake_insert(user_id, question, answer_text, stocks, agent_mode, trace_id, uploader=""):
         cap.update(user_id=user_id, question=question, answer_text=answer_text,
-                   stocks=stocks, agent_mode=agent_mode, trace_id=trace_id)
+                   stocks=stocks, agent_mode=agent_mode, trace_id=trace_id, uploader=uploader)
         return 42
     monkeypatch.setattr(wc.repository, "insert_wencai_opinion", fake_insert)
     return cap
@@ -86,3 +86,20 @@ def test_extract_none_when_no_match(monkeypatch):
     r = asyncio.run(wc.ingest_opinion(_req(answer_text="当前市场情绪偏弱，建议轻仓观望。")))
     assert r["stock_count"] == 0
     assert cap["stocks"] == []
+
+
+def test_only_with_stock_skips_when_no_match(monkeypatch):
+    """only_with_stock=True 且没抽出个股 → 跳过入库(不调 insert)。"""
+    cap = _setup(monkeypatch)
+    cap["stocks"] = "SENTINEL"   # 若被写入会被覆盖, 用哨兵确认 insert 未被调用
+    r = asyncio.run(wc.ingest_opinion(_req(answer_text="轻仓观望，无具体标的。", only_with_stock=True)))
+    assert r.get("skipped") is True and r["stock_count"] == 0
+    assert cap["stocks"] == "SENTINEL"   # insert 没被调用
+
+
+def test_only_with_stock_inserts_when_matched(monkeypatch):
+    """only_with_stock=True 但抽出了个股 → 正常入库。"""
+    cap = _setup(monkeypatch)
+    r = asyncio.run(wc.ingest_opinion(_req(answer_text="**浪潮信息** 值得关注。", only_with_stock=True)))
+    assert r["ok"] is True and r.get("skipped") is None
+    assert any(s["code"] == "000977" for s in cap["stocks"])

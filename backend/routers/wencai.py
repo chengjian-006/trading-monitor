@@ -315,13 +315,16 @@ class OpinionIngestRequest(BaseModel):
     answer_text: str = ""
     trace_id: str = ""
     agent_mode: str = ""
+    uploader: str = ""              # 上报人昵称(共用 token 下区分是谁问的)
+    only_with_stock: bool = False   # True: 话术里没撞出个股就不落库(客户端「仅识别出个股才上报」)
 
 
 @router.post("/opinion")
 async def ingest_opinion(req: OpinionIngestRequest):
-    """本地油猴代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
+    """本地浏览器代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
 
-    共享密钥鉴权(同 ingest)。答案话术在油猴里从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
+    共享密钥鉴权(同 ingest)。答案话术在客户端从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
+    only_with_stock=True 且没抽出个股时跳过入库(返回 skipped)。
     """
     if not _ingest_token_ok(req.token):
         raise HTTPException(status_code=401, detail="ingest token 无效")
@@ -330,8 +333,11 @@ async def ingest_opinion(req: OpinionIngestRequest):
         raise HTTPException(status_code=400, detail="question 为空")
     answer = (req.answer_text or "").strip()[:_OPINION_MAX_ANSWER]
     stocks = await _extract_stocks(answer)
+    if req.only_with_stock and not stocks:
+        return {"ok": True, "skipped": True, "stock_count": 0, "stocks": []}
     oid = await repository.insert_wencai_opinion(
-        0, question, answer, stocks, (req.agent_mode or "").strip(), (req.trace_id or "").strip())
+        0, question, answer, stocks, (req.agent_mode or "").strip(),
+        (req.trace_id or "").strip(), (req.uploader or "").strip())
     return {"ok": True, "id": oid, "stock_count": len(stocks),
             "stocks": [s["name"] for s in stocks]}
 

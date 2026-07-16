@@ -98,6 +98,7 @@ export interface WencaiOpinion {
   stocks: WencaiOpinionStock[]
   agent_mode: string
   trace_id: string
+  uploader: string
   created_at: string
 }
 

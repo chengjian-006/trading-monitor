@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="hd">💡 问财观点 · 设置</div>
+
+  <div class="sec">
+    <div class="row"><label>后台问一句（不用开问财页）</label></div>
+    <div id="askBtns" class="askbtns"></div>
+    <div class="row2">
+      <input id="askInput" type="text" placeholder="或输入自定义问题…">
+      <button id="askGo" class="btn sm">问</button>
+    </div>
+    <div id="askStatus" class="status"></div>
+  </div>
+
+  <div class="sec">
+    <div class="row"><label>服务器地址</label><input id="serverUrl" type="text" placeholder="http://124.71.75.5"></div>
+    <div class="row"><label>上报密钥 token</label><input id="token" type="text" placeholder="向管理员索取 / 分发包已预填"></div>
+    <div class="row"><label>我的昵称（观点卡显示是谁问的）</label><input id="uploader" type="text" placeholder="选填，如：老王"></div>
+  </div>
+
+  <div class="sec">
+    <div class="row"><label>预置问题（每行一条，悬浮按钮菜单里列出）</label>
+      <textarea id="presets" rows="4" placeholder="每行一条口语问题"></textarea></div>
+  </div>
+
+  <div class="sec">
+    <label class="ck"><input id="deepResearch" type="checkbox"> 深度研究（更深，但每天约10次额度；默认关走普通188次）</label>
+    <label class="ck"><input id="autoUpload" type="checkbox"> 问完自动上报（关掉=只看答案，手动点上报）</label>
+    <label class="ck"><input id="onlyWithStock" type="checkbox"> 仅识别出个股才上报（过滤纯观点）</label>
+  </div>
+
+  <div class="sec">
+    <label class="ck"><input id="schedEnabled" type="checkbox"> 定时自动问（后台跑，⚠️自动化，封号风险相对高，谨慎开）</label>
+    <div class="row"><label>时间点（逗号分隔，如 09:35,13:05）</label><input id="schedTimes" type="text" placeholder="09:35,13:05"></div>
+    <div class="row"><label>定时跑哪些问题（每行一条；留空=跑第一条预置）</label>
+      <textarea id="schedQuestions" rows="2" placeholder="留空则跑第一条预置问题"></textarea></div>
+  </div>
+
+  <div class="foot">
+    <button id="save" class="btn">保存设置</button>
+    <span id="saveMsg" class="savemsg"></span>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>
