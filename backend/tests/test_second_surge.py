@@ -102,6 +102,26 @@ class TestAmountAndCard:
         ])
         assert "2只" in t2
 
+    def test_card_plain_language_checklist(self):
+        # v1.7.625: 所有触发规则大白话逐条列出, 含20线/流动性/涨停暗闸
+        r = detect_second_surge(_mk(_POS_PRICES, _POS_VOLS), 100.0, P, code="600000", name="测试")
+        r["ma20_now"] = 98.50
+        r["ma20_prev"] = 97.20
+        r["amount_yi"] = 2.3
+        _, body = build_surge_card([{"name": "测试", "code": "600000", "r": r, "action_md": ""}])
+        assert "触发条件（全中才提醒）" in body
+        assert "第一波冲高" in body and "回落降温" in body and "二波放量" in body
+        assert "20日线向上：MA20 ¥98.50 ≥ 3天前的 ¥97.20" in body
+        assert "已成交 2.3 亿" in body
+        assert "没贴涨停板" in body and "买得进" in body
+
+    def test_card_without_optional_fields(self):
+        # 无 ma20/amount 值(如回测/老调用): 20线一行退化成定性文案, 成交额行省略
+        r = detect_second_surge(_mk(_POS_PRICES, _POS_VOLS), 100.0, P, code="600000", name="测试")
+        _, body = build_surge_card([{"name": "测试", "code": "600000", "r": r, "action_md": ""}])
+        assert "20日线向上：最近3天 MA20 没掉头" in body
+        assert "已成交" not in body
+
 
 class TestMa20Rising:
     def test_rising_passes(self):

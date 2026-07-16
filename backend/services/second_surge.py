@@ -36,6 +36,17 @@ DEFAULT_PARAMS = {
 }
 
 
+def ma20_pair(closes_desc: list[float], lookback: int = 3) -> tuple[float, float] | None:
+    """(昨收算的MA20, lookback日前的MA20)。closes_desc=不含今日的历史收盘(最新在前);
+    根数不足 20+lookback 返回 None。供 ma20_rising 判定 + 推送卡展示数值。"""
+    lb = max(1, int(lookback))
+    if len(closes_desc) < 20 + lb:
+        return None
+    ma_now = sum(closes_desc[:20]) / 20            # 昨收算的 MA20
+    ma_prev = sum(closes_desc[lb:lb + 20]) / 20    # lb 日前算的 MA20
+    return ma_now, ma_prev
+
+
 def ma20_rising(closes_desc: list[float], lookback: int = 3) -> bool:
     """20日均线温和上翘: 昨收算的 MA20 ≥ lookback 日前的 MA20(走平也算, 只滤明确掉头)。
 
@@ -43,13 +54,10 @@ def ma20_rising(closes_desc: list[float], lookback: int = 3) -> bool:
     刻意只用【已收盘】日线判趋势结构, 绝不掺今日盘中现价 —— 二波过前高当天股价本就是涨的,
     若把今日价算进 MA20 则几乎必然上翘, 闸门形同虚设(见记忆 second-surge-backtest)。
     """
-    lb = max(1, int(lookback))
-    need = 20 + lb
-    if len(closes_desc) < need:
+    pair = ma20_pair(closes_desc, lookback)
+    if pair is None:
         return False
-    ma_now = sum(closes_desc[:20]) / 20            # 昨收算的 MA20
-    ma_prev = sum(closes_desc[lb:lb + 20]) / 20    # lb 日前算的 MA20
-    return ma_now >= ma_prev
+    return pair[0] >= pair[1]
 
 
 def cum_amount(trends: list[dict]) -> float:
@@ -74,23 +82,57 @@ def wave_amounts(trends: list[dict]) -> list[float]:
 _SURGE_TAGLINE = "抬头看一眼·形态提示非买卖建议(历史多为隔日T+1~T+3小余温, 当日≈走平)。"
 
 
-def surge_section(name: str, code: str, r: dict, action_md: str = "") -> str:
-    """单只二波过前高的卡片区块(逐分钟文本行版, 手机端不截)。action_md=逐票静音链接行(可空)。"""
+def surge_section(name: str, code: str, r: dict, action_md: str = "",
+                  params: dict | None = None) -> str:
+    """单只二波过前高的卡片区块。所有触发规则大白话逐条列出(含20线/流动性/涨停这些暗闸),
+    每条带实测值+门槛, 用户一眼看懂为什么报(0716需求)。action_md=逐票静音链接行(可空)。"""
+    p = {**DEFAULT_PARAMS, **(params or {})}
     lines = [
         f"**{name}({code})**　现价 ¥{r['price_now']:.2f}（{r['day_pct']:+.1f}%）",
-        f"　突破第一波高点 ¥{r['H1']:.2f}（{r['h1_time']}冲高 → 回落 -{r['trough_pct']:.1f}% → "
-        f"二波放量 {r['vol_mult']:.1f}× 拉升 +{r['leg_rise_pct']:.1f}% 创当日新高）",
-        f"　[📈 看分时图](https://stockpage.10jqka.com.cn/{code}/)",
+        "　触发条件（全中才提醒）：",
+        f"　✅ 第一波冲高：{r['h1_time']} 摸到 ¥{r['H1']:.2f}",
+        f"　✅ 回落降温：冲高后回落 -{r['trough_pct']:.1f}%（要求 ≥{p['pullback_min'] * 100:.1f}%）",
+        f"　✅ 二波放量：最近{int(p['leg_window'])}分钟量能是全天平均的 {r['vol_mult']:.1f} 倍"
+        f"（要求 ≥{float(p['vol_mult']):.1f} 倍）",
+        f"　✅ 二波过前高：拉升 +{r['leg_rise_pct']:.1f}%（要求 ≥{p['leg_rise_min'] * 100:.1f}%），"
+        f"现价 ¥{r['price_now']:.2f} 超过第一波高点、创当日新高",
     ]
+    # 20日线向上(v1.7.623闸): 扫描器带均线值则展示数值, 否则只写定性一行
+    if r.get("ma20_now") is not None and r.get("ma20_prev") is not None:
+        lines.append(f"　✅ 20日线向上：MA20 ¥{r['ma20_now']:.2f} ≥ {int(p['ma20_up_lookback'])}天前的"
+                     f" ¥{r['ma20_prev']:.2f}，趋势没掉头")
+    elif p.get("require_ma20_up", True):
+        lines.append(f"　✅ 20日线向上：最近{int(p['ma20_up_lookback'])}天 MA20 没掉头")
+    if r.get("amount_yi") is not None:
+        lines.append(f"　✅ 不是死票：今天已成交 {r['amount_yi']:.1f} 亿"
+                     f"（要求 ≥{p['min_amount_now'] / 1e8:.1f} 亿）")
+    gap = _limit_gap_pct(code, name, r["day_pct"])
+    if gap is not None:
+        lines.append(f"　✅ 没贴涨停板：距板还有 {max(0.0, gap):.1f}%，买得进")
+    else:
+        lines.append(f"　✅ 没贴涨停板：距板 >{p['chase_limit_buffer_pct']:.0f}%，买得进")
+    lines.append(f"　[📈 看分时图](https://stockpage.10jqka.com.cn/{code}/)")
     if action_md:
         lines.append("　" + action_md)
     return "\n".join(lines)
 
 
-def build_surge_card(items: list[dict]) -> tuple[str, str]:
+def _limit_gap_pct(code: str, name: str, day_pct: float) -> float | None:
+    """现价距涨停板还差几个百分点(板幅-当日涨幅)。代码空/异常返回 None。"""
+    if not code:
+        return None
+    try:
+        from backend.utils.limit_calc import get_limit_pct
+        return get_limit_pct(code, name) - day_pct
+    except Exception:
+        return None
+
+
+def build_surge_card(items: list[dict], params: dict | None = None) -> tuple[str, str]:
     """合并二波过前高提醒卡 (title, body_md)。items 每项 {name, code, r, action_md}。
     同一tick多只触发合并成一张卡(防突发刷屏); 定性文案不诱导当日买卖。"""
-    secs = [surge_section(it["name"], it["code"], it["r"], it.get("action_md", "")) for it in items]
+    secs = [surge_section(it["name"], it["code"], it["r"], it.get("action_md", ""), params)
+            for it in items]
     n = len(items)
     title = f"🔥 二波过前高 · {items[0]['name']}({items[0]['code']})" if n == 1 else f"🔥 二波过前高 · {n}只"
     body = "\n\n".join(secs) + "\n\n" + _SURGE_TAGLINE

@@ -135,8 +135,10 @@ async def run_second_surge_scan():
         r = ss.detect_second_surge(trends, pre_close, p, code=code, name=name_map.get(code, ""))
         if not r:
             continue
-        if ss.cum_amount(trends) < min_amt:                     # 流动性底线(当日累计成交额)
+        amt = ss.cum_amount(trends)
+        if amt < min_amt:                                       # 流动性底线(当日累计成交额)
             continue
+        r["amount_yi"] = round(amt / 1e8, 2)                    # 供卡片"不是死票"行展示
         candidates.append({"code": code, "r": r})
 
     if not candidates:
@@ -155,9 +157,12 @@ async def run_second_surge_scan():
         kept: list[dict] = []
         for c in candidates:
             closes = closes_map.get(c["code"]) or []
-            if len(closes) < 20 + lb:                          # 日线不足(次新等): 本轮不报, 不永久拉黑
+            pair = ss.ma20_pair(closes, lb)
+            if pair is None:                                   # 日线不足(次新等): 本轮不报, 不永久拉黑
                 continue
-            if ss.ma20_rising(closes, lb):
+            if pair[0] >= pair[1]:                             # 温和上翘(走平也算过)
+                c["r"]["ma20_now"] = round(pair[0], 2)         # 供卡片"20日线向上"行展示
+                c["r"]["ma20_prev"] = round(pair[1], 2)
                 kept.append(c)
             else:
                 _mark_ma20_blocked(day, c["code"])             # 20线掉头, 整天不再算
@@ -179,7 +184,7 @@ async def run_second_surge_scan():
         return
     # 同tick多只按二波放量倍数降序(更猛的在前)
     hits.sort(key=lambda h: h["r"].get("vol_mult", 0), reverse=True)
-    title, body = ss.build_surge_card(hits)
+    title, body = ss.build_surge_card(hits, p)
     try:
         await notifier.send_dual(body, lark_title=title, template="red")
     except Exception as e:

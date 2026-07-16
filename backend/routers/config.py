@@ -167,7 +167,8 @@ async def test_surge_card(user: Annotated[dict, Depends(require_admin)]):
 
     site = (load_config().get("site_url", "") or "").rstrip("/")
     r = {"price_now": 58.39, "H1": 57.65, "h1_time": "09:38", "trough_pct": 2.1,
-         "leg_rise_pct": 2.1, "vol_mult": 1.9, "day_pct": 2.7}
+         "leg_rise_pct": 2.1, "vol_mult": 1.9, "day_pct": 2.7,
+         "ma20_now": 55.46, "ma20_prev": 54.88, "amount_yi": 3.2}
     action_md = pp.build_surge_actions_md(site, user["id"], "002929") if site else ""
     title, body = ss.build_surge_card([
         {"name": "润建股份", "code": "002929", "r": r, "action_md": action_md},
