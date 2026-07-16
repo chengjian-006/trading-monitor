@@ -8,9 +8,13 @@ from backend.services.holding_guard import (
     compute_peak,
     profit_protect_triggered,
     model_advisory,
+    anomaly_quota_verdict,
     GuardThrottle,
     build_near_high_msg,
     build_profit_protect_msg,
+    ANOMALY_MAX_DAILY,
+    ANOMALY_DOWN_MAX_DAILY,
+    DOWN_ANOMALY_RULES,
 )
 
 
@@ -156,6 +160,48 @@ def test_throttle_load_restores_counts_from_db_snapshot():
     assert t.cooling("300750", "surge", 2000.0 + 100, cooldown_sec=1800) is True
     # 未记录的规则不受影响
     assert t.throttled("000001", "profit_protect", "2026-06-16") is False
+
+
+# ---------- 异动卡配额: 总3张 + 下跌类独立保底1张/自身封顶3张(2026-07 用户拍板"2改") ----------
+
+def test_anomaly_quota_up_capped_by_total():
+    # 上涨类只看总配额: 前3张放行, 第4张挡
+    assert anomaly_quota_verdict(0, 0, is_down=False) is True
+    assert anomaly_quota_verdict(2, 0, is_down=False) is True
+    assert anomaly_quota_verdict(3, 0, is_down=False) is False
+
+
+def test_anomaly_quota_down_guaranteed_when_total_full():
+    # 核心场景: 当日前3张全是上涨类烧光总配额, 第4张是下跌类(急跌/跌停/开板) → 仍放行(保底1张)
+    assert anomaly_quota_verdict(3, 0, is_down=True) is True
+
+
+def test_anomaly_quota_down_no_second_exemption():
+    # 保底只有1张: 总配额已满且当日已发过下跌类 → 再来下跌类挡住
+    assert anomaly_quota_verdict(4, 1, is_down=True) is False
+
+
+def test_anomaly_quota_down_passes_within_total():
+    # 总配额未满时下跌类照常放行(不消耗"保底"语义)
+    assert anomaly_quota_verdict(1, 1, is_down=True) is True
+    assert anomaly_quota_verdict(2, 2, is_down=True) is True
+
+
+def test_anomaly_quota_down_own_daily_cap():
+    # 下跌类自身每日封顶3张防刷屏(即便构造出总计数偏低的状态也不放行)
+    assert anomaly_quota_verdict(3, 3, is_down=True) is False
+    assert anomaly_quota_verdict(0, ANOMALY_DOWN_MAX_DAILY, is_down=True) is False
+
+
+def test_anomaly_quota_up_not_exempted_when_total_full_by_down():
+    # 反向不豁免: 下跌类把总配额占满后, 上涨类没有保底
+    assert anomaly_quota_verdict(3, 3, is_down=False) is False
+
+
+def test_anomaly_quota_constants_and_rules():
+    assert ANOMALY_MAX_DAILY == 3 and ANOMALY_DOWN_MAX_DAILY == 3
+    # 下跌类口径固定: 急跌/跌停/开板(封板异动/涨停/急拉属上涨类)
+    assert set(DOWN_ANOMALY_RULES) == {"plunge", "limit_down", "board_open"}
 
 
 # ---------- 文案(基线 v1.1 Card): 关键事实出现 ----------

@@ -43,6 +43,12 @@ BOARD_VOL_X = 2.0       # 板上放量倍数阈值
 # 持仓异动·每股每日推送总量上限(v1.7.555 批次C): 同 tick 多项异动合并成一张卡, 且全天封顶
 # ANOMALY_MAX_DAILY 张, 防单股剧烈波动(涨停→封单松动→开板→急跌…)一天刷 5-8 条屏。
 ANOMALY_MAX_DAILY = 3
+# 下跌类异动专属配额(2026-07 用户拍板"2改"): 总配额仍 3, 但下跌类(急跌/跌停/开板)独立保底 1 个 ——
+# 当日配额若被上涨类(涨停/急拉/封板异动)烧光, 当日首张下跌类卡仍放行(风险提示不能被喜报挤掉);
+# 下跌类自身每日也封顶 ANOMALY_DOWN_MAX_DAILY 张防刷屏。分类型计数沿用 guard_throttle 机制
+# (规则名 anomaly_card_down, 与总计数 anomaly_card 并行落库, 重启恢复)。
+ANOMALY_DOWN_MAX_DAILY = 3
+DOWN_ANOMALY_RULES = ("plunge", "limit_down", "board_open")   # 急跌 / 跌停 / 开板
 
 # 动量突破类: 回踩多为健康洗盘再加速, 机械保本会砍在洗盘底(bt_profit_protect 全样 Δ−1.12%),
 # 故文案附"留意而非急走"提醒。后续若中继平台突破也证实同性可加入。
@@ -114,6 +120,20 @@ def model_advisory(entry_model) -> str:
     if entry_model in MOMENTUM_BREAKOUT_MODELS:
         return "动量突破回踩常是洗盘，留意而非急走"
     return ""
+
+
+def anomaly_quota_verdict(total_count: int, down_count: int, is_down: bool) -> bool:
+    """异动卡配额判定(纯函数): 返回 True=放行本张卡。
+
+    - 上涨类: 受总配额约束(total_count < ANOMALY_MAX_DAILY)。
+    - 下跌类: 自身封顶 ANOMALY_DOWN_MAX_DAILY; 在此之内, 总配额未满照常放行,
+      总配额已满时当日首张下跌类(down_count==0)仍放行(保底 1 张, 风险提示不被上涨类挤掉)。
+    """
+    if is_down:
+        if down_count >= ANOMALY_DOWN_MAX_DAILY:
+            return False
+        return total_count < ANOMALY_MAX_DAILY or down_count == 0
+    return total_count < ANOMALY_MAX_DAILY
 
 
 # ══════════════ 文案构建(纯函数) ══════════════
@@ -298,6 +318,7 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
 
     # 本 tick 命中的异动先收集, 末尾合并成一张卡发送(每股每日封顶 ANOMALY_MAX_DAILY 张)
     hits: list = []   # [card_kit.Card]
+    down_hit = False  # 本 tick 是否含下跌类异动(急跌/跌停/开板), 供专属保底配额判定
 
     # ① 急涨 / 急跌(速率)
     _pct_hist.push(code, now_ts, pct)
@@ -315,6 +336,7 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
                 and not _throttle.cooling(code, "plunge", now_ts, SURGE_COOLDOWN_SEC)):
             if not await _sell_signal_today(code):   # 与卖点去重
                 hits.append(ha.build_plunge_card(name, code, delta, win_min, price, pct))
+                down_hit = True
                 await _mark(code, "plunge", today, ts=now_ts)
 
     # ② 涨停 / 跌停 + 封单松动 + 开板
@@ -331,6 +353,7 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
                 await _mark(code, rule, today)
             elif not await _sell_signal_today(code):   # 跌停与卖点去重
                 hits.append(ha.build_limit_down_card(name, code, price, pct, amt, amount))
+                down_hit = True
                 await _mark(code, rule, today)
             else:
                 await _mark(code, rule, today)      # 被去重抑制也记一次, 当日不再试
@@ -360,23 +383,30 @@ async def _check_anomaly(code: str, name: str, q: dict, today: str, now_ts: floa
     elif prev:   # 曾封死, 现未封死 → 开板
         if not _throttle.throttled(code, "board_open", today):
             hits.append(ha.build_board_open_card(name, code, price, pct, prev))
+            down_hit = True
             await _mark(code, "board_open", today)
         _seal_peak.clear(code, prev)
         _seal_base.clear(code, prev)
         _seal_state.pop(code, None)
 
-    # ── 合并发送: 本 tick 多项异动并成一张卡; 每股每日封顶 ANOMALY_MAX_DAILY 张(防刷屏) ──
+    # ── 合并发送: 本 tick 多项异动并成一张卡; 每股每日封顶 ANOMALY_MAX_DAILY 张(防刷屏),
+    #    下跌类(急跌/跌停/开板)独立保底 1 张 + 自身封顶 ANOMALY_DOWN_MAX_DAILY(见 anomaly_quota_verdict) ──
     if not hits:
         return
-    if _throttle.throttled(code, "anomaly_card", today, limit=ANOMALY_MAX_DAILY):
-        logger.info(f"[holding_guard] {name}({code}) 当日异动卡已达上限 {ANOMALY_MAX_DAILY}, "
-                    f"抑制本 tick {len(hits)} 项异动")
+    total_cnt = _throttle.count(code, "anomaly_card", today)
+    down_cnt = _throttle.count(code, "anomaly_card_down", today)
+    if not anomaly_quota_verdict(total_cnt, down_cnt, down_hit):
+        logger.info(f"[holding_guard] {name}({code}) 当日异动卡配额已满"
+                    f"(总{total_cnt}/{ANOMALY_MAX_DAILY} 下跌类{down_cnt}/{ANOMALY_DOWN_MAX_DAILY}, "
+                    f"本张{'下跌类' if down_hit else '上涨类'}), 抑制本 tick {len(hits)} 项异动")
         return
     if len(hits) == 1:
         await _send_card(hits[0])
     else:   # 同 tick 多项异动(如涨停+封板放量) → 一张合并卡, 不再逐条刷屏
         await _send_card(ha.merge_anomaly_cards(name, code, hits))
     await _mark(code, "anomaly_card", today)
+    if down_hit:
+        await _mark(code, "anomaly_card_down", today)
 
 
 # ══════════════ 任务编排(盘中 tick) ══════════════

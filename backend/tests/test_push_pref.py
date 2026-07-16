@@ -22,9 +22,9 @@ class TestSignature:
         assert pp.verify("1|mute||0", None) is False
 
     def test_quick_link_carries_signed_params(self):
-        url = pp.build_quick_link("http://x.cn/", user_id=1, kind="snooze", target="300166", days=3)
+        url = pp.build_quick_link("http://x.cn/", user_id=1, kind="stop_snooze", target="300166", days=3)
         assert url.startswith("http://x.cn/api/quick/set?")
-        assert "k=snooze" in url and "t=300166" in url and "d=3" in url and "sig=" in url
+        assert "k=stop_snooze" in url and "t=300166" in url and "d=3" in url and "sig=" in url
 
 
 class TestDecide:
@@ -32,17 +32,22 @@ class TestDecide:
         v = pp.decide([], code="300166", signal_id="BUY_RALLY_MA10")
         assert v["suppress_all"] is False and v["mute_lark"] is False
 
-    def test_mute_only_mutes_lark_not_all(self):
+    def test_stale_mute_row_is_inert(self):
+        """「今日免打扰」功能已拆除(2026-07 用户拍板): 库里旧 mute 行不再触发 mute_lark。"""
         v = pp.decide([{"kind": "mute", "target": ""}], code="300166", signal_id="BUY_X")
-        assert v["suppress_all"] is False and v["mute_lark"] is True
+        assert v["suppress_all"] is False and v["mute_lark"] is False
 
-    def test_snooze_matching_code_suppresses_all(self):
-        v = pp.decide([{"kind": "snooze", "target": "300166"}], code="300166", signal_id="BUY_X")
-        assert v["suppress_all"] is True
+    def test_stale_snooze_row_is_inert(self):
+        """「静音此股(按票全压)」功能已拆除(2026-07 用户拍板): 库里旧 snooze 行不再压任何信号,
+        含卖点/止损(SELL_*)。条件式 snooze_until_retrigger 不走 decide, 由 retrigger_verdict 处理。"""
+        for sid in ("BUY_X", "SELL_WEAK_STOP"):
+            v = pp.decide([{"kind": "snooze", "target": "300166"}], code="300166", signal_id=sid)
+            assert v["suppress_all"] is False and v["mute_lark"] is False
 
-    def test_snooze_other_code_does_not_match(self):
-        v = pp.decide([{"kind": "snooze", "target": "000001"}], code="300166", signal_id="BUY_X")
-        assert v["suppress_all"] is False
+    def test_mute_and_snooze_removed_from_valid_kinds(self):
+        for k in ("mute", "unmute", "snooze"):
+            assert k not in pp.VALID_KINDS
+            assert k not in pp.KIND_LABEL
 
     def test_model_off_matching_signal_suppresses_all(self):
         v = pp.decide([{"kind": "model_off", "target": "BUY_RALLY_MA10"}],
@@ -59,15 +64,6 @@ class TestDecide:
                       code="300166", signal_id="BUY_VOL_BREAKOUT")
         assert v["suppress_all"] is False
 
-    def test_snooze_also_suppresses_sell_signals(self):
-        """0716 口径核查·现状固化: kind=snooze(个股静音)按 code 全压——含 SELL_* 止损/卖点。
-        这是当前既定语义(落地页已如实披露「含卖点/止损」); 若产品拍板改为"止损穿透个股静音",
-        本测试与 decide() 一起改。安全网: 升级红卡(stop_escalation)/尾盘破位警戒(ma_break_watch)
-        走 send_card 通道, 不过 decide(), 不受个股静音影响。"""
-        v = pp.decide([{"kind": "snooze", "target": "300166"}],
-                      code="300166", signal_id="SELL_WEAK_STOP")
-        assert v["suppress_all"] is True
-
     def test_ack_scope_is_single_model_not_whole_stock(self):
         # 「标记已处理」只压该 code+该模型: 同股其它卖点(如止损)不受影响
         v = pp.decide([{"kind": "ack", "target": "300166|SELL_BREAK_MA10"}],
@@ -78,15 +74,15 @@ class TestDecide:
 class TestUntilDate:
     def test_today_scoped_kinds_until_today(self):
         d = date(2026, 6, 19)
-        assert pp.until_for("mute", 0, today=d) == d
         assert pp.until_for("model_off", 0, today=d) == d
+        assert pp.until_for("ack", 0, today=d) == d
 
-    def test_snooze_n_days_inclusive(self):
+    def test_stop_snooze_n_days_inclusive(self):
         d = date(2026, 6, 19)
         # 「静音3天」= 含今日共3个自然日 → 至 6/21
-        assert pp.until_for("snooze", 3, today=d) == date(2026, 6, 21)
+        assert pp.until_for("stop_snooze", 3, today=d) == date(2026, 6, 21)
 
-    def test_stop_snooze_behaves_like_snooze(self):
+    def test_stop_snooze_single_day(self):
         d = date(2026, 6, 19)   # 周五
         # 当日不提醒 = days=1 → 至今日
         assert pp.until_for("stop_snooze", 1, today=d) == d
@@ -168,3 +164,18 @@ class TestMarkSold:
     def test_button_md_empty_without_site_or_code(self):
         assert pp.build_mark_sold_md("", 1, "002747", "埃斯顿") == ""
         assert pp.build_mark_sold_md("http://x.cn/", 1, "", "") == ""
+
+
+class TestQuickActionsRow:
+    """信号卡快捷动作行(2026-07 拆除「今日免打扰/静音此股」后): 只剩「静到再突破」单入口。"""
+
+    def test_row_has_only_retrigger_entry(self):
+        md = pp.build_quick_actions_md("http://x.cn/", 1, "300166", "BUY_VOL_BREAKOUT", "buy")
+        assert "静到再突破" in md and "/api/quick/snooze-options?" in md and "sig=" in md
+        assert "今日免打扰" not in md and "静音此股" not in md
+
+    def test_row_empty_without_stock_or_site(self):
+        # 大盘预警(无 code)不再有任何动作行(原来还给「今日免打扰」)
+        assert pp.build_quick_actions_md("http://x.cn/", 1, "", "", "plunge") == ""
+        assert pp.build_quick_actions_md("http://x.cn/", 1, "300166", "", "buy") == ""
+        assert pp.build_quick_actions_md("", 1, "300166", "BUY_X", "buy") == ""

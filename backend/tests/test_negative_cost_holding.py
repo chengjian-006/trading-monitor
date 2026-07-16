@@ -31,7 +31,14 @@ def _make_indicator_df() -> pd.DataFrame:
 
 def _run(entry_cost):
     d = _make_indicator_df()
-    cfg = get_merged_config(None)
+    # SELL_BREAK_MA* 默认带盘中确认时间闸(MA5=14:30/v1.7.403, MA10·MA20=09:26/v1.7.594),
+    # 读墙上时钟 → 工作日凌晨~闸点前跑测试会被跳过(0717 曾在 00:30 假失败)。
+    # 本组测试验证的是持仓判定与时钟无关, 显式归零三条闸门去掉时间依赖。
+    cfg = get_merged_config({
+        "SELL_BREAK_MA5": {"confirm_after_minute": 0},
+        "SELL_BREAK_MA10": {"confirm_after_minute": 0},
+        "SELL_BREAK_MA20": {"confirm_after_minute": 0},
+    })
     return _detect_short_signals(
         d, d.iloc[-1], d.iloc[-2], cfg,
         entry_cost=entry_cost, entry_date=None, entry_model=None,

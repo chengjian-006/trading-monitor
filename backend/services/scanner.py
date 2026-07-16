@@ -611,9 +611,9 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
                                strategy: str, amount_suffix: str, now_str: str):
     """强档企微推送: 单信号走 send_wechat_signal, 多信号合并文本."""
     # v1.7.569: 合并推送前套推送偏好闸(与单信号 send_wechat_signal 同口径) — 原来合并分支直接
-    #   走 send_wechat_text 绕过闸门, 用户静音的票/关掉的模型只要同tick撞上多个强档就照推。
-    #   逐信号过滤 snooze/model_off/ack; 全被抑制则不推; 今日免打扰(mute)只静音飞书。
-    mute_lark = False
+    #   走 send_wechat_text 绕过闸门, 用户关掉的模型只要同tick撞上多个强档就照推。
+    #   逐信号过滤 model_off/ack; 全被抑制则不推。
+    #   (「今日免打扰(mute_lark)」「个股snooze按票全压」已拆除 2026-07, 不再透传静音位。)
     try:
         from backend.services import push_pref as _pref_svc
         from backend.models.repo import push_pref as _pref_repo
@@ -624,7 +624,6 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
             if _v["suppress_all"]:
                 logger.info(f"[push_pref] 抑制(合并){_v['reason']}: {name}({code}) {_sig.signal_name}")
                 continue
-            mute_lark = mute_lark or _v["mute_lark"]
             _kept.append((_sig, _detail))
         strong_items = _kept
     except Exception as e:
@@ -654,9 +653,8 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
         return
 
     # ── 基线 v1.1 改造取舍(0716): 维持 send_wechat_text 文本通道, 不换 send_card 结构卡 ──
-    # send_card/send_dual_card 不支持 mute_lark(今日免打扰=只静音飞书、其余渠道照常, v1.7.569
-    # 由推送偏好闸逐信号算出后透传); 换结构卡要么丢掉静音语义、要么误伤全渠道, 风险大于收益。
-    # 故通道不动, 只把正文升级为五区骨架文本(结论行→明细→👉建议), 排版规范同结构卡。
+    # (原「今日免打扰 mute_lark 透传」已随功能拆除移除, 2026-07; 通道与版式取舍不变:
+    #  正文为五区骨架文本(结论行→明细→👉建议), 排版规范同结构卡。)
     # v1.7.569: 合并推送补 RED/YELLOW 市场风险标记(原来只有单信号 send_wechat_signal 有, 合并分支丢了)
     risk_line = ""
     has_buy = any(s.direction == "buy" for s, _ in strong_items)
@@ -682,7 +680,7 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
         strong_items, name=name, code=code, price=price, stock_pct=stock_pct,
         amount_suffix=amount_suffix, strategy=strategy, stats_map=stats_map,
         risk_line=risk_line)
-    await notifier.send_wechat_text(body, mute_lark=mute_lark)
+    await notifier.send_wechat_text(body)
     logger.info(f"Signal: 合并推送 {name}({code}) {len(strong_items)}个强档信号 -> user {user_id}")
 
 

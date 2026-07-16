@@ -90,7 +90,8 @@ async def snooze_options(
     exp: int | None = Query(None),
     sig: str = Query(""),
 ):
-    """个股信号静音落地页: 校验签名(kind=snooze 占位) → 渲染三档(仅今日/本周/直到再突破)按钮页。"""
+    """个股信号静音落地页: 校验签名(kind=snooze 占位, 仅签名成分不落库) → 渲染单选项
+    (直到再突破, 条件式单模型静音)按钮页。「仅今日/本周」按票全压两档已拆除(2026-07)。"""
     if not pref_svc.verify_params(u, "snooze", t, 0, exp, sig):
         return _confirm_page("链接已失效", "签名校验未通过。", ok=False)
     if exp is None or exp < time.time():

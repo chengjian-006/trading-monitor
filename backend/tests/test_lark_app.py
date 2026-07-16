@@ -20,24 +20,28 @@ class TestButtons:
         assert b["behaviors"][0]["value"]["k"] == "mark_sold"
 
     def test_button_row_columns(self):
-        row = lark_app.button_row([lark_app.callback_button("a", {"k": "mute", "u": 1, "t": "", "d": 0})])
+        row = lark_app.button_row([lark_app.callback_button("a", {"k": "ack", "u": 1, "t": "", "d": 0})])
         assert row["tag"] == "column_set" and len(row["columns"]) == 1
         assert row["columns"][0]["elements"][0]["tag"] == "button"
 
     def test_quick_action_value(self):
-        v = lark_app.quick_action_value(1, "snooze", "002929", 3)
-        assert v == {"k": "snooze", "u": 1, "t": "002929", "d": 3}
+        v = lark_app.quick_action_value(1, "snooze_until_retrigger", "002929|BUY_X", 0)
+        assert v == {"k": "snooze_until_retrigger", "u": 1, "t": "002929|BUY_X", "d": 0}
 
     def test_signal_button_rows_sell_has_mark_sold(self):
+        # 2026-07 拆除「今日免打扰/静音今日/静音本周」后: 卖出卡=已卖出+静到再突破
         rows = pref_svc.build_quick_action_button_rows(1, "002929", "SELL_X", "sell")
         texts = [c["elements"][0]["text"]["content"] for r in rows for c in r["columns"]]
-        assert "✅ 已卖出" in texts and "🔕 今日免打扰" in texts
-        assert "🔕 静音今日" in texts and "🔕 静音本周" in texts and "🔕 静到再突破" in texts
+        assert texts == ["✅ 已卖出", "🔕 静到再突破"]
 
-    def test_signal_button_rows_buy_no_mark_sold(self):
+    def test_signal_button_rows_buy_only_retrigger(self):
         rows = pref_svc.build_quick_action_button_rows(1, "002929", "BUY_X", "buy")
         texts = [c["elements"][0]["text"]["content"] for r in rows for c in r["columns"]]
-        assert "✅ 已卖出" not in texts and "🔕 今日免打扰" in texts
+        assert texts == ["🔕 静到再突破"]
+
+    def test_signal_button_rows_empty_without_stock(self):
+        # 大盘预警(无 code/signal_id)不再有任何按钮行(原来还给「今日免打扰」)
+        assert pref_svc.build_quick_action_button_rows(1, "", "", "plunge") == []
 
     def test_surge_button_rows(self):
         rows = pref_svc.build_surge_action_button_rows(1, "002929")
@@ -46,7 +50,7 @@ class TestButtons:
 
 
 class TestExecuteQuickAction:
-    def test_snooze_and_mark_sold(self, monkeypatch):
+    def test_retrigger_snooze_and_mark_sold(self, monkeypatch):
         calls = {}
 
         async def fake_add_pref(u, k, t, until):
@@ -60,9 +64,10 @@ class TestExecuteQuickAction:
         monkeypatch.setattr(pref_repo, "add_pref", fake_add_pref)
         monkeypatch.setattr(repository, "update_stock", fake_update_stock)
 
-        ok, label, detail = _run(pref_svc.execute_quick_action(1, "snooze", "002929", 1))
-        assert ok and "个股静音" in label and "002929" in detail
-        assert calls["pref"] == (1, "snooze", "002929")
+        ok, label, detail = _run(pref_svc.execute_quick_action(
+            1, "snooze_until_retrigger", "002929|BUY_X", 0))
+        assert ok and "直到再突破" in label and "002929" in detail
+        assert calls["pref"] == (1, "snooze_until_retrigger", "002929|BUY_X")
 
         ok, label, detail = _run(pref_svc.execute_quick_action(1, "mark_sold", "002929", 365))
         assert ok and "已卖出" in label
@@ -72,13 +77,11 @@ class TestExecuteQuickAction:
         ok, label, _ = _run(pref_svc.execute_quick_action(1, "nope", "", 0))
         assert not ok and label == "无效操作"
 
-    def test_unmute(self, monkeypatch):
-        async def fake_revoke_kind(u, kind):
-            return 1
-        from backend.models.repo import push_pref as pref_repo
-        monkeypatch.setattr(pref_repo, "revoke_kind", fake_revoke_kind)
-        ok, label, _ = _run(pref_svc.execute_quick_action(1, "unmute", "", 0))
-        assert ok and "已恢复" in label
+    def test_removed_kinds_rejected(self):
+        # 2026-07 拆除「今日免打扰/静音此股」: 旧卡片里的 mute/unmute/snooze 链接点进来一律无效
+        for k in ("mute", "unmute", "snooze"):
+            ok, label, _ = _run(pref_svc.execute_quick_action(1, k, "", 0))
+            assert not ok and label == "无效操作"
 
 
 class TestPostRouting:

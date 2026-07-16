@@ -14,7 +14,8 @@ const configStore = useConfigStore()
 const message = useGlobalMessage()
 const { isPhone } = useResponsive()
 
-// 推送偏好(快捷设置: 今日免打扰/个股静音/关模型/标记已处理)
+// 推送偏好(快捷设置: 静到再突破/已卖出/关模型/标记已处理/到线提醒)
+// 「今日免打扰/个股静音(仅今日/本周)」已拆除(2026-07): 库里旧行仅在此列出待自然过期, 不再生效
 const pushPrefs = ref<PushPref[]>([])
 const prefsLoading = ref(false)
 const prefRevoking = ref<number | null>(null)
@@ -29,11 +30,10 @@ async function loadPushPrefs() {
 }
 
 function prefDesc(p: PushPref): string {
-  if (p.kind === 'mute') return '今天剩余飞书推送已静音'
-  if (p.kind === 'snooze') return `个股 ${p.target} 静音至 ${p.until_date.slice(5)}`
   if (p.kind === 'snooze_until_retrigger') return `个股 ${p.target.split('|')[0]} 静音 · 直到再次突破`
   if (p.kind === 'model_off') return `模型 ${p.target} 今日关推送`
   if (p.kind === 'ack') return `信号已标记处理（${p.target}）`
+  if (p.kind === 'mute' || p.kind === 'snooze') return '已停用的旧静音设置（功能已移除，不再生效）'
   return p.kind_label
 }
 
@@ -343,7 +343,7 @@ async function handleTestLark() {
 
       <NCard title="推送偏好（快捷设置）" size="small" style="margin-bottom: 16px">
         <div class="pref-note">
-          飞书推送卡片底部的快捷按钮（今日免打扰 / 个股静音 / 关模型 / 标记已处理）点击后生效的设置都列在这里，可一键撤销。过期项次日自动消失。
+          飞书推送卡片底部的快捷按钮（静到再突破 / 已卖出 / 到线提醒 / 标记已处理）点击后生效的设置都列在这里，可一键撤销。过期项次日自动消失。
         </div>
         <NSkeleton v-if="prefsLoading" :repeat="2" text />
         <div v-else-if="pushPrefs.length === 0" class="config-hint" style="padding: 6px 0">

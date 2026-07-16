@@ -34,6 +34,7 @@ from backend.services.rally_reminder import rally_reminder_tick, rally_reminder_
 from backend.services.holding_guard import holding_guard_tick
 from backend.services.stop_escalation import stop_escalation_tick
 from backend.services.ma_break_watch import run_ma_break_watch
+from backend.services.ma_touch_alert import run_ma_touch_alert
 from backend.services.second_surge_scanner import run_second_surge_scan
 from backend.services.sector_cocrash_guard import run_sector_cocrash_watch
 from backend.services.industry_map_refresher import run_industry_map_refresh
@@ -68,6 +69,8 @@ from backend.services.stock_names_refresher import refresh_stock_names
 from backend.services.holding_brief import refresh_holding_state_fwd, run_holding_evening_report
 from backend.services.tail_decision import run_tail_decision_1440
 from backend.services.system_health import run_system_health_digest
+from backend.services.morning_focus import run_morning_focus
+from backend.services.push_health_report import run_push_health_report
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +133,7 @@ TASK_HANDLERS: dict[str, object] = {
     "holding_guard_tick": holding_guard_tick,
     "stop_escalation_tick": stop_escalation_tick,
     "run_ma_break_watch": run_ma_break_watch,
+    "run_ma_touch_alert": run_ma_touch_alert,
     "run_second_surge_scan": run_second_surge_scan,
     "run_sector_cocrash_watch": run_sector_cocrash_watch,
     "run_industry_map_refresh": run_industry_map_refresh,
@@ -172,6 +176,8 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_disclosure_calendar": refresh_disclosure_calendar,
     "run_disclosure_reminder": run_disclosure_reminder,
     "run_earnings_forecast_scan": run_earnings_forecast_scan,
+    "run_morning_focus": run_morning_focus,
+    "run_push_health_report": run_push_health_report,
 }
 
 

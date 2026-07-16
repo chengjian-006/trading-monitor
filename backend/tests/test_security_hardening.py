@@ -279,9 +279,10 @@ def _link_params(url: str) -> dict:
 
 
 class TestQuickLinkExpiry:
+    # 2026-07: kind=snooze/mute 已随「静音此股/今日免打扰」拆除, 时效链路测试改用仍在役的 stop_snooze
     def test_built_link_carries_exp(self):
         from backend.services import push_pref as pp
-        url = pp.build_quick_link("http://x.cn", 1, "snooze", target="300166", days=3)
+        url = pp.build_quick_link("http://x.cn", 1, "stop_snooze", target="300166", days=3)
         params = _link_params(url)
         assert "exp" in params and "sig" in params
         # 默认时效 48 小时
@@ -290,19 +291,29 @@ class TestQuickLinkExpiry:
     def test_valid_link_accepted(self, quick_client):
         from backend.services import push_pref as pp
         client, calls = quick_client
-        url = pp.build_quick_link("http://x.cn", 1, "snooze", target="300166", days=3)
+        url = pp.build_quick_link("http://x.cn", 1, "stop_snooze", target="300166", days=3)
         resp = client.get("/api/quick/set", params=_link_params(url))
         assert resp.status_code == 200
         assert "已设置" in resp.text
-        assert len(calls) == 1 and calls[0][1] == "snooze" and calls[0][2] == "300166"
+        assert len(calls) == 1 and calls[0][1] == "stop_snooze" and calls[0][2] == "300166"
+
+    def test_removed_kind_link_rejected(self, quick_client):
+        # 旧卡片里已拆除功能(如 snooze 按票全压)的真签名链接 → 无效操作, 不落库
+        from backend.services import push_pref as pp
+        client, calls = quick_client
+        url = pp.build_quick_link("http://x.cn", 1, "snooze", target="300166", days=3)
+        resp = client.get("/api/quick/set", params=_link_params(url))
+        assert resp.status_code == 200
+        assert "无效操作" in resp.text
+        assert calls == []
 
     def test_expired_link_rejected(self, quick_client):
         from backend.services import push_pref as pp
         client, calls = quick_client
         exp = int(time.time()) - 10   # 已过期, 但签名是真的
-        sig = pp.sign_params(1, "snooze", "300166", 3, exp)
+        sig = pp.sign_params(1, "stop_snooze", "300166", 3, exp)
         resp = client.get("/api/quick/set",
-                          params={"u": 1, "k": "snooze", "t": "300166", "d": 3,
+                          params={"u": 1, "k": "stop_snooze", "t": "300166", "d": 3,
                                   "exp": exp, "sig": sig})
         assert resp.status_code == 200   # 友好页面而非报错
         assert "链接已过期" in resp.text and "最新推送卡片" in resp.text
@@ -311,9 +322,9 @@ class TestQuickLinkExpiry:
     def test_legacy_link_without_exp_rejected(self, quick_client):
         from backend.services import push_pref as pp
         client, calls = quick_client
-        legacy_sig = pp.sign("1|snooze|300166|3")   # 旧版签名原文(无 exp)
+        legacy_sig = pp.sign("1|stop_snooze|300166|3")   # 旧版签名原文(无 exp)
         resp = client.get("/api/quick/set",
-                          params={"u": 1, "k": "snooze", "t": "300166", "d": 3,
+                          params={"u": 1, "k": "stop_snooze", "t": "300166", "d": 3,
                                   "sig": legacy_sig})
         assert "已失效" in resp.text or "已过期" in resp.text
         assert calls == []
@@ -322,9 +333,9 @@ class TestQuickLinkExpiry:
         from backend.services import push_pref as pp
         client, calls = quick_client
         exp = int(time.time()) + 100
-        sig = pp.sign_params(1, "snooze", "300166", 3, exp)
+        sig = pp.sign_params(1, "stop_snooze", "300166", 3, exp)
         resp = client.get("/api/quick/set",
-                          params={"u": 1, "k": "snooze", "t": "300166", "d": 3,
+                          params={"u": 1, "k": "stop_snooze", "t": "300166", "d": 3,
                                   "exp": exp + 99999, "sig": sig})   # 篡改 exp 续命
         assert "已失效" in resp.text
         assert calls == []
@@ -332,7 +343,7 @@ class TestQuickLinkExpiry:
     def test_verify_params_requires_exp(self):
         from backend.services import push_pref as pp
         exp = int(time.time()) + 100
-        sig = pp.sign_params(1, "mute", "", 0, exp)
-        assert pp.verify_params(1, "mute", "", 0, exp, sig) is True
-        assert pp.verify_params(1, "mute", "", 0, None, sig) is False
-        assert pp.verify_params(1, "mute", "", 0, exp + 1, sig) is False
+        sig = pp.sign_params(1, "ack", "", 0, exp)
+        assert pp.verify_params(1, "ack", "", 0, exp, sig) is True
+        assert pp.verify_params(1, "ack", "", 0, None, sig) is False
+        assert pp.verify_params(1, "ack", "", 0, exp + 1, sig) is False

@@ -112,7 +112,8 @@ def test_signal_card_uses_real_builder_output():
     assert "⚡ 触发模型　**缩量后放量突破（右侧）**" in md_all       # 触发模型全名加粗行
     assert "| 周期 | 胜率 | 单笔 |" in md_all                       # 模型战绩表
     assert "▰" in md_all                                            # 胜率强度条
-    assert "🔕 今日免打扰" in md_all                                # 快捷动作行 demo
+    assert "🔕 静到再突破" in md_all                                # 快捷动作行 demo
+    assert "今日免打扰" not in md_all and "静音此股" not in md_all   # 已拆除入口不得回归
     assert card["header"]["template"] == "red"
 
 
@@ -170,6 +171,51 @@ def test_intel_cards_blue():
     for tid in ("盘面分析/收盘复盘", "盘面分析/真假强势评分快照", "盘面分析/次日板块预测",
                 "盘面分析/尾盘决策合并卡", "持仓研判晚报/持仓研判晚报"):
         assert _by_id(tid)["card"]["header"]["template"] == "blue", tid
+
+
+def _md_all(card: dict) -> str:
+    return "\n".join(str(e.get("content", "")) for e in card["body"]["elements"]
+                     if e.get("tag") == "markdown")
+
+
+def test_ma_touch_card_matches_service():
+    """均线到线提醒 = ma_touch_alert.build_touch_card 直调产物(情报蓝卡+KPI三栏)。"""
+    card = _by_id("盘后提醒/均线到线提醒")["card"]
+    assert card["header"]["template"] == "blue"
+    assert "🔔 到线提醒" in card["header"]["title"]["content"]
+    assert "触及20日线" in card["header"]["title"]["content"]
+    els = card["body"]["elements"]
+    assert any(e.get("tag") == "column_set" for e in els)        # KPI 三栏
+    assert any(e.get("tag") == "collapsible_panel" for e in els)  # 口径折叠
+    assert card["config"]["summary"]["content"].strip()
+    assert "三花智控" in card["config"]["summary"]["content"]
+
+
+def test_morning_focus_card_matches_service():
+    """盘前今日关注 = morning_focus.build_morning_focus_card 直调产物。"""
+    card = _by_id("盘面分析/盘前今日关注")["card"]
+    assert card["header"]["template"] == "blue"
+    md_all = _md_all(card)
+    assert "昨日买点追踪" in md_all
+    assert "披露日历卡" in md_all                # 今日披露一行(明细卡照发, 这里只提及)
+    assert "大盘风险" in md_all                  # 当前生效状态段
+    # 样例 6 只 > TOP_N=5 → 全量折叠必须出现
+    assert any(e.get("tag") == "collapsible_panel"
+               for e in card["body"]["elements"])
+    assert card["config"]["summary"]["content"].strip()
+    assert "今日关注" in card["config"]["summary"]["content"]
+
+
+def test_push_health_card_matches_service():
+    """推送健康度周报 = push_health_report.build_health_card 直调产物(系统灰卡)。"""
+    card = _by_id("系统通知/推送健康度周报")["card"]
+    assert card["header"]["template"] == "grey"
+    md_all = _md_all(card)
+    assert "被关的模型" in md_all
+    assert "弱势极限" in md_all                  # name_map 展示中文名, 禁 signal_id 代号
+    assert "BUY_WEAK_EXTREME" not in md_all
+    assert "模型图鉴" in md_all                  # 集中被关 → 点名建议分支
+    assert card["config"]["summary"]["content"].strip()
 
 
 def test_prediction_card_has_bar_chart():

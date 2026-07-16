@@ -31,6 +31,20 @@ async def active_prefs(user_id: int) -> list[dict]:
     )
 
 
+async def active_prefs_of_kinds(kinds: list[str]) -> list[dict]:
+    """全用户按 kind 集合列生效中的偏好(未撤销+未过期), 供扫描任务整表拉订阅
+    (均线到线提醒 ma_touch_alert 用: 订阅行自带 user_id, 不按单用户查)。"""
+    if not kinds:
+        return []
+    ph = ",".join(["%s"] * len(kinds))
+    return await _fetchall(
+        f"SELECT id, user_id, kind, target, until_date, created_at FROM cfzy_biz_push_pref "
+        f"WHERE kind IN ({ph}) AND revoked_at IS NULL AND until_date >= CURDATE() "
+        "ORDER BY id",
+        tuple(kinds),
+    )
+
+
 async def revoke(user_id: int, pref_id: int) -> None:
     await _execute(
         "UPDATE cfzy_biz_push_pref SET revoked_at=NOW() "

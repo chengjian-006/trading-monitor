@@ -558,8 +558,8 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
             return False
         username = user.get("username", "")
 
-    # 推送偏好闸门(快捷设置): 个股snooze/模型今日关/已标记 → 全渠道不推; 今日免打扰 → 仅静音飞书
-    mute_lark = False
+    # 推送偏好闸门(快捷设置): 模型今日关/已标记 → 全渠道不推
+    # (「今日免打扰(mute_lark)」「个股snooze按票全压」已拆除 2026-07, 用户偏好不再触发 mute)
     try:
         from backend.services import push_pref as _pref_svc
         from backend.models.repo import push_pref as _pref_repo
@@ -568,7 +568,6 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         if _verdict["suppress_all"]:
             logger.info(f"[push_pref] 抑制推送({_verdict['reason']}): {name}({code}) {signal_name}")
             return False
-        mute_lark = _verdict["mute_lark"]
         # 条件型静音「直到再次突破」: 上一交易日也触发=连续→压住; 昨没触发=新一轮突破→撤销静音放行
         _rt_probe = _pref_svc.retrigger_verdict(_prefs, code, signal_id, False)
         if _rt_probe["has_snooze"] and code and signal_id:
@@ -597,7 +596,7 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
                     code=code, name=name, signal_name=signal_name, direction=direction,
                     price=price, detail=detail, user_id=user_id, strategy=strategy,
                     pct_change=pct_change, model_stats=model_stats, signal_id=signal_id,
-                    username=username, mute_lark=mute_lark)):
+                    username=username)):
                 return True
         except Exception as e:
             logger.warning(f"[storm] 聚合拦截异常, 改直发: {e}")
@@ -606,7 +605,7 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         code=code, name=name, signal_name=signal_name, direction=direction,
         price=price, detail=detail, user_id=user_id, strategy=strategy,
         pct_change=pct_change, model_stats=model_stats, signal_id=signal_id,
-        username=username, mute_lark=mute_lark)
+        username=username)
 
 
 async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
@@ -619,7 +618,9 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
                                      username: str = "",
                                      mute_lark: bool = False) -> bool:
     """构卡+发送(闸门后半程, 勿直接对外调用——闸门在 send_wechat_signal)。
-    风暴聚合缓冲到期逐发也走这里: 原参数全量回放, 不丢字段。"""
+    风暴聚合缓冲到期逐发也走这里: 原参数全量回放, 不丢字段。
+    mute_lark 形参保留作通道控制位(同 send_wechat_text); 「今日免打扰」用户偏好源头已拆除
+    (2026-07), 正常链路恒为 False。"""
     cfg = load_config()
     lark_webhook = cfg.get("lark_webhook", "")
     lark_on = bool(cfg.get("lark_enabled", False))
@@ -675,13 +676,19 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
         if site and direction != "plunge" and code:
             from urllib.parse import quote
             link = f"{site}/intraday?code={code}&name={quote(name)}"
-        # 快捷设置动作行(今日免打扰/个股静音/关模型/标记已处理), 走带签名的 /api/quick 链接
+        # 快捷设置动作行(静到再突破·条件式单模型静音), 走带签名的 /api/quick 链接
         quick_md = _pref_svc.build_quick_actions_md(site, user_id or 1, code, signal_id, direction)
         # 卖出/减仓类卡加「已卖出」: 点了这只票从持仓消失 + 压后续卖出/减仓/持仓提醒(买点仍照常)
         if direction in ("sell", "reduce") and code:
             sold_md = _pref_svc.build_mark_sold_md(site, user_id or 1, code, name)
             if sold_md:
                 quick_md = f"{quick_md}　·　{sold_md}" if quick_md else sold_md
+        # 到线提醒一次性订阅行(quick_md 之后单独一行): 个股买卖类卡(buy/sell/reduce 且有 code)
+        # 挂 10/20/60日线订阅链接; plunge 大盘卡不挂。点击订阅后由 ma_touch_alert 60s 扫描,
+        # 到线推一次即失效(一次性), 60天未触发自动过期。
+        ma_alert_md = ""
+        if _pref_svc.ma_alert_eligible(direction, code):
+            ma_alert_md = _pref_svc.build_ma_alert_md(site, user_id or 1, code, name)
         # v2 卡(战绩走原生表格); 失败回退旧 markdown 卡
         elements = _build_signal_elements(code, name, signal_name, direction, price, detail,
                                           strategy, pct_change, model_stats, basics, sector, background)
@@ -698,6 +705,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
                 user_id or 1, code, signal_id, direction)
         elif quick_md:
             elements = list(elements) + [lark_notifier.md_element(quick_md)]
+        if ma_alert_md:
+            elements = list(elements) + [lark_notifier.md_element(ma_alert_md)]
         if risk_banner:
             elements = [lark_notifier.md_element(risk_banner)] + list(elements)
         lark_ok = await lark_notifier.post_lark_card_v2(
@@ -708,6 +717,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
                                            strategy, pct_change, model_stats, basics, sector, background)
             if quick_md:
                 lark_body = f"{lark_body}<br>{quick_md}"
+            if ma_alert_md:
+                lark_body = f"{lark_body}<br>{ma_alert_md}"
             if risk_banner:
                 lark_body = f"{risk_banner}<br>{lark_body}"
             lark_ok = await lark_notifier.post_lark_card(
@@ -755,7 +766,8 @@ async def send_wechat_markdown(content: str) -> bool:
 async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
     """通用文本推送(企业微信)。用于汇总报告类消息(如 S0 快照、自定义播报)。
 
-    mute_lark=True: 今日免打扰命中 → 仅静音飞书, 其他渠道照常(v1.7.569, 供合并推送透传偏好闸)。
+    mute_lark=True: 仅静音飞书, 其他渠道照常。通道控制位(alert_throttle 等调用方使用);
+    原「今日免打扰」用户偏好源头已拆除(2026-07), 偏好闸不再产生 mute。
     """
     if not await is_production():
         ip = await get_outbound_ip()

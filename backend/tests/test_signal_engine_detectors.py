@@ -645,9 +645,12 @@ class TestSSSellDedup:
         df = _make_breakdown_kline()
         d = compute_indicators(df)
         close = float(d.iloc[-1]["close"])
-        # SELL_BREAK_MA5 默认带"14:30尾盘确认"时间闸门(v1.7.403, 工作日14:30前不判MA5);
-        # 本组测试验证的是去重/emit_all, 与时钟无关 → 显式关掉该闸门, 避免上午跑测试 MA5 被跳过。
-        cfg = {"SELL_BREAK_MA5": {"confirm_after_minute": 0}}
+        # SELL_BREAK_MA* 默认带盘中确认时间闸(MA5=14:30/v1.7.403, MA10·MA20=09:26/v1.7.594),
+        # 读墙上时钟; 本组测试验证的是去重/emit_all, 与时钟无关 → 三条闸门全部显式归零,
+        # 避免工作日闸点前(尤其凌晨)跑测试被跳过(0717 曾在 00:30 假失败)。
+        cfg = {"SELL_BREAK_MA5": {"confirm_after_minute": 0},
+               "SELL_BREAK_MA10": {"confirm_after_minute": 0},
+               "SELL_BREAK_MA20": {"confirm_after_minute": 0}}
         for k, v in (user_config or {}).items():
             cfg[k] = {**cfg.get(k, {}), **v}
         # entry_cost = 当前价 → 无浮亏(不触发 PLOSS), 也不触发 SR1, 隔离出 SS
@@ -676,7 +679,13 @@ class TestSSSellDedup:
 
     def _ss_signals_from(self, df, user_config=None):
         close = float(compute_indicators(df).iloc[-1]["close"])
-        sigs = detect_signals(df, entry_cost=close, user_config=user_config)
+        # 同 _ss_signals: 归零三条确认时间闸, 去掉墙上时钟依赖
+        cfg = {"SELL_BREAK_MA5": {"confirm_after_minute": 0},
+               "SELL_BREAK_MA10": {"confirm_after_minute": 0},
+               "SELL_BREAK_MA20": {"confirm_after_minute": 0}}
+        for k, v in (user_config or {}).items():
+            cfg[k] = {**cfg.get(k, {}), **v}
+        sigs = detect_signals(df, entry_cost=close, user_config=cfg)
         return [s for s in sigs if s.signal_id.startswith("SELL_BREAK_MA")]
 
     def test_downtrend_setup_is_bearish_and_breaks_all(self):

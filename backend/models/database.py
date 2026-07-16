@@ -1267,6 +1267,14 @@ async def _run_migrations(conn):
             ("detect_strength_ebb", "强势退潮·赚钱效应消失",
              "盘中(≥11:00)每5分钟判昨日涨停股今日平均溢价是否≤阈值(打板/强势资金转亏), 是则推强势退潮提示, 每日一次",
              "interval", _json.dumps({"seconds": 300}), "detect_strength_ebb"),
+            # v1.7.x: 推送机制 — 盘前「今日关注」摘要卡(第四批, 只取系统内现成数据不拉外部接口)
+            ("morning_focus_0850", "盘前今日关注·08:50",
+             "交易日 08:50 一张盘前情报卡: 持仓/昨日信号/今日披露 KPI三栏 + 昨日买点追踪(股票|模型|昨收涨跌) + 今日披露一句摘要(08:40披露日历卡照发) + 大盘风险档/止损压力/到线订阅当前状态; 全空不发, 每日一次DB去重",
+             "cron", _json.dumps({"hour": 8, "minute": 50}), "run_morning_focus"),
+            # v1.7.x: 推送机制 — 推送健康度周报(第四批; 无推送量日志表, 只统计 push_pref 用户动作并注明口径)
+            ("push_health_weekly", "推送健康度周报·周五17:10",
+             "每周五 17:10 统计本周(近5个交易日) cfzy_biz_push_pref 用户动作(静音/关模型/已处理/已卖出/到线订阅), 推一张系统灰卡: KPI三栏+动作分布+建议(被关最多的模型点名去模型图鉴); 数据不足一周也发并注明口径起始日",
+             "cron", _json.dumps({"day_of_week": "fri", "hour": 17, "minute": 10}), "run_push_health_report"),
         ]
         for task in migration_tasks:
             try:
@@ -1721,6 +1729,12 @@ async def _seed_scheduled_tasks(conn):
             ("stock_names_refresh", "全市场名称刷新",
              "每日07:30用新浪批量行情拉全市场(kline_cache DISTINCT code)股票名称, upsert 进 cfzy_sys_stock_names, 供模型回测逐笔明细全市场票补名",
              "cron", {"hour": 7, "minute": 30}, "refresh_stock_names"),
+            # v1.7.x: 均线到线提醒·一次性订阅扫描 — 个股买卖信号卡「🔔 到线提醒」链接订阅
+            # (cfzy_biz_push_pref kind=ma_alert_10/20/60, target=code, 60天过期自动作废);
+            # 交易时段闸在模块内自判(is_workday + 09:30~11:30/13:00~15:00)
+            ("ma_touch_alert_scan", "均线到线提醒·盘中60秒",
+             "交易时段每60秒扫全部生效的到线提醒订阅(推送卡一键订阅10/20/60日线), 现价进入对应均线±0.3%贴线带即推提醒卡并撤销订阅行(一次性); 订阅时已贴线须先离带再回触才算(防误触, 状态内存); 不落信号库",
+             "interval", {"seconds": 60}, "run_ma_touch_alert"),
         ]
         for job_id, name, desc, stype, sconfig, handler in incremental:
             await cur.execute(

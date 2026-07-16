@@ -74,8 +74,8 @@ def _card_v1(title: str, template: str, md_body: str,
 
 
 # 快捷设置动作行 demo(真实推送由 push_pref.build_quick_actions_md 生成带 HMAC 签名链接,
-# 预览用 # 链接做视觉展示, 版式 1:1)
-_QA_BUY = "[🔕 今日免打扰](#)　·　[🔕 静音此股](#)"
+# 预览用 # 链接做视觉展示, 版式 1:1)。「今日免打扰/静音此股」已拆除(2026-07), 只剩条件式静音入口。
+_QA_BUY = "[🔕 静到再突破](#)"
 _QA_SELL = _QA_BUY + "　·　[✅ 已卖出](#)"
 _QA_SURGE = "[🔕 当日不提醒](#)　·　[🔕 本周不提醒](#)"
 
@@ -904,6 +904,37 @@ register("盘面分析", "资金回流·板块预警",
          ], "blue", summary="资金回流 半导体+3.2% 龙头北方华创涨停"),
          "盘中30秒扫描 · 同板块同日仅一次")
 
+
+# ── 盘前今日关注: 直调 morning_focus.build_morning_focus_card ──
+
+def _morning_focus_preview() -> dict:
+    from backend.services.morning_focus import build_morning_focus_card
+    buy_rows = [
+        {"name": "多氟多", "code": "002407", "model": "回踩10MA缩量后突破昨高", "pct": 2.09},
+        {"name": "中科曙光", "code": "603019", "model": "缩量后放量突破（右侧）", "pct": 4.12},
+        {"name": "江海股份", "code": "002484", "model": "回踩20MA缩量后突破昨高", "pct": -0.85},
+        {"name": "领益智造", "code": "002600", "model": "强势起点", "pct": 1.66},
+        {"name": "胜宏科技", "code": "300476", "model": "中继平台突破", "pct": 3.86},
+        {"name": "恒瑞医药", "code": "600276", "model": "弱势极限", "pct": None},
+    ]
+    disclosure_rows = [
+        {"code": "300750", "name": "宁德时代", "report_type": "2",
+         "appoint_date": "2026-07-17", "report_year": 2026},
+        {"code": "002594", "name": "比亚迪", "report_type": "2",
+         "appoint_date": "2026-07-17", "report_year": 2026},
+    ]
+    return _card_json(build_morning_focus_card(
+        holding_n=5, total_signals=9, buy_rows=buy_rows,
+        disclosure_rows=disclosure_rows, hold_codes={"300750", "002407"},
+        risk_state="YELLOW", risk_since="07-14", stop_pressure_n=1, ma_alert_n=3))
+
+
+register("盘面分析", "盘前今日关注",
+         "08:50盘前速览蓝卡: KPI三栏(持仓/昨日信号/今日披露)+昨日买点追踪表(>5只Top5+全量折叠)"
+         "+今日披露一行+当前状态(风险档/止损压力/到线订阅)+👉一句话",
+         _morning_focus_preview(),
+         "交易日08:50 · 只取系统内现成数据 · 全空(无持仓无信号无披露)不发 · 每日一次DB去重")
+
 # 手工镜像 · 错过消息回顾: 构卡内联在 push_backfill 编排里, 按现行版式对齐。
 register("系统通知", "错过消息回顾",
          "推送开关关闭期间错过的关键信号(手工镜像·对齐push_backfill现行版式), 重新打开时汇总补发一卡",
@@ -1012,6 +1043,34 @@ register("系统通知", "系统健康·盘后汇总",
          "交易日盘后 · 当日无故障不推 · 紧急的行情源健康预警仍即时推")
 
 
+# ── 推送健康度周报: 直调 push_health_report.build_health_card(stats 走真实 summarize_actions) ──
+
+def _push_health_preview() -> dict:
+    from backend.services.push_health_report import build_health_card, summarize_actions
+    rows = [
+        {"kind": "model_off", "target": "BUY_WEAK_EXTREME"},
+        {"kind": "model_off", "target": "BUY_WEAK_EXTREME"},
+        {"kind": "model_off", "target": "BUY_PLATFORM_BREAKOUT"},
+        {"kind": "snooze_until_retrigger", "target": "002407|BUY_MA10_PULLBACK"},
+        {"kind": "surge_snooze", "target": "002648"},
+        {"kind": "mark_sold", "target": "603986"},
+        {"kind": "ack", "target": ""},
+        {"kind": "ma_alert_20", "target": "002050"},
+        {"kind": "ma_alert_10", "target": "300476"},
+    ]
+    name_map = {"BUY_WEAK_EXTREME": "弱势极限", "BUY_PLATFORM_BREAKOUT": "中继平台突破"}
+    return _card_json(build_health_card(
+        stats=summarize_actions(rows), name_map=name_map, active_ma_alerts=3,
+        start_date="2026-07-13", trading_days_n=5))
+
+
+register("系统通知", "推送健康度周报",
+         "周五盘后灰卡: 本周(近5交易日)推送偏好动作统计, KPI三栏(动作次数/最常关模型/到线订阅)"
+         "+动作分布短表+被关模型一行+👉建议(集中被关点名去模型图鉴)+口径折叠",
+         _push_health_preview(),
+         "周五17:10 · 只统计用户降噪动作(无推送量日志表) · 无动作也发注明口径 · 当日一次去重")
+
+
 # ═══════════════════════════════════════════
 # 八、持仓研判晚报(直调 holding_brief.build_brief_card)
 # ═══════════════════════════════════════════
@@ -1089,6 +1148,21 @@ register("盘后提醒", "预增榜·当日正向业绩预告",
          "盘后把当日新出的正向业绩预告捞出来(自选置顶+全市场大幅预增), 机会族红卡, 克制使用",
          _forecast_preview(),
          "每日 18:30 · 当日有正向预告才发 · 克制使用(非埋伏神器)")
+
+
+# ── 均线到线提醒: 直调 ma_touch_alert.build_touch_card(一次性订阅触发卡) ──
+
+def _ma_touch_preview() -> dict:
+    from backend.services.ma_touch_alert import build_touch_card
+    # site 传 "#" 生成占位分时图链接(真实推送取 config site_url), 版式 1:1
+    return _card_json(build_touch_card("三花智控", "002050", 20, 21.86, 21.83, site="#"))
+
+
+register("盘后提醒", "均线到线提醒",
+         "推送卡底部订阅的一次性到线提醒(情报蓝卡): 现价进入均线±0.3%贴线带触发, "
+         "KPI三栏(现价/均线值/距离)+👉+口径折叠, 发送后订阅自动失效",
+         _ma_touch_preview(),
+         "交易时段每60秒扫生效订阅 · 防误触(先离带再回触才算) · 一次性发完即失效 · 60天有效期")
 
 
 # ── API ──

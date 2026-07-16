@@ -121,8 +121,10 @@ async def settle(family: str, seq: int) -> None:
         win.opened_at = None
     window_label = f"{opened_at:%H:%M}~{datetime.now():%H:%M}" if opened_at else ""
 
-    # 全部命中「今日免打扰」(只静音飞书)时不聚合: 聚合卡通道(send_card)没有 mute_lark 语义,
-    # 逐发路径能正确尊重静音偏好 —— 宁可多几张(反正飞书静音), 不违背用户偏好。
+    # 全部带 mute_lark(只静音飞书)时不聚合: 聚合卡通道(send_card)没有 mute_lark 语义,
+    # 逐发路径能正确尊重静音位 —— 宁可多几张(反正飞书静音), 不违背静音语义。
+    # (「今日免打扰」用户偏好源头已拆除 2026-07, 正常链路 params 不再携带 mute_lark;
+    #  本检查保留作通道控制位兜底, 与 _send_wechat_signal_direct 的形参口径一致。)
     all_muted = all(it["params"].get("mute_lark") for it in items)
 
     if len(items) >= AGGREGATE_MIN and not all_muted:

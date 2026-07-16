@@ -1,11 +1,15 @@
 """推送偏好/快捷设置 (v1.7.464+): 飞书推送卡片内置快捷链接, 点一下即改设置.
 
-五种设置(kind):
-  mute       今日免打扰(仅静音飞书), 次日0点自动解除            target=''                       until=今日
-  snooze     个股 N 天不再提醒(全渠道)                          target=code                     until=今日+N-1(含今日共N天)
+设置种类(kind):
   model_off  某买点模型仅今日关推送(全渠道), 次日恢复            target=signal_id                until=今日
   ack        某条信号标记已处理(全渠道当日不再推该 code+模型)    target=f'{code}|{signal_id}'    until=今日
   mark_sold  标记已卖出(target=code), 压住该票所有卖出/持仓类提醒  target=code                 until=远期(手动撤销或新交割单导入)
+  ma_alert_* 均线到线提醒·一次性订阅(10/20/60日线)                target=code                     until=今日+59(60天未触发作废)
+
+已拆除(2026-07 用户拍板, 库里旧行直接不再生效):
+  mute   今日免打扰(仅静音飞书) — 整个功能移除, 含 unmute 恢复入口
+  snooze 个股 N 天全渠道静音(仅今日/本周档) — 整个功能移除; 条件式「直到再次突破」
+         (snooze_until_retrigger, 只压该票该买点)保留
 
 快捷链接走 HMAC 签名(复用 auth.SECRET_KEY 派生, 不另存密钥), 防公网乱戳.
 存活判定(在 SQL 层): revoked_at IS NULL 且 until_date >= 今日 — 故无需定时清理, 过期自动失效.
@@ -25,16 +29,22 @@ _SIGN_KEY = ("pushpref:" + SECRET_KEY).encode()
 # 快捷链接有效期: 签发后 48 小时(覆盖「当天推送+晚间复盘」), 过期链接不可再操作(防重放)。
 QUICK_LINK_TTL_SECONDS = 48 * 3600
 
-VALID_KINDS = ("mute", "snooze", "model_off", "ack", "unmute",  # unmute=恢复今日免打扰(撤销, 非新增偏好)
+VALID_KINDS = ("model_off", "ack",
                "stop_snooze",     # stop_snooze=止损强制升级专用静音(target=code), 仅升级检查消费, 不压这只票的其它推送
                "ma_watch_snooze",  # ma_watch_snooze=尾盘破位警戒专用静音(target=code), 仅警戒卡消费, 同上不串台
                "surge_snooze",    # surge_snooze=二波过前高提醒专用静音(target=code), 仅二波扫描器消费, 同上不串台
                "snooze_until_retrigger",  # 条件型个股静音(target=code|signal_id): 压住连日重复, 该票该模型
-               "mark_sold")       # mark_sold=标记已卖出(target=code): 压住该票所有卖出/持仓类提醒, 远期过期靠手动撤销或新交割单导入
+               "mark_sold",       # mark_sold=标记已卖出(target=code): 压住该票所有卖出/持仓类提醒, 远期过期靠手动撤销或新交割单导入
                                           # 先安静≥1交易日、之后再触发(真新一轮突破)时由引擎撤销放行
+               "ma_alert_10", "ma_alert_20", "ma_alert_60")  # 均线到线提醒·一次性订阅(target=code):
+                                          # 现价进入 N 日均线±0.3%贴线带推一次即失效; 扫描在 services/ma_touch_alert.py
 
 # 条件型静音无固定到期日, 用远期 until_date 让 SQL 存活判定(until_date>=今日)不误杀, 靠引擎再触发时撤销
 _RETRIGGER_FAR_DAYS = 3650
+
+# 均线到线提醒(一次性订阅): kind → 均线周期; 有效期60天(过期自动作废, 防僵尸订阅永久挂着)
+MA_ALERT_KINDS = {"ma_alert_10": 10, "ma_alert_20": 20, "ma_alert_60": 60}
+MA_ALERT_DAYS = 60
 
 
 def _canonical(user_id, kind: str, target: str, days, exp) -> str:
@@ -71,12 +81,14 @@ def build_quick_link(site: str, user_id, kind: str, target: str = "", days=0, ex
 
 
 def until_for(kind: str, days, today: date | None = None) -> date:
-    """各 kind 的生效截止日(含当日). 今日域(mute/model_off/ack)=今日; snooze族=今日+N-1;
+    """各 kind 的生效截止日(含当日). 今日域(model_off/ack)=今日; 专用snooze族=今日+N-1;
     条件型(snooze_until_retrigger)=远期(靠引擎撤销, 非日期过期)."""
     today = today or date.today()
     if kind in ("snooze_until_retrigger", "mark_sold"):
         return today + timedelta(days=_RETRIGGER_FAR_DAYS)
-    if kind in ("snooze", "stop_snooze", "ma_watch_snooze", "surge_snooze"):
+    if kind in MA_ALERT_KINDS:
+        return today + timedelta(days=MA_ALERT_DAYS - 1)   # 含今日共60天, 到期自动作废
+    if kind in ("stop_snooze", "ma_watch_snooze", "surge_snooze"):
         n = max(int(days or 0), 1)
         return today + timedelta(days=n - 1)
     return today
@@ -143,29 +155,23 @@ def decide(prefs: list[dict], code: str, signal_id: str, today: date | None = No
     """纯函数: 给定生效中的偏好列表(已在 SQL 层过滤未撤销+未过期), 判定一条信号该不该推.
 
     返回 {'suppress_all': bool, 'mute_lark': bool, 'reason': str}:
-      suppress_all=True  → 全渠道都不推(snooze/model_off/ack 命中)
-      mute_lark=True     → 仅飞书不推, 其他渠道照常(今日免打扰)
+      suppress_all=True  → 全渠道都不推(model_off/ack 命中)
+      mute_lark          → 恒 False(「今日免打扰」功能已拆除, 保留键位兼容下游调用方);
+                           库里旧 mute/snooze(按票全压)行在此直接不再生效
     """
-    mute_lark = False
     for p in prefs:
         kind = p.get("kind")
         target = p.get("target", "") or ""
-        if kind == "mute":
-            mute_lark = True
-        elif kind == "snooze" and code and target == code:
-            return {"suppress_all": True, "mute_lark": False, "reason": f"个股静音中({code})"}
-        elif kind == "model_off" and signal_id and target == signal_id:
+        if kind == "model_off" and signal_id and target == signal_id:
             return {"suppress_all": True, "mute_lark": False, "reason": f"模型今日关({signal_id})"}
-        elif kind == "ack" and code and signal_id and target == f"{code}|{signal_id}":
+        if kind == "ack" and code and signal_id and target == f"{code}|{signal_id}":
             return {"suppress_all": True, "mute_lark": False, "reason": "已标记处理"}
-    return {"suppress_all": False, "mute_lark": mute_lark, "reason": ""}
+    return {"suppress_all": False, "mute_lark": False, "reason": ""}
 
 
 # ── 快捷动作公共执行器 (v1.7.631): HTTP落地页(routers/quick.py)与飞书卡片回调(lark_app)共用 ──
 
 KIND_LABEL = {
-    "mute": "今日免打扰(仅飞书)",
-    "snooze": "个股静音",
     "model_off": "今日关此模型",
     "ack": "标记已处理",
     "stop_snooze": "止损提醒静音",
@@ -173,6 +179,9 @@ KIND_LABEL = {
     "surge_snooze": "二波提醒静音",
     "snooze_until_retrigger": "个股静音·直到再突破",
     "mark_sold": "标记已卖出",
+    "ma_alert_10": "到线提醒·10日线",
+    "ma_alert_20": "到线提醒·20日线",
+    "ma_alert_60": "到线提醒·60日线",
 }
 
 
@@ -186,19 +195,20 @@ async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, st
     if k not in VALID_KINDS:
         return False, "无效操作", "未知的设置类型。"
 
-    # 恢复今日免打扰: 撤销当日 mute, 不新增偏好
-    if k == "unmute":
-        n = await pref_repo.revoke_kind(u, "mute")
-        if n:
-            return True, "已恢复今日推送", "今日免打扰已取消，飞书推送恢复正常。"
-        return True, "无需恢复", "当前没有生效的今日免打扰。"
+    # 均线到线提醒(一次性订阅): 同票同线重复点击=幂等, 已有生效订阅不再新增(也不刷新60天窗口)
+    if k in MA_ALERT_KINDS and t:
+        try:
+            _actives = await pref_repo.active_prefs(u)
+        except Exception:
+            _actives = []
+        for _p in _actives:
+            if _p.get("kind") == k and (_p.get("target") or "") == t:
+                return True, "已在监控中", (
+                    f"{t} 的{MA_ALERT_KINDS[k]}日均线到线提醒已在监控中"
+                    f"（一次性，触发后自动失效），无需重复订阅。")
 
     until = until_for(k, d)
     await pref_repo.add_pref(u, k, t, until)
-
-    # 今日免打扰: 往未被静音的渠道发一条可随时点的恢复入口
-    if k == "mute":
-        await _send_mute_recovery(u)
 
     # 标记已卖出: 该票从持仓降级为观察(status hold→watch), 压掉后续卖出/持仓类提醒(买点照常)
     if k == "mark_sold" and t:
@@ -210,12 +220,7 @@ async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, st
             logging.getLogger(__name__).warning(f"[quick] 标记已卖出翻转持仓状态失败({t}): {e}")
 
     label = KIND_LABEL.get(k, k)
-    if k == "mute":
-        detail = "今天剩余的飞书推送已静音，明日自动恢复。"
-    elif k == "snooze":
-        detail = (f"已对 {t} 静音至 {until.strftime('%m-%d')}，"
-                  f"期间不再推送其全部信号（含卖点/止损；止损连续未执行的升级红卡、尾盘破位警戒仍会提醒）。")
-    elif k == "model_off":
+    if k == "model_off":
         detail = f"已关闭「{t}」今日推送，明日自动恢复。"
     elif k == "stop_snooze":
         detail = f"已静音 {t} 的止损升级提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
@@ -226,6 +231,11 @@ async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, st
     elif k == "snooze_until_retrigger":
         _code = t.split("|", 1)[0]
         detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
+    elif k in MA_ALERT_KINDS:
+        _n = MA_ALERT_KINDS[k]
+        detail = (f"已订：{t} 触及{_n}日均线时提醒你（一次性，提醒后自动失效）。"
+                  f"贴线带±0.3%；订阅时若已贴线，需先离线再回触才算；"
+                  f"{until.strftime('%m-%d')} 前有效，未触发自动作废。")
     elif k == "mark_sold":
         detail = f"已标记 {t} 为已卖出，已从持仓列表移出（转为自选观察），不再推送该票的卖出/减仓/持仓提醒。导入新交割单后自动归位。"
     else:  # ack
@@ -233,39 +243,20 @@ async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, st
     return True, f"已设置：{label}", detail
 
 
-async def _send_mute_recovery(user_id: int) -> None:
-    """开启今日免打扰后, 往微信/PushPlus(未被静音的渠道)发一条带「恢复」链接的确认, 随时可点。"""
-    import logging
-    try:
-        from backend.core.config import load_config
-        from backend.services import notifier
-        site = (load_config().get("site_url", "") or "").rstrip("/")
-        if not site:
-            return
-        link = build_quick_link(site, user_id, "unmute")
-        content = ("已开启**今日免打扰**(仅静音飞书, 微信照常), 明日 0 点自动恢复。\n\n"
-                   f"想提前恢复 👉 [点此恢复今日推送]({link})")
-        await notifier._fanout_pushplus("🔕 已开启今日免打扰", content)
-    except Exception as e:
-        logging.getLogger(__name__).warning(f"[quick] 免打扰恢复确认发送失败: {e}")
-
-
 # ── 推送卡片里的快捷动作行 ──
 
 def build_quick_actions_md(site: str, user_id, code: str, signal_id: str, direction: str) -> str:
-    """拼飞书卡片底部的快捷动作 markdown 链接行. site 为空或大盘预警(无个股)则只给「今日免打扰」.
+    """拼飞书卡片底部的快捷动作 markdown 链接行. 只对有个股的买卖信号给「静到再突破」入口
+    (指向单选项落地页, kind=snooze_until_retrigger, 只压该票该买点); 大盘预警(无 code)无动作行.
 
+    「今日免打扰」「静音此股(仅今日/本周按票全压)」已拆除(2026-07 用户拍板);
+    「今日关此模型」更早移除(2026-06-27, model_off 后端能力保留)。
     用 markdown 链接而非原生按钮: v2 卡(schema2.0)不支持 action 按钮容器, 链接两版卡通用.
     """
     site = (site or "").rstrip("/")
-    if not site:
+    if not site or not code or not signal_id:
         return ""
-    # 「今日关此模型」按需移除(2026-06-27): 只保留今日免打扰; model_off 后端能力保留(管理面板/历史链接仍可用)
-    links = [f"[🔕 今日免打扰]({build_quick_link(site, user_id, 'mute')})"]
-    # 个股静音: 指向落地页选到期语义(仅今日/本周/直到再突破), 只对有个股的买卖信号加(大盘预警无 code)
-    if code and signal_id:
-        links.append(f"[🔕 静音此股]({build_signal_snooze_link(site, user_id, code, signal_id)})")
-    return "　·　".join(links)
+    return f"[🔕 静到再突破]({build_signal_snooze_link(site, user_id, code, signal_id)})"
 
 
 def build_stop_escalation_actions_md(site: str, user_id, code: str, today: date | None = None) -> str:
@@ -313,36 +304,48 @@ def build_mark_sold_md(site: str, user_id, code: str, name: str = "") -> str:
     return f"[✅ 已卖出]({link})"
 
 
+# ── 均线到线提醒(一次性订阅, v1.7.x): 个股买卖类信号卡挂 10/20/60日线订阅链接 ──
+
+def ma_alert_eligible(direction: str, code: str) -> bool:
+    """到线提醒订阅行门槛: 只挂个股买卖类信号卡(buy/sell/reduce 且有 code); plunge 大盘卡不挂。"""
+    return direction in ("buy", "sell", "reduce") and bool(code)
+
+
+def build_ma_alert_md(site: str, user_id, code: str, name: str = "") -> str:
+    """个股买卖信号卡「🔔 到线提醒」一次性订阅行: 10/20/60日线三条签名链接(kind=ma_alert_N, target=code)。
+
+    点击即订阅: 该股现价进入对应均线±0.3%贴线带时推一次提醒后自动失效(一次性);
+    60天未触发自动过期。扫描与触发在 services/ma_touch_alert.py。name 仅为调用方语义占位
+    (订阅只按 code 存, 提醒卡触发时用实时行情里的最新名称)。"""
+    site = (site or "").rstrip("/")
+    if not site or not code:
+        return ""
+    links = " · ".join(
+        f"[{n}日线]({build_quick_link(site, user_id, f'ma_alert_{n}', target=code)})"
+        for n in sorted(MA_ALERT_KINDS.values()))
+    return f"🔔 到线提醒：{links}"
+
+
 # ── 应用机器人模式: 快捷动作变真回调按钮(点击不跳页, 原地toast; v1.7.631) ──
 
 def build_quick_action_button_rows(user_id, code: str, signal_id: str, direction: str) -> list[dict]:
     """信号卡快捷动作按钮行(schema2.0 回调按钮, 仅应用机器人通道用)。
 
-    行1: [✅ 已卖出](卖/减仓类) + [🔕 今日免打扰]
-    行2(有个股): [🔕 静音今日] [🔕 静音本周] [🔕 静到再突破]
-    与 build_quick_actions_md(webhook 链接版)动作对齐, 静音三档从落地页上提为直接按钮。
+    单行: [✅ 已卖出](卖/减仓类) + [🔕 静到再突破](有个股, 只压该票该买点)。
+    与 build_quick_actions_md(webhook 链接版)动作对齐。
+    「今日免打扰」「静音今日/静音本周(按票全压)」已拆除(2026-07 用户拍板)。
     """
     from backend.services import lark_app
 
-    rows: list[dict] = []
     row1 = []
     if direction in ("sell", "reduce") and code:
         row1.append(lark_app.callback_button(
             "✅ 已卖出", lark_app.quick_action_value(user_id, "mark_sold", code, 365), style="primary"))
-    row1.append(lark_app.callback_button(
-        "🔕 今日免打扰", lark_app.quick_action_value(user_id, "mute")))
-    rows.append(lark_app.button_row(row1))
     if code and signal_id:
-        rows.append(lark_app.button_row([
-            lark_app.callback_button(
-                "🔕 静音今日", lark_app.quick_action_value(user_id, "snooze", code, 1)),
-            lark_app.callback_button(
-                "🔕 静音本周", lark_app.quick_action_value(user_id, "snooze", code, days_until_week_end())),
-            lark_app.callback_button(
-                "🔕 静到再突破",
-                lark_app.quick_action_value(user_id, "snooze_until_retrigger", f"{code}|{signal_id}", 0)),
-        ]))
-    return rows
+        row1.append(lark_app.callback_button(
+            "🔕 静到再突破",
+            lark_app.quick_action_value(user_id, "snooze_until_retrigger", f"{code}|{signal_id}", 0)))
+    return [lark_app.button_row(row1)] if row1 else []
 
 
 def build_surge_action_button_rows(user_id, code: str) -> list[dict]:
@@ -356,11 +359,13 @@ def build_surge_action_button_rows(user_id, code: str) -> list[dict]:
     ])]
 
 
-# ── 个股信号静音: 落地页选到期语义(仅今日/本周/直到再突破) ──
+# ── 个股信号静音: 落地页(单选项: 直到再次突破; 「仅今日/本周」按票全压两档已拆除 2026-07) ──
 
 def build_signal_snooze_link(site: str, user_id, code: str, signal_id: str,
                              name: str = "", exp=None) -> str:
-    """指向静音落地页的签名链接(kind=snooze 占位签名, 携 code|signal_id + 名称)。落地页再给三档。"""
+    """指向静音落地页的签名链接(kind=snooze 占位签名, 携 code|signal_id + 名称)。
+    落地页只剩「直到再次突破」一档(条件式单模型静音)。占位 kind 沿用 'snooze' 字面量:
+    仅作 HMAC 原文成分, 不落库不进 VALID_KINDS 校验, 且旧卡片已签发链接继续可用。"""
     exp = int(exp) if exp is not None else int(time.time()) + QUICK_LINK_TTL_SECONDS
     target = f"{code}|{signal_id}"
     sig = sign_params(user_id, "snooze", target, 0, exp)
@@ -369,10 +374,8 @@ def build_signal_snooze_link(site: str, user_id, code: str, signal_id: str,
 
 
 def render_snooze_options_page(site: str, user_id, code: str, name: str, signal_id: str) -> str:
-    """静音落地页: 三个按钮各带独立签名链接 —— 仅今日 / 本周(到周日) / 直到再次突破。"""
+    """静音落地页: 单选项「直到再次突破」(只静音该票该买点, 安静≥1交易日后再触发自动恢复)。"""
     site = site.rstrip("/")
-    today_link = build_quick_link(site, user_id, "snooze", target=code, days=1)
-    week_link = build_quick_link(site, user_id, "snooze", target=code, days=days_until_week_end())
     retrig_link = build_quick_link(site, user_id, "snooze_until_retrigger",
                                    target=f"{code}|{signal_id}", days=0)
     disp = f"{name}({code})" if name else code
@@ -384,8 +387,6 @@ def render_snooze_options_page(site: str, user_id, code: str, name: str, signal_
 <div style="max-width:420px;margin:12vh auto;padding:24px;background:#fff;border-radius:14px;
             box-shadow:0 2px 16px rgba(0,0,0,.06);">
   <div style="font-size:18px;font-weight:700;color:#333;">🔕 静音 {disp}</div>
-  <div style="margin:8px 0 18px;font-size:13px;color:#888;line-height:1.6;">选择静音时长。「仅今日/本周」静音该票<b>全部信号（含卖点/止损）</b>；「直到再次突破」只静音该票该买点：</div>
-  <a href="{today_link}" style="{btn}background:#eef2ff;color:#3730a3;">仅今日<span style="font-weight:400;font-size:12px;color:#888;"> · 明日自动恢复</span></a>
-  <a href="{week_link}" style="{btn}background:#ecfdf5;color:#065f46;">本周<span style="font-weight:400;font-size:12px;color:#888;"> · 到本周日</span></a>
+  <div style="margin:8px 0 18px;font-size:13px;color:#888;line-height:1.6;">只静音该票的<b>这一个买点</b>，其余信号（卖点/止损/异动等）照常推送。该票安静≥1个交易日后再次触发此买点时，自动恢复提醒：</div>
   <a href="{retrig_link}" style="{btn}background:#fff7ed;color:#9a3412;">直到再次突破<span style="font-weight:400;font-size:12px;color:#888;"> · 安静≥1日后重新触发才再提醒</span></a>
 </div></body></html>"""
