@@ -55,7 +55,7 @@ def build_review_text(trade_date: str, meta: dict, boards: list[dict], link: str
     seal = meta.get("seal_rate")
     seal_s = f"{seal*100:.0f}%" if isinstance(seal, (int, float)) else "—"
     lines = [
-        f"📈 涨停复盘 · {ymd}",
+        f"📊 涨停复盘 · {ymd}",
         "",
         f"涨停 **{meta.get('limit_up_count', '—')}** 家　曾涨停 {meta.get('limit_up_history', '—')}　"
         f"炸板 {meta.get('broken_board_count', '—')}　封板率 {seal_s}　跌停 {meta.get('limit_down_count', '—')}",
@@ -73,6 +73,69 @@ def build_review_text(trade_date: str, meta: dict, boards: list[dict], link: str
     if link:
         lines += ["", f"[👉 查看全部涨停复盘]({link})"]
     return "\n".join(lines)
+
+
+def build_review_card(trade_date: str, meta: dict, boards: list[dict], link: str = ""):
+    """涨停复盘 → 基线 v1.1 结构卡(情报族 blue, 它是复盘情报非机会):
+    KPI结论区 → 连板梯队短表(>8行 Top5+全量折叠) → 热点分布 → 👉一句话定性 → 折叠。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    d = trade_date
+    ymd = f"{d[:4]}-{d[4:6]}-{d[6:]}" if len(d) == 8 else d
+    seal = meta.get("seal_rate")
+    seal_s = f"{seal*100:.0f}%" if isinstance(seal, (int, float)) else "—"
+    n_up = meta.get("limit_up_count", "—")
+    n_down = meta.get("limit_down_count", "—")
+
+    ladder = [b for b in boards if (b.get("height") or 1) >= 2]
+    ladder.sort(key=lambda x: (-(x.get("height") or 1), x.get("code", "")))
+    ranking = build_concept_ranking(boards)
+    top_theme = ranking[0][0] if ranking else ""
+
+    elements: list = [card_kit.kpi_row([
+        ("涨停", f"{n_up}家", "red"),
+        ("封板率", seal_s),
+        ("跌停", f"{n_down}家", "green" if n_down not in ("—", 0, None) else None),
+    ])]
+    elements.append(md_element(
+        f"曾涨停 {meta.get('limit_up_history', '—')} · 炸板 {meta.get('broken_board_count', '—')}"))
+
+    def _row(b) -> tuple:
+        concept = (b.get("reason") or "").split("+")[0]   # 复盘卡刻意用首段短标签(勿改全标签口径)
+        return (b.get("name", ""), b.get("streak_label", ""), concept)
+
+    fold_detail = ""
+    if ladder:
+        elements.append(md_element(f"**连板梯队**（{len(ladder)}只）"))
+        if len(ladder) > 8:
+            elements.append(card_kit.short_table(["股票", "板数", "题材"], [_row(b) for b in ladder[:5]]))
+            elements.append(md_element(f"…等 **{len(ladder)}** 只，全量见折叠"))
+            fold_detail = "\n".join(
+                f"{b.get('streak_label', '')}　**{b.get('name', '')}**({b.get('code', '')})　{_row(b)[2]}"
+                for b in ladder)
+        else:
+            elements.append(card_kit.short_table(["股票", "板数", "题材"], [_row(b) for b in ladder]))
+    if ranking:
+        elements.append(md_element("**热点分布**　" + "　".join(f"{t}{c}" for t, c in ranking)))
+
+    if ladder:
+        advice_text = f"{ladder[0].get('streak_label', '')}领衔，热点看{top_theme}" if top_theme \
+            else f"{ladder[0].get('streak_label', '')}领衔，看高度能否延续"
+    else:
+        advice_text = "无连板，打板情绪弱，谨慎追高"
+    elements.append(card_kit.advice(advice_text[:24]))
+    if fold_detail:
+        elements.append(card_kit.fold(f"连板梯队全量（{len(ladder)}只）", fold_detail))
+
+    return card_kit.Card(
+        title="📊 涨停复盘", elements=elements,
+        fallback=build_review_text(trade_date, meta, boards, link),
+        family="intel",
+        summary=card_kit.summary_text("涨停复盘", f"涨停{n_up}家", f"封板率{seal_s}",
+                                      f"最高{ladder[0].get('streak_label', '')}" if ladder else ""),
+        subtitle=f"{ymd} 收盘复盘",
+        link_url=link, link_text="查看全部涨停复盘")
 
 
 async def archive_limit_up(date: str) -> int:
@@ -128,9 +191,9 @@ async def run_limit_up_daily():
         from backend.core.config import load_config
         base = (load_config().get("site_base_url") or "").rstrip("/")
         link = f"{base}/limit-up" if base else ""
-        text = build_review_text(date, got["meta"], got["boards"], link)
+        card = build_review_card(date, got["meta"], got["boards"], link)
         from backend.services import notifier
-        await notifier.send_dual(text, lark_title="📈 涨停复盘", template="red")
+        await notifier.send_card(card)
         logger.info(f"[limit_up] {date} 复盘卡已推送")
     except Exception as e:
         logger.warning(f"[limit_up] 复盘推送失败: {e}")

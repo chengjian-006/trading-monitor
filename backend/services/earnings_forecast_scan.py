@@ -33,6 +33,70 @@ def _amp_txt(lo, up) -> str:
     return b or a or "—"
 
 
+def _date_cell(g) -> str:
+    """公告发布日 MM-DD(回看窗内可能是今日/隔日, 逐条标各自发布日); 缺失回退 —。"""
+    nd = g.get("notice_date")
+    return str(nd)[5:10] if nd and len(str(nd)) >= 10 else "—"
+
+
+def build_forecast_card(good: list, mine: list, others: list, hold_codes: set):
+    """预增榜 → 基线 v1.1 结构卡(机会族 red——基线家族表把预增榜归机会族):
+    结论行 → 命中表/全市场表(全短列 股票|净利变动|发布, >8行 Top5+全量折叠) → 👉建议 → 回测口径折叠。
+    表格三列各格都短(名称+类型/净利变动/发布MM-DD), 手机端不触发"单格塞多字段"截断; 代码下沉折叠。"""
+    from backend.services import card_kit
+
+    def _row(g, mark: str = "") -> tuple:
+        return (f"{mark}{g['name']} {g['predict_type']}",
+                _amp_txt(g.get("amp_lower"), g.get("amp_upper")), _date_cell(g))
+
+    def _long_line(g, mark: str = "") -> str:
+        return (f"{mark}**{g['name']}**({g['code']}) {g['predict_type']} "
+                f"净利变动 {_amp_txt(g.get('amp_lower'), g.get('amp_upper'))} · 发布 {_date_cell(g)}")
+
+    headers = ["股票", "净利变动", "发布"]
+    elements: list = [md_element(
+        f"新出正向业绩预告 **{len(good)}** 条，自选/持仓命中 **{len(mine)}** 只（🔴持仓 ⭐自选）")]
+    fold_sections: list[str] = []
+    if mine:
+        marks = ["🔴" if str(g["code"]) in hold_codes else "⭐" for g in mine]
+        elements.append(md_element(f"**🎯 自选/持仓命中 {len(mine)} 只**"))
+        if len(mine) > 8:
+            elements.append(card_kit.short_table(headers, [_row(g, m) for g, m in zip(mine[:5], marks)]))
+            elements.append(md_element(f"…等 **{len(mine)}** 只，全量见折叠"))
+        else:
+            elements.append(card_kit.short_table(headers, [_row(g, m) for g, m in zip(mine, marks)]))
+        fold_sections.append("**自选/持仓命中**\n" + "\n".join(
+            _long_line(g, m) for g, m in zip(mine, marks)))
+    if others:
+        elements.append(md_element(f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）"))
+        if len(others) > 8:
+            elements.append(card_kit.short_table(headers, [_row(g) for g in others[:5]]))
+            elements.append(md_element(f"…等 **{len(others)}** 只，全量见折叠"))
+        else:
+            elements.append(card_kit.short_table(headers, [_row(g) for g in others]))
+        fold_sections.append(f"**全市场大幅预增 Top{len(others)}**\n" + "\n".join(
+            _long_line(g) for g in others))
+    elements.append(card_kit.advice("只做快进快出，别追高"))
+    elements.append(card_kit.fold(
+        "回测口径与全量名单", CAUTION + "\n\n" + "\n\n".join(fold_sections)))
+
+    fb_lines = [f"📈 预增榜 · 当日正向业绩预告 **{len(good)}** 条。{CAUTION}"]
+    if mine:
+        fb_lines.append(f"\n🎯 自选/持仓命中 {len(mine)} 只（🔴持仓 ⭐自选）")
+        fb_lines += [_long_line(g, "🔴" if str(g["code"]) in hold_codes else "⭐") for g in mine]
+    if others:
+        fb_lines.append(f"\n全市场大幅预增 Top{len(others)}（按净利变动幅度）")
+        fb_lines += [_long_line(g) for g in others]
+    fb_lines.append("\n👉 只做快进快出，别追高")
+    return card_kit.Card(
+        title=f"📈 预增榜 · {len(good)}条", elements=elements, fallback="\n".join(fb_lines),
+        family="opportunity",
+        summary=card_kit.summary_text("预增榜", f"{len(good)}条",
+                                      f"命中{len(mine)}只" if mine else "自选无命中"),
+        subtitle="盘后正向业绩预告",
+        tags=[("快进快出", "orange")])
+
+
 async def run_earnings_forecast_scan() -> None:
     """盘后拉当日业绩预告→落库→推正向预告榜(自选/持仓命中置顶)。任意日可跑(周末也有公告)。"""
     today = date.today().isoformat()
@@ -67,41 +131,8 @@ async def run_earnings_forecast_scan() -> None:
     mine = [g for g in good if str(g["code"]) in user_codes]
     others = [g for g in good if str(g["code"]) not in user_codes][:MARKET_TOP]
 
-    # markdown 表格版式(飞书 markdown 组件渲染)。手机端表格单元格长内容会被截需点开,
-    # 故: 第1列=名称+类型(短), 第2列=纯净利变动百分比(短且最前, 手机直接可见, 不用点开)。
-    # 代码不进表(会挤长第1列致类型被截); 名称足够识别。
-    def _stock_cell(g, mark: str = "") -> str:
-        return f"{mark}{g['name']} {g['predict_type']}"
-
-    def _pct_cell(g) -> str:
-        return _amp_txt(g.get("amp_lower"), g.get("amp_upper"))
-
-    def _date_cell(g) -> str:
-        # 公告发布日 MM-DD(回看窗内可能是今日/隔日, 逐条标各自发布日); 缺失回退 —
-        nd = g.get("notice_date")
-        return str(nd)[5:10] if nd and len(str(nd)) >= 10 else "—"
-
-    def _mdtable(rows: list) -> str:
-        # 三列各格都短(名称+类型/净利变动/发布MM-DD), 手机端不触发"单格塞多字段"截断
-        out = ["| 股票 | 净利变动 | 发布 |", "| --- | --- | --- |"]
-        out += [f"| {s} | {a} | {d} |" for s, a, d in rows]
-        return "\n".join(out)
-
-    elements = []
-    title = "📈 预增榜·当日正向业绩预告"
-    head = f"{title}\n\n新出正向业绩预告 **{len(good)}** 条。{CAUTION}"
-    elements.append(md_element(head))
-    if mine:
-        rows = [(_stock_cell(g, "🔴" if str(g["code"]) in hold_codes else "⭐"), _pct_cell(g), _date_cell(g)) for g in mine]
-        elements.append(md_element(
-            f"**🎯 你的自选/持仓命中 {len(mine)} 只**（🔴持仓 ⭐自选）\n\n" + _mdtable(rows)))
-    if others:
-        rows = [(_stock_cell(g), _pct_cell(g), _date_cell(g)) for g in others]
-        elements.append(md_element(
-            f"**全市场大幅预增 Top{len(others)}**（按净利变动幅度）\n\n" + _mdtable(rows)))
-
     try:
-        await notifier.send_dual_card(head, lark_title=title, elements=elements)
+        await notifier.send_card(build_forecast_card(good, mine, others, hold_codes))
         await earnings_repo.mark_forecasts_pushed([(g["code"], g["report_date"]) for g in good])
         logger.info(f"[yjyg] 预增榜已推: 命中{len(mine)}/全市场{len(others)} (当日正向{len(good)})")
     except Exception as e:

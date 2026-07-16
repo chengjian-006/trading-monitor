@@ -282,37 +282,85 @@ def render_wechat_text(payloads: list[dict], verdicts: dict[str, dict], market_b
     return "\n".join(lines)
 
 
+def _stock_block(p: dict, v: dict | None) -> str:
+    """单只持仓的换行文本块(移动优化 v1.7.581: 逐股换行、建议+名称前置, 手机窄屏换行不截)。
+    (原 2列表格把 个股/浮盈/目标止损/理由 全挤 info 一格, 飞书手机端字符级截断只显示前~10字,
+     价格/浮盈/目标止损/AI研判全被吃掉——md_table 单元格不换行只截断, "自动换行"是错误前提。)"""
+    from backend.services import card_kit
+
+    if v:
+        emoji = ACTION_EMOJI.get(v["action"], "")
+        head = f"{emoji} **{v['action']}**"
+        levels = f"目标 {_fmt_num(v.get('target'))} · 止损 {_fmt_num(v.get('stop'))}"
+        reason = v.get("reason", "")
+    else:
+        head, levels, reason = "— **待研判**", "", "AI研判未生成"
+    state = f" · {p['state']}" if p.get("state") else ""
+    block = [
+        f"{head}　**{p['name']}** {p['code']}",
+        f"现价 {_fmt_num(p.get('price'))}{state}　浮盈 {card_kit.pct_md(p.get('profit_pct', 0.0))} · 持 {p.get('hold_days', 0)}天",
+    ]
+    if levels:
+        block.append(levels)
+    if reason:
+        block.append(f"🤖 {reason}")
+    return "\n".join(block)
+
+
 def build_lark_elements(payloads: list[dict], verdicts: dict[str, dict], market_brief: str) -> list:
-    """飞书卡 elements: 前言 md + 逐股换行文本块 + 免责 md。空仓一条 md。"""
+    """飞书卡 elements: 前言 md + 逐股换行文本块 + 免责 md。空仓一条 md。(build_brief_card 的数据区)"""
     from backend.services.lark_notifier import md_element
 
     if not payloads:
         return [md_element("**今日空仓**，无需研判。")]
     els = [md_element(f"**次日大盘环境**：{market_brief}")]
-    # 移动优化(v1.7.581): 逐股换行文本块, 建议+名称前置, 目标止损/理由各独立行, 手机窄屏换行不截。
-    #   (原 2列表格把 个股/浮盈/目标止损/理由 全挤 info 一格, 飞书手机端字符级截断只显示前~10字,
-    #    价格/浮盈/目标止损/AI研判全被吃掉——md_table 单元格不换行只截断, "自动换行"是错误前提。)
     for p in payloads:
-        v = verdicts.get(p["code"])
-        if v:
-            emoji = ACTION_EMOJI.get(v["action"], "")
-            head = f"{emoji} **{v['action']}**"
-            levels = f"目标 {_fmt_num(v.get('target'))} · 止损 {_fmt_num(v.get('stop'))}"
-            reason = v.get("reason", "")
-        else:
-            head, levels, reason = "— **待研判**", "", "AI研判未生成"
-        state = f" · {p['state']}" if p.get("state") else ""
-        block = [
-            f"{head}　**{p['name']}** {p['code']}",
-            f"现价 {_fmt_num(p.get('price'))}{state}　浮盈 {p.get('profit_pct', 0):+.1f}% · 持 {p.get('hold_days', 0)}天",
-        ]
-        if levels:
-            block.append(levels)
-        if reason:
-            block.append(f"🤖 {reason}")
-        els.append(md_element("\n".join(block)))
-    els.append(md_element("**AI研判仅供参考，最终决策在你。** 客观概率源自全市场五年同类形态回测。"))
+        els.append(md_element(_stock_block(p, verdicts.get(p["code"]))))
     return els
+
+
+def build_brief_card(payloads: list[dict], verdicts: dict[str, dict], market_brief: str):
+    """持仓研判晚报 → 基线 v1.1 结构卡(情报族 blue): KPI结论区 → 逐股数据区 → 👉建议 → 免责折叠。"""
+    from backend.services import card_kit
+
+    fallback = render_wechat_text(payloads, verdicts, market_brief)
+    if not payloads:
+        return card_kit.Card(
+            title=BRIEF_TITLE, fallback=fallback, family="intel",
+            elements=[card_kit.heading_md("**今日空仓**，无需研判。")],
+            summary=card_kit.summary_text("持仓研判晚报", "今日空仓"),
+            subtitle=f"次日{market_brief}"[:30])
+
+    acts = [verdicts[p["code"]]["action"] for p in payloads if p["code"] in verdicts]
+    n_cut = sum(1 for a in acts if a in ("减仓", "清仓"))
+    n_missing = len(payloads) - len(acts)
+    env_short = (market_brief.split("，")[0] or "震荡")[:6]
+
+    elements: list = [card_kit.kpi_row([
+        ("持仓", f"{len(payloads)}只"),
+        ("建议减/清", f"{n_cut}只", "red" if n_cut else None),
+        ("次日环境", env_short),
+    ])]
+    dist = "　".join(f"{ACTION_EMOJI[a]}{a} **{acts.count(a)}**"
+                     for a in ("持有", "加仓", "减仓", "清仓") if acts.count(a))
+    if n_missing:
+        dist += f"　— 待研判 {n_missing}"
+    if dist:
+        from backend.services.lark_notifier import md_element
+        elements.append(md_element(dist))
+    elements += build_lark_elements(payloads, verdicts, market_brief)[1:]  # 逐股块(去掉前言, 环境已进KPI)
+    advice_text = f"优先处理 {n_cut} 只减/清仓建议" if n_cut else "按目标价与止损执行，无需动作"
+    elements.append(card_kit.advice(advice_text))
+    elements.append(card_kit.fold(
+        "口径与免责",
+        "AI研判仅供参考，最终决策在你。\n"
+        "客观概率源自全市场五年同类形态回测；建议由 AI 结合 成本/浮盈/建仓模型实测胜率/"
+        "同类形态历史分布/板块内强弱/持仓守护信号 生成。"))
+    return card_kit.Card(
+        title=BRIEF_TITLE, elements=elements, fallback=fallback, family="intel",
+        summary=card_kit.summary_text("持仓研判晚报", f"{len(payloads)}只",
+                                      f"减/清{n_cut}只" if n_cut else "无减仓建议"),
+        subtitle=f"次日{market_brief}"[:30])
 
 
 # ── 编排: 数据组装 / AI调用 / 20:00 入口 ──
@@ -450,11 +498,9 @@ async def run_holding_evening_report(user_id: int = 1):
     market_brief = await _market_brief()
     payloads = await gather_holdings_payload(user_id)
     if not payloads:
-        await notifier.send_dual(render_wechat_text([], {}, market_brief), lark_title=BRIEF_TITLE)
+        await notifier.send_card(build_brief_card([], {}, market_brief))
         return {"holdings": 0}
     verdicts = await generate_holding_brief_verdicts(payloads, market_brief)
-    text = render_wechat_text(payloads, verdicts, market_brief)
-    els = build_lark_elements(payloads, verdicts, market_brief)
-    await notifier.send_dual_card(text, lark_title=BRIEF_TITLE, elements=els)
+    await notifier.send_card(build_brief_card(payloads, verdicts, market_brief))
     logger.info(f"[holding_brief] 已推送 {len(payloads)} 只持仓研判(AI {len(verdicts)} 条)")
     return {"holdings": len(payloads), "verdicts": len(verdicts)}

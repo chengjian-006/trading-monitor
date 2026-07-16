@@ -52,6 +52,43 @@ def _get_interval_seconds() -> int:
     return 99999         # 其余时段不跑
 
 
+def build_fail_card(fail_count: int, last_err: str):
+    """问财候选榜刷新中断 → 基线 v1.1 系统卡(grey): 结论前置 → 👉建议 → 排查方法折叠。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    elements = [
+        md_element(f"🔴 候选榜刷新中断：连续 **{fail_count}** 轮全部选股语句失败"),
+        md_element(f"最近错误：{(last_err or '—')[:200]}"),
+        card_kit.advice("在部署机排查 pywencai 环境"),
+        card_kit.fold(
+            "排查方法",
+            "常见原因: 部署机 Node/pywencai 异常, 或同花顺问财接口风控/token 失效。\n"
+            "排查: 在部署机跑 `python -c \"import pywencai;print(pywencai.get(question='非ST').shape)\"` 看报错。\n"
+            "中断期间候选榜保留上一轮结果, 系统按指数退避自动重试。"),
+    ]
+    fallback = (f"⚠️ 问财候选榜刷新中断\n\n连续 {fail_count} 轮全部选股语句失败: {last_err}\n\n"
+                f"常见原因: 部署机 Node/pywencai 异常, 或同花顺问财接口风控/token 失效。\n"
+                f"排查: 在部署机跑 `python -c \"import pywencai;print(pywencai.get(question='非ST').shape)\"` 看报错。")
+    return card_kit.Card(
+        title="⚙️ 问财候选榜中断", elements=elements, fallback=fallback, family="system",
+        summary=card_kit.summary_text("问财候选榜中断", f"连续{fail_count}轮失败"),
+        tags=[("需人工排查", "red")])
+
+
+def build_recover_card():
+    """问财候选榜恢复 → 灰 header 解除式收尾卡(与中断卡闭环)。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    return card_kit.Card(
+        title="✅ 问财候选榜已恢复",
+        elements=[md_element("✅ 候选榜刷新已恢复正常，无需处理。")],
+        fallback="✅ 问财候选榜刷新已恢复", family="system",
+        summary=card_kit.summary_text("问财候选榜", "已恢复"),
+        tags=[("已恢复", "grey")])
+
+
 async def scan_wencai():
     cfg = load_config().get("wencai_screening", {})
     if not cfg.get("enabled", False):
@@ -115,18 +152,12 @@ async def scan_wencai():
         if _fail_count >= FAIL_THRESHOLD and (time.time() - _last_fail_alert_at > FAIL_ALERT_COOLDOWN):
             _last_fail_alert_at = time.time()
             _fail_alerted = True
-            await notifier.send_dual(
-                f"⚠️ 问财候选榜刷新中断\n\n"
-                f"连续 {_fail_count} 轮全部选股语句失败: {last_err}\n\n"
-                f"常见原因: 部署机 Node/pywencai 异常, 或同花顺问财接口风控/token 失效。\n"
-                f"排查: 在部署机跑 `python -c \"import pywencai;print(pywencai.get(question='非ST').shape)\"` 看报错。",
-                lark_title="⚠️ 问财候选榜中断", template="red")
+            await notifier.send_card(build_fail_card(_fail_count, last_err))
         return
 
     # 本轮至少一条成功: 重置失败计数; 若此前告过警补恢复通知
     if _fail_alerted:
-        await notifier.send_dual(
-            "✅ 问财候选榜刷新已恢复", lark_title="✅ 问财候选榜已恢复", template="green")
+        await notifier.send_card(build_recover_card())
     _fail_count = 0
     _fail_alerted = False
     _backoff_until = 0.0

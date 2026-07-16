@@ -9,7 +9,7 @@ import asyncio
 import logging
 
 from backend.core.trading_calendar import is_workday
-from backend.services import notifier, lark_notifier
+from backend.services import card_kit, notifier, lark_notifier
 
 logger = logging.getLogger(__name__)
 
@@ -41,15 +41,18 @@ async def run_tail_decision_1440():
         logger.warning(f"[tail_decision] 弱势极限部分异常: {weak_hits}")
         weak_hits = None
 
-    tlines: list[str] = ["🎯 尾盘决策(14:40)"]
-    elements: list = [lark_notifier.md_element(
-        "**🎯 尾盘决策**　_收盘前 · 真假强势评分 + 次日板块预测 + 弱势极限尾盘候选_")]
+    tlines: list[str] = ["【尾盘决策】"]
+    elements: list = []
     have = False
 
     def _sep(title: str):
         elements.append(lark_notifier.md_element(f"<font color='grey'>━━━━━━ {title} ━━━━━━</font>"))
         tlines.append("")
         tlines.append(f"—— {title} ——")
+
+    sq_meta: dict = (sq[2] if sq and len(sq) > 2 else {}) or {}
+    pred_meta: dict = (pred[2] if pred and len(pred) > 2 else {}) or {}
+    n_weak = len(weak_hits) if isinstance(weak_hits, list) else 0
 
     if sq:
         have = True
@@ -76,6 +79,19 @@ async def run_tail_decision_1440():
     if not have:
         logger.info("[tail_decision] 三部分都无内容, 跳过")
         return
-    sent = await notifier.send_dual_card("\n".join(tlines), lark_title="🎯 尾盘决策", elements=elements)
+    # 摘要 = 事件 + 三部分各自最关键的一个数(基线 v1.1 信封标配)
+    bits = []
+    if sq:
+        bits.append(f"真强势{sq_meta.get('real', 0)}只")
+    if pred:
+        bits.append(f"弱转强候选{pred_meta.get('wts', 0)}")
+    if weak_hits:
+        bits.append(f"弱势极限{n_weak}只")
+    card = card_kit.Card(
+        title="📊 尾盘决策", elements=elements, fallback="\n".join(tlines),
+        family="intel", subtitle="真假强势 + 次日板块预测 + 弱势极限",
+        summary=card_kit.summary_text("尾盘决策", *bits),
+    )
+    sent = await notifier.send_card(card)
     logger.info(f"[tail_decision] 尾盘决策合并卡推送={sent} "
                 f"(强势={'✓' if sq else '✗'} 次日={'✓' if pred else '✗'} 弱势={'✓' if weak_hits else '✗'})")

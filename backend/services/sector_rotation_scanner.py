@@ -17,7 +17,7 @@ from datetime import datetime
 from backend.core.trading_calendar import is_workday
 from backend.fetcher.limit_pool import get_limit_pool_cached
 from backend.models import repository
-from backend.services import alert_throttle, sector_rotation as sr
+from backend.services import alert_throttle, card_kit, sector_rotation as sr
 from backend.services.lark_notifier import md_element, md_table
 
 logger = logging.getLogger(__name__)
@@ -388,6 +388,8 @@ async def predict_sector_next_day(return_only: bool = False):
         groups[direction].append({
             "theme": theme, "reason": pred["reason"], "traj": traj,
             "today": daily_series[-1], "samples": samples_map.get(theme, ""),
+            # 近6日 (日期标签, 涨停家数) 序列: 供头号候选画原生柱状图(基线 v1.1 图形词汇)
+            "points": list(zip([_date_label(d) for d in dates[-6:]], daily_series[-6:])),
         })
 
     if not any(groups.values()):
@@ -410,56 +412,115 @@ async def predict_sector_next_day(return_only: bool = False):
 _PRED_ICON = {"弱转强候选": "🟢", "强转弱候选": "🔴", "强势延续": "⬆️", "疑似终结": "⚰️"}
 
 
-_TABLE_CAP = {"弱转强候选": 10, "强转弱候选": 10, "强势延续": 8}  # 可操作组才上表, 各自封顶
+_TABLE_SHOW = 5      # 表内展示 Top5, 全量进折叠(基线 v1.1: 名单>8行 Top5+等N)
 _ENDED_EXAMPLES = 6  # 疑似终结只举几个例子, 不堆全量
 
 
+def _date_label(d) -> str:
+    """trade_date('20260716' 或 '2026-07-16') → 'MM-DD' 图表 x 轴标签。"""
+    c = str(d).replace("-", "")
+    return f"{c[4:6]}-{c[6:8]}" if len(c) >= 8 else str(d)
+
+
+def _prediction_advice(groups: dict[str, list[dict]]) -> str:
+    """👉 一句话定性(情报卡: 定性不是操作指令)。"""
+    wts = groups.get("弱转强候选") or []
+    stw = groups.get("强转弱候选") or []
+    cont = groups.get("强势延续") or []
+    if wts:
+        return f"明日主看{wts[0]['theme']}方向能否接力"
+    if stw and not cont:
+        return "退潮方向为主，明日别接力热点"
+    if cont:
+        return f"延续方向看{cont[0]['theme']}，不追高"
+    return "无明确方向，明日开盘再看"
+
+
 async def _push_prediction(groups: dict[str, list[dict]], return_only: bool = False):
+    """基线 v1.1 情报卡: KPI 三栏 → 头号候选柱状图 → 全短列表格(Top5) →
+    👉 一句话定性 → 折叠(理由/疑似终结/方法论)。return_only 时返回 (文本, elements, meta)。"""
     n = {k: len(groups.get(k) or []) for k in _PRED_ICON}
-    # ── 顶部计数概览(一眼看清四类各多少) ──
     overview = "　·　".join(f"{_PRED_ICON[k]}{k.replace('候选', '')} {n[k]}" for k in _PRED_ICON)
-    text_lines = ["📅 次日板块预测(收盘前 · 启发式未回测)", overview, ""]
-    elements = [
-        md_element("**📅 次日板块预测**　_收盘前启发式预判, 未回测, 仅供布局参考_"),
-        md_element(overview),
-    ]
-    # 移动优化: 2 列表(题材 | 近期轨迹), 长文本「理由」移到表下逐题材整行(免手机端截断)。
-    cols = [
-        {"name": "theme", "display_name": "题材", "data_type": "text"},
-        {"name": "traj", "display_name": "近期轨迹", "data_type": "text"},
-    ]
-    # ── 可操作三组上表(封顶, 多余只标计数) ──
-    for direction in ("弱转强候选", "强转弱候选", "强势延续"):
+
+    # ── 结论区: KPI 三栏(弱转强/强转弱/强势延续; 疑似终结进折叠) ──
+    elements: list = [card_kit.kpi_row([
+        ("弱转强候选", f"{n['弱转强候选']}个", "red" if n["弱转强候选"] else None),
+        ("强转弱候选", f"{n['强转弱候选']}个", "green" if n["强转弱候选"] else None),
+        ("强势延续", f"{n['强势延续']}个"),
+    ])]
+
+    # ── 数据区 1: 头号候选近6日涨停家数柱状图(有现成时间序列才上, 每卡≤2图) ──
+    lead_item = next(
+        (g[0] for g in (groups.get("弱转强候选"), groups.get("强势延续")) if g), None)
+    points = (lead_item or {}).get("points") or []
+    if lead_item and len(points) >= 3 and any(y > 0 for _, y in points):
+        elements.append(md_element(f"📊 **{lead_item['theme']}** 近6日涨停家数"))
+        elements.append(card_kit.chart("bar", points))
+
+    # ── 数据区 2: 弱转强/强转弱 全短列表格(题材 | 近6日涨停轨迹), Top5 + 等N ──
+    text_lines = ["【次日板块预测】(收盘前 · 启发式未回测)", overview, ""]
+    for direction in ("弱转强候选", "强转弱候选"):
         gitems = groups.get(direction) or []
         if not gitems:
             continue
         icon = _PRED_ICON[direction]
-        cap = _TABLE_CAP[direction]
-        shown = gitems[:cap]
-        more = f"　等共 {len(gitems)} 个" if len(gitems) > cap else ""
+        shown = gitems[:_TABLE_SHOW]
+        more = f"　等{len(gitems)}个(全量见折叠)" if len(gitems) > _TABLE_SHOW else ""
         text_lines.append(f"{icon} {direction}: "
-                          + "、".join(a["theme"] for a in shown) + more)
-        elements.append(md_element(f"{icon} **{direction}**（{len(gitems)}）"))
-        rows = [{"theme": a["theme"], "traj": a["traj"]} for a in shown]
-        elements.append(md_table(cols, rows))
-        reasons = [f"• {a['theme']}: {a['reason']}" for a in shown if a.get("reason")]
-        if reasons:
-            elements.append(md_element("\n".join(reasons)))
-    # ── 疑似终结: 数量+几个例子, 折叠不展开(沉寂题材, 无操作价值) ──
-    ended = groups.get("疑似终结") or []
-    if ended:
-        icon = _PRED_ICON["疑似终结"]
-        ex = "、".join(a["theme"] for a in ended[:_ENDED_EXAMPLES])
-        tail = " 等" if len(ended) > _ENDED_EXAMPLES else ""
-        line = f"{icon} 疑似终结 {len(ended)} 个（已沉寂, 不展开）：{ex}{tail}"
-        text_lines.append("")
+                          + "、".join(a["theme"] for a in gitems))
+        elements.append(md_element(f"{icon} **{direction}**（{len(gitems)}）{more}"))
+        elements.append(card_kit.short_table(
+            ["题材", "近6日涨停"],
+            [(f"**{a['theme']}**", a["traj"]) for a in shown]))
+    # ── 数据区 3: 强势延续一行(持有视角, 不上表) ──
+    cont = groups.get("强势延续") or []
+    if cont:
+        names = "、".join(a["theme"] for a in cont[:_TABLE_SHOW])
+        tail = f" 等{len(cont)}个" if len(cont) > _TABLE_SHOW else ""
+        line = f"⬆️ 强势延续：{names}{tail}"
         text_lines.append(line)
         elements.append(md_element(line))
+
+    # ── 👉 一句话定性 ──
+    adv = _prediction_advice(groups)
+    elements.append(card_kit.advice(adv))
+    text_lines += ["", f"👉 {adv}"]
+
+    # ── 折叠: 预测理由 + 疑似终结 + 方法论 ──
+    fold_lines: list[str] = []
+    for direction in ("弱转强候选", "强转弱候选", "强势延续"):
+        gitems = groups.get(direction) or []
+        reasons = [f"• {a['theme']}({a['traj']}): {a['reason']}"
+                   for a in gitems if a.get("reason")]
+        if reasons:
+            fold_lines.append(f"{_PRED_ICON[direction]} **{direction}理由**")
+            fold_lines += reasons
+            fold_lines.append("")
+    ended = groups.get("疑似终结") or []
+    if ended:
+        ex = "、".join(a["theme"] for a in ended[:_ENDED_EXAMPLES])
+        tail = " 等" if len(ended) > _ENDED_EXAMPLES else ""
+        line = f"⚰️ 疑似终结 {len(ended)} 个（已沉寂）：{ex}{tail}"
+        fold_lines.append(line)
+        text_lines += ["", line]
+    fold_lines.append("")
+    fold_lines.append("📐 口径：基于 theme_heat 多日涨停家数序列 + 今日涨停池质地的启发式预判，"
+                      "未回测，仅供次日布局参考。")
+    elements.append(card_kit.fold("预测理由与口径（启发式未回测）", "\n".join(fold_lines)))
+
+    meta = {"wts": n["弱转强候选"], "stw": n["强转弱候选"], "cont": n["强势延续"],
+            "top": (lead_item or {}).get("theme", "")}
     if return_only:
-        return "\n".join(text_lines), elements
+        return "\n".join(text_lines), elements, meta
     try:
         from backend.services import notifier
-        await notifier.send_dual_card("\n".join(text_lines),
-                                      lark_title="📅 次日板块预测", elements=elements)
+        card = card_kit.Card(
+            title="📊 次日板块预测", elements=elements, fallback="\n".join(text_lines),
+            family="intel", subtitle="收盘前启发式预判 · 未回测",
+            summary=card_kit.summary_text(
+                "次日预测", f"弱转强{n['弱转强候选']}", f"强转弱{n['强转弱候选']}",
+                f"延续{n['强势延续']}"),
+        )
+        await notifier.send_card(card)
     except Exception as e:
         logger.warning(f"[sector_predict] 推送失败: {e}")

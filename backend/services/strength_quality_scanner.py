@@ -17,8 +17,8 @@ from datetime import datetime
 
 from backend.models import repository
 from backend import data_fetcher
-from backend.services import signal_engine, notifier
-from backend.services.lark_notifier import md_element as _md, md_table as _table
+from backend.services import card_kit, signal_engine, notifier
+from backend.services.lark_notifier import md_element as _md
 from backend.services.trading_concepts import (
     compute_strength_quality,
     strength_quality_config_from_dict,
@@ -212,82 +212,114 @@ async def scan_strength_quality_snapshot(return_only: bool = False):
         key=lambda x: x["score"], reverse=True,
     )[:8]  # 观望最多展示 8 只
 
-    # 6. 拼推送(飞书结构化表格卡 + 企微纯文本兜底)
-    head = (f"沪指 {market_today:.2f}　·　5日 {_fmt_pct(market_cum_pct)}　|　"
-            f"🟢真强势 {len(real_strong)}　·　🟡观望 {len(observe)}")
-    GUIDE = "💡 真强势=大盘企稳首日率先放量上攻者, 才是买点; 观望=强度够但未确认, 等放量再跟"
-
-    if not real_strong and not observe:
-        text = (
-            f"【真假强势评分快照·14:30】\n\n{head}\n\n"
-            f"当前股票池无真强势/观望候选\n"
-            f"(评分对象 {len(results)} 只,均 < {sq_cfg.observe_threshold} 分)"
-        )
-        elements = [
-            _md("**📊 真假强势评分快照**　_14:30 盘中_"),
-            _md(head),
-            _md(f"_当前股票池无真强势/观望候选(评分 {len(results)} 只均 < {sq_cfg.observe_threshold} 分)_"),
-        ]
-    else:
-        REAL_CAP = 15  # 真强势封顶, 多余只标计数, 不无限堆
-        shown_real = real_strong[:REAL_CAP]
-
-        def _plus(crit):
-            top = sorted(crit, key=lambda c: c["delta"], reverse=True)[:2]
-            return " ".join(f"+{c['delta']}{c['name']}" for c in top)
-
-        elements = [
-            _md("**📊 真假强势评分快照**　_14:30 盘中_"),
-            _md(head),
-        ]
-        # ── 真强势表(移动优化: 评分独占前置短列, 个股/5日/加分并进名称格) ──
-        if real_strong:
-            more = f"，展示前 {REAL_CAP}" if len(real_strong) > REAL_CAP else ""
-            elements.append(_md(f"🟢 **真强势**（{len(real_strong)} 只{more}）"))
-            def _real_info(r):
-                s = f"{r['name']} {r['code']}　5日{_fmt_pct(r['stock_5d_cum'])}"
-                plus = _plus(r["criteria"])
-                return s + (f"　{plus}" if plus else "")
-            elements.append(_table(
-                [{"name": "score", "display_name": "评分"},
-                 {"name": "info", "display_name": "个股 · 5日 · 加分"}],
-                [{"score": f"{r['score']}分", "info": _real_info(r)} for r in shown_real],
-            ))
-        # ── 观望表(移动优化: 评分前置, 个股+5日并列) ──
-        if observe:
-            elements.append(_md(f"🟡 **观望**（展示前 {len(observe)} 只）"))
-            elements.append(_table(
-                [{"name": "score", "display_name": "评分"},
-                 {"name": "info", "display_name": "个股 · 5日"}],
-                [{"score": f"{r['score']}分",
-                  "info": f"{r['name']} {r['code']}　5日{_fmt_pct(r['stock_5d_cum'])}"}
-                 for r in observe],
-            ))
-        elements.append(_md(GUIDE))
-
-        # 企微纯文本兜底(无原生表格, 压缩成单行/股)
-        lines = [f"【真假强势评分快照·14:30】", head, ""]
-        if real_strong:
-            lines.append(f"🟢 真强势 ({len(real_strong)} 只)")
-            for r in shown_real:
-                lines.append(
-                    f"  • {r['name']}({r['code']}) [{r['industry'] or '—'}]  "
-                    f"{r['score']}分  5日{_fmt_pct(r['stock_5d_cum'])}  {_plus(r['criteria'])}"
-                )
-            if len(real_strong) > REAL_CAP:
-                lines.append(f"  …等共 {len(real_strong)} 只")
-        if observe:
-            lines.append("")
-            lines.append(f"🟡 观望 (展示前 {len(observe)} 只)")
-            for r in observe:
-                lines.append(f"  • {r['name']}({r['code']})  {r['score']}分  5日{_fmt_pct(r['stock_5d_cum'])}")
-        lines.append("")
-        lines.append(GUIDE)
-        text = "\n".join(lines)
+    # 6. 拼推送(基线 v1.1 情报卡 + 企微纯文本兜底)
+    text, elements, meta = _build_strength_card(
+        real_strong, observe, len(results), market_today, market_cum_pct,
+        sq_cfg.observe_threshold)
 
     if return_only:
-        return text, elements
-    sent = await notifier.send_dual_card(text, lark_title="📊 真假强势评分快照", elements=elements)
+        return text, elements, meta
+    bits = [f"真强势{len(real_strong)}只", f"观望{len(observe)}只"]
+    if real_strong:
+        bits.append(f"最高{real_strong[0]['name']}{real_strong[0]['score']}分")
+    card = card_kit.Card(
+        title="📊 真假强势评分快照", elements=elements, fallback=text,
+        family="intel", subtitle="尾盘 · 全天成交约九成已定",
+        summary=card_kit.summary_text("真假强势", *bits),
+    )
+    sent = await notifier.send_card(card)
     logger.info(
         f"[strength_quality] 评分 {len(results)} 只 / 真强势 {len(real_strong)} / 观望 {len(observe)} / 推送结果={sent}"
     )
+
+
+def _build_strength_card(real_strong: list, observe: list, n_scored: int,
+                         market_today: float, market_cum_pct: float,
+                         observe_threshold: float):
+    """基线 v1.1 情报卡: KPI 三栏 → 真强势全短列表格(Top5) → 观望一行 →
+    👉 一句话定性 → 折叠全名单+方法论。返回 (企微文本, 飞书elements, meta)。"""
+    GUIDE = "💡 真强势=大盘企稳首日率先放量上攻者, 才是买点; 观望=强度够但未确认, 等放量再跟"
+    head = (f"沪指 {market_today:.2f}　·　5日 {_fmt_pct(market_cum_pct)}　|　"
+            f"🟢真强势 {len(real_strong)}　·　🟡观望 {len(observe)}")
+
+    def _plus(crit):
+        top = sorted(crit, key=lambda c: c["delta"], reverse=True)[:2]
+        return " ".join(f"+{c['delta']}{c['name']}" for c in top)
+
+    # 结论区: KPI 三栏(真强势/观望/沪指5日)
+    elements: list = [card_kit.kpi_row([
+        ("真强势", f"{len(real_strong)}只", "red" if real_strong else None),
+        ("观望", f"{len(observe)}只", "orange" if observe else None),
+        ("沪指5日", f"{market_cum_pct:+.1f}%", "red" if market_cum_pct >= 0 else "green"),
+    ])]
+
+    if not real_strong and not observe:
+        elements.append(_md(
+            f"当前股票池无真强势/观望候选（评分对象 **{n_scored}** 只，均 < {observe_threshold} 分）"))
+        elements.append(card_kit.advice("今日不追强，等评分回升再看"))
+        elements.append(card_kit.fold("方法论", GUIDE))
+        text = (
+            f"【真假强势评分快照】\n\n{head}\n\n"
+            f"当前股票池无真强势/观望候选\n"
+            f"(评分对象 {n_scored} 只,均 < {observe_threshold} 分)"
+        )
+        return text, elements, {"real": 0, "observe": 0, "top": ""}
+
+    # 数据区: 真强势 Top5 全短列表格(个股 | 评分 | 5日), 全名单下沉折叠
+    SHOW = 5
+    if real_strong:
+        more = f"，前 {SHOW} 进表、全量见折叠" if len(real_strong) > SHOW else ""
+        elements.append(_md(f"🟢 **真强势 {len(real_strong)} 只**{more}"))
+        elements.append(card_kit.short_table(
+            ["个股", "评分", "5日"],
+            [(f"**{r['name']}**", f"**{r['score']}分**",
+              card_kit.pct_md(r["stock_5d_cum"], bold=False))
+             for r in real_strong[:SHOW]]))
+    if observe:
+        names = "、".join(r["name"] for r in observe[:SHOW])
+        tail = f" 等{len(observe)}只" if len(observe) > SHOW else ""
+        elements.append(_md(f"🟡 观望：{names}{tail}"))
+
+    # 👉 一句话定性
+    if real_strong:
+        adv = f"盯{real_strong[0]['name']}等真强势放量上攻"
+    else:
+        adv = "只有观望票，等放量确认再跟"
+    elements.append(card_kit.advice(adv))
+
+    # 折叠: 全名单(代码/行业/加分明细) + 方法论
+    fold_lines = []
+    if real_strong:
+        fold_lines.append("🟢 **真强势全名单**")
+        for r in real_strong:
+            fold_lines.append(
+                f"• {r['name']}({r['code']}) [{r['industry'] or '—'}] "
+                f"**{r['score']}分** 5日{_fmt_pct(r['stock_5d_cum'])} {_plus(r['criteria'])}")
+    if observe:
+        fold_lines.append("")
+        fold_lines.append("🟡 **观望明细**")
+        for r in observe:
+            fold_lines.append(
+                f"• {r['name']}({r['code']}) {r['score']}分 5日{_fmt_pct(r['stock_5d_cum'])}")
+    fold_lines += ["", GUIDE, f"沪指 {market_today:.2f}"]
+    elements.append(card_kit.fold("全名单与方法论", "\n".join(fold_lines)))
+
+    # 企微纯文本兜底(同源信息量)
+    lines = ["【真假强势评分快照】", head, ""]
+    if real_strong:
+        lines.append(f"🟢 真强势 ({len(real_strong)} 只)")
+        for r in real_strong:
+            lines.append(
+                f"  • {r['name']}({r['code']}) [{r['industry'] or '—'}]  "
+                f"{r['score']}分  5日{_fmt_pct(r['stock_5d_cum'])}  {_plus(r['criteria'])}")
+    if observe:
+        lines.append("")
+        lines.append(f"🟡 观望 ({len(observe)} 只)")
+        for r in observe:
+            lines.append(f"  • {r['name']}({r['code']})  {r['score']}分  5日{_fmt_pct(r['stock_5d_cum'])}")
+    lines += ["", f"👉 {adv}", "", GUIDE]
+    text = "\n".join(lines)
+
+    meta = {"real": len(real_strong), "observe": len(observe),
+            "top": real_strong[0]["name"] if real_strong else ""}
+    return text, elements, meta

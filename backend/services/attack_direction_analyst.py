@@ -21,8 +21,8 @@ from backend.core.trading_calendar import is_workday
 from backend.fetcher.limit_pool import get_limit_pool_cached
 from backend.fetcher.sectors import get_sector_ranking
 from backend.models import repository
-from backend.services import notifier, sector_rotation as sr
-from backend.services.lark_notifier import md_element, md_table
+from backend.services import card_kit, notifier, sector_rotation as sr
+from backend.services.lark_notifier import md_element
 
 logger = logging.getLogger(__name__)
 
@@ -231,62 +231,92 @@ def _theme_tag(it: dict, confirmed: bool) -> str:
     return it.get("state") or ""
 
 
+def _attack_advice(hot_themes: list[dict], lead: list[dict], no_main: bool) -> str:
+    """👉 一句话定性(情报卡: 定性不是操作指令)。"""
+    if no_main:
+        return "资金分散，观望为主等主线明朗"
+    if hot_themes:
+        return f"主攻{hot_themes[0]['theme']}方向找强势股"
+    if lead:
+        return f"沿{lead[0].get('industry') or '领涨行业'}方向看强势股"
+    return "开盘方向不明，先看后动"
+
+
 def _build_card(hot_themes: list[dict], lead: list[dict], watch_hits: list[dict],
                 emotion_metric: str, no_main: bool) -> list[dict]:
+    """基线 v1.1 情报卡: heading 定性 → 全短列表格(题材/行业) → 自选命中 →
+    👉 一句话定性 → 折叠(代表股/全量命中/口径)。"""
     elements: list[dict] = []
-    # 情绪 / 主线判定行
+    # 结论区: heading 一句话定性 + 情绪一行
     if no_main:
-        elements.append(md_element(
-            f"⚠️ **资金分散·无明显主线**，观望为主\n情绪：{emotion_metric}"))
+        elements.append(card_kit.heading_md("⚠️ 资金分散 · 无明显主线"))
     else:
-        elements.append(md_element(f"**主线清晰** ｜ 情绪：{emotion_metric}"))
+        top_name = (hot_themes[0]["theme"] if hot_themes
+                    else (lead[0].get("industry") if lead else ""))
+        elements.append(card_kit.heading_md(f"主线清晰：{top_name}"))
+    elements.append(md_element(f"<font color='grey'>情绪：{emotion_metric}</font>"))
 
-    # 🔥 涨停扎堆题材(资金真金白银)
+    # 数据区 1: 涨停扎堆题材(全短列: 题材 | 涨停 | 状态; 代表股下沉折叠)
     if hot_themes:
         elements.append(md_element("🔥 **涨停扎堆题材**（资金真金白银）"))
-        cols = [{"name": "theme", "display_name": "题材", "data_type": "text"},
-                {"name": "lu", "display_name": "涨停", "data_type": "text"}]
         rows = []
         for it in hot_themes:
             tag = _theme_tag(it, _cross_confirm(it["theme"], lead))
-            rows.append({
-                "theme": it["theme"] + (f"·{tag}" if tag else ""),
-                "lu": f"{int(it.get('limit_up') or 0)}家"
-                      + (f"·最高{int(it['max_height'])}板" if it.get("max_height") else ""),
-            })
-        elements.append(md_table(cols, rows))
-        reps = _rep_lines(hot_themes)
-        if reps:
-            elements.append(md_element("代表股\n" + "\n".join(reps)))
+            lu_cell = f"**{int(it.get('limit_up') or 0)}家**"
+            if it.get("max_height"):
+                lu_cell += f"·{int(it['max_height'])}板"
+            rows.append((f"**{it['theme']}**", lu_cell, tag or "—"))
+        elements.append(card_kit.short_table(["题材", "涨停", "状态"], rows))
     else:
         elements.append(md_element("🔥 涨停扎堆题材：暂无题材涨停扎堆"))
 
-    # 📊 领涨行业(板块涨幅榜)
+    # 数据区 2: 领涨行业(行业 | 涨幅)
     if lead:
         elements.append(md_element("📊 **领涨行业**（板块涨幅榜）"))
-        cols = [{"name": "ind", "display_name": "行业", "data_type": "text"},
-                {"name": "pct", "display_name": "涨幅", "data_type": "text"}]
-        rows = [{"ind": r.get("industry") or "",
-                 "pct": f"+{float(r.get('pct_today') or 0):.1f}%"} for r in lead]
-        elements.append(md_table(cols, rows))
+        elements.append(card_kit.short_table(
+            ["行业", "涨幅"],
+            [(r.get("industry") or "",
+              card_kit.pct_md(float(r.get("pct_today") or 0))) for r in lead]))
 
-    # ⭐ 自选/持仓命中
+    # 数据区 3: 自选/持仓命中(前5, 全量进折叠)
+    _WATCH_SHOW = 5
     if watch_hits:
         lines = []
-        for h in watch_hits:
+        for h in watch_hits[:_WATCH_SHOW]:
             who = "持仓" if h["hold"] else "自选"
             suffix = "今日主攻" if h["strong"] else "领涨行业"
-            lines.append(f"• {h['name']}({h['code']}) {who} → 在【{h['where']}】{suffix}")
-        elements.append(md_element("⭐ **你的自选/持仓命中**\n" + "\n".join(lines)))
+            lines.append(f"• **{h['name']}** {who} → 在【{h['where']}】{suffix}")
+        more = f"\n• 等{len(watch_hits)}条，全量见折叠" if len(watch_hits) > _WATCH_SHOW else ""
+        elements.append(md_element("⭐ **你的自选/持仓命中**\n" + "\n".join(lines) + more))
     else:
         elements.append(md_element("⭐ 自选/持仓暂未命中今日进攻方向"))
+
+    # 👉 一句话定性
+    elements.append(card_kit.advice(_attack_advice(hot_themes, lead, no_main)))
+
+    # 折叠: 代表股 + 全量命中 + 口径
+    fold_lines: list[str] = []
+    reps = _rep_lines(hot_themes)
+    if reps:
+        fold_lines.append("**代表股**")
+        fold_lines += reps
+    if len(watch_hits) > _WATCH_SHOW:
+        fold_lines.append("")
+        fold_lines.append("**自选/持仓命中全量**")
+        for h in watch_hits:
+            who = "持仓" if h["hold"] else "自选"
+            fold_lines.append(f"• {h['name']}({h['code']}) {who} → {h['where']}")
+    fold_lines.append("")
+    fold_lines.append("📐 口径：涨停扎堆=轮动快照(涨停池)；领涨行业=腾讯板块涨幅榜；"
+                      "双确认=题材与领涨行业名共振(两口径互证=最强方向)。")
+    elements.append(card_kit.fold("代表股与口径说明", "\n".join(fold_lines)))
 
     return elements
 
 
 def _build_text(hot_themes: list[dict], lead: list[dict], watch_hits: list[dict],
                 emotion_metric: str, no_main: bool) -> str:
-    lines = ["📈 今日资金进攻方向 · 09:45"]
+    lines = ["【今日资金进攻方向】"]
     lines.append(("⚠️ 资金分散·无明显主线，观望为主" if no_main else "主线清晰")
                  + f"（{emotion_metric}）")
     lines.append("")
@@ -313,6 +343,7 @@ def _build_text(hot_themes: list[dict], lead: list[dict], watch_hits: list[dict]
             lines.append(f" · {h['name']}({h['code']}) {who} → 【{h['where']}】{suffix}")
     else:
         lines.append("⭐ 自选/持仓暂未命中今日进攻方向")
+    lines += ["", f"👉 {_attack_advice(hot_themes, lead, no_main)}"]
     return "\n".join(lines)
 
 
@@ -342,7 +373,21 @@ async def run_attack_direction_analysis():
 
     elements = _build_card(hot_themes, lead, watch_hits, emotion_metric, no_main)
     text = _build_text(hot_themes, lead, watch_hits, emotion_metric, no_main)
-    sent = await notifier.send_dual_card(
-        text, lark_title="📈 今日资金进攻方向·09:45", elements=elements)
+    if no_main:
+        summary = card_kit.summary_text("进攻方向", "资金分散无明显主线")
+    elif hot_themes:
+        summary = card_kit.summary_text(
+            "进攻方向", hot_themes[0]["theme"],
+            f"涨停{int(hot_themes[0].get('limit_up') or 0)}家")
+    else:
+        summary = card_kit.summary_text(
+            "进攻方向", lead[0].get("industry") if lead else "",
+            f"+{float(lead[0].get('pct_today') or 0):.1f}%" if lead else "")
+    card = card_kit.Card(
+        title="📊 资金进攻方向", elements=elements, fallback=text,
+        family="intel", subtitle="开盘一刻钟 · 涨停扎堆 + 领涨行业双口径",
+        summary=summary,
+    )
+    sent = await notifier.send_card(card)
     logger.info(f"[attack_dir] 推送={sent} 题材{len(hot_themes)} 行业{len(lead)} "
                 f"自选命中{len(watch_hits)} 无主线={no_main}")

@@ -231,30 +231,74 @@ async def run_signal_eod_audit():
     logger.info(f"[eod_audit] 复核完成: 共{len(sigs)}条, 正常{n_ok}, 存疑{len(suspects)}, "
                 f"无法核{n_unverified}, 不适用{n_skipped}")
     if suspects:
-        await _push_suspects(suspects, today)
+        await _push_suspects(suspects, today, n_ok=n_ok, n_unverified=n_unverified)
 
 
-async def _push_suspects(suspects: list, today: str):
-    """存疑信号推送: 企微文本 + 飞书原生表格卡(列宽必须百分比)。"""
-    from backend.services import lark_notifier
-    lines = [f"信号EOD复核: {today} 共{len(suspects)}条存疑(已标记未删除, 待人工确认)"]
-    rows = []
+# 疑点长文案 → 短结论词(进全短列表; 完整疑点下沉折叠区)
+_NOTE_CATEGORIES = (
+    ("错位", "序列错位"),
+    ("昨收", "昨收不符"),
+    ("区间", "价格越界"),
+    ("回放", "冻结回放"),
+    ("假象", "数据假象"),
+    ("超合理上限", "数据脏值"),
+)
+
+
+def note_category(note: str) -> str:
+    """疑点明细 → 短结论词。"""
+    for kw, cat in _NOTE_CATEGORIES:
+        if kw in (note or ""):
+            return cat
+    return "数据存疑"
+
+
+def build_audit_card(suspects: list, today: str, n_ok: int = 0, n_unverified: int = 0):
+    """信号EOD复核 → 基线 v1.1 系统卡(grey):
+    结论行灯串 → 存疑短表(股票|信号|结论, >8行 Top5) → 👉建议 → 疑点明细折叠。
+    suspects = [(sig, note), ...]"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    total = len(suspects) + n_ok + n_unverified
+    lights = card_kit.light_string(
+        [("ok", "")] * n_ok + [("warn", "")] * n_unverified + [("bad", "")] * len(suspects))
+    elements: list = [md_element(
+        f"{lights}\n复核 **{total}** 条：存疑 **{len(suspects)}** · 正常 {n_ok} · 无法核 {n_unverified}")]
+
+    rows = [(sig.get("name") or sig.get("code") or "", sig.get("signal_name") or "",
+             note_category(note)) for sig, note in suspects]
+    headers = ["股票", "信号", "结论"]
+    if len(rows) > 8:
+        elements.append(card_kit.short_table(headers, rows[:5]))
+        elements.append(md_element(f"…等 **{len(rows)}** 条，全量见折叠"))
+    else:
+        elements.append(card_kit.short_table(headers, rows))
+    elements.append(card_kit.advice("只标记未删，去信号历史人工确认"))
+
+    detail_lines = [f"{str(sig.get('triggered_at') or '')[11:16]} **{sig.get('name')}** "
+                    f"{sig.get('signal_name')}: {note}" for sig, note in suspects[:20]]
+    if len(suspects) > 20:
+        detail_lines.append(f"... 仅列前20条, 其余见信号历史(eod_audit=suspect)")
+    elements.append(card_kit.fold(f"疑点明细（{len(suspects)}条）", "\n".join(detail_lines)))
+
+    fb_lines = [f"信号EOD复核: {today} 共{len(suspects)}条存疑(已标记未删除, 待人工确认)",
+                f"复核 {total} 条: 正常 {n_ok} · 无法核 {n_unverified}"]
     for sig, note in suspects[:20]:
         t = str(sig.get("triggered_at") or "")[11:16]
-        lines.append(f"{t} {sig.get('name')} {sig.get('signal_name')}: {note}")
-        rows.append({"who": f"{t} {sig.get('name')} {sig.get('signal_name')}", "note": note})
+        fb_lines.append(f"{t} {sig.get('name')} {sig.get('signal_name')}: {note}")
     if len(suspects) > 20:
-        lines.append(f"... 仅列前20条, 其余见信号历史(eod_audit=suspect)")
-    # 移动优化: 时间·标的·信号并进一列做定位, 疑点独占一列(markdown 自动换行不截断)
-    cols = [
-        {"name": "who", "display_name": "时间 · 标的 · 信号"},
-        {"name": "note", "display_name": "疑点"},
-    ]
-    elements = [lark_notifier.md_table(cols, rows)]
+        fb_lines.append(f"... 仅列前20条, 其余见信号历史(eod_audit=suspect)")
+    return card_kit.Card(
+        title=f"⚙️ 信号EOD复核 · {len(suspects)}条存疑",
+        elements=elements, fallback="\n".join(fb_lines), family="system",
+        summary=card_kit.summary_text("信号EOD复核", f"{len(suspects)}条存疑", "待人工确认"),
+        tags=[("待人工确认", "orange")])
+
+
+async def _push_suspects(suspects: list, today: str, n_ok: int = 0, n_unverified: int = 0):
+    """存疑信号推送: 基线 v1.1 系统灰卡(灯串+短表+疑点折叠), 企微/PushPlus 走 fallback 文本。"""
     try:
-        await notifier.send_dual_card(
-            "\n".join(lines),
-            lark_title=f"信号EOD复核: {len(suspects)}条存疑",
-            elements=elements)
+        await notifier.send_card(build_audit_card(suspects, today, n_ok=n_ok, n_unverified=n_unverified))
     except Exception as e:
         logger.error(f"[eod_audit] 存疑推送失败: {e}")

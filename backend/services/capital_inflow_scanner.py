@@ -216,7 +216,19 @@ def _build_capital_inflow_lark(items: list[dict]):
             elements.append(lark_notifier.md_element("\n".join(_stock_line(r) for r in rows)))
         else:
             elements.append(lark_notifier.md_element("_(你的股票池中暂无该板块个股)_"))
-    return "📊 资金回流·板块预警", elements
+    # 👉 行动建议区(基线v1.1) + 信封字段(锁屏摘要/彩签)
+    from backend.services import card_kit
+    my_hits = sum(len(a.get("stock_rows") or []) for a in groups)
+    elements.append(card_kit.advice(
+        f"资金回流盯龙头，自选命中 {my_hits} 只先看" if my_hits else "资金回流盯龙头，自选暂无命中"))
+    lead = groups[0]
+    extra = {
+        "summary": card_kit.summary_text(
+            "资金回流", lead.get("sector_name", ""), f"龙头{lead.get('leader_name', '')}",
+            f"{len(groups)}波" if len(groups) > 1 else ""),
+        "text_tags": [("资金回流", "blue")],
+    }
+    return "📊 资金回流·板块预警", elements, extra
 
 
 alert_throttle.register(

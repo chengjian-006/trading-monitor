@@ -56,7 +56,7 @@ def _get_interval_seconds() -> int:
 
 
 def _format_post(post: dict) -> str:
-    """单条新帖推送文案."""
+    """单条新帖推送文案(纯文本回退)."""
     name = post.get("blogger_name") or "博主"
     when = post.get("posted_at")
     when_str = when.strftime("%m-%d %H:%M") if when else ""
@@ -71,6 +71,53 @@ def _format_post(post: dict) -> str:
     comment = post.get("comment_num", 0)
     stats = f" 👍{like} 💬{comment}" if like or comment else ""
     return f"📣 {name} 发新帖 {when_str}{stats}\n\n{content}{codes_line}{img_line}{url_line}"
+
+
+def _post_gist(content: str, limit: int = 40) -> str:
+    """帖子要点一句: 取第一行非空文本, 截断到 limit 字。"""
+    for line in (content or "").strip().splitlines():
+        line = line.strip()
+        if line:
+            return line[:limit] + ("…" if len(line) > limit else "")
+    return "（无文字内容）"
+
+
+def build_post_card(post: dict):
+    """博主发帖 → 基线 v1.1 结构卡(情报族 blue):
+    结论行=博主名+要点一句 → 互动/个股数据行 → 👉建议 → 帖子全文进折叠。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    name = post.get("blogger_name") or "博主"
+    content = (post.get("content") or "").strip()
+    gist = _post_gist(content)
+    codes = post.get("stock_codes") or []
+    images = post.get("images") or []
+    like = post.get("like_num", 0)
+    comment = post.get("comment_num", 0)
+    when = post.get("posted_at")
+    when_str = when.strftime("%m-%d %H:%M") if when else ""
+
+    elements: list = [md_element(f"**{name}**：{gist}")]
+    meta_bits = []
+    if like or comment:
+        meta_bits.append(f"👍{like} 💬{comment}")
+    if codes:
+        meta_bits.append("涉及个股 " + " ".join(f"**{c}**" for c in codes))
+    if meta_bits:
+        elements.append(md_element(" · ".join(meta_bits)))
+    elements.append(card_kit.advice("观点仅供参考，别直接跟单"))
+    detail = content or "（无文字内容）"
+    if images:
+        detail += f"\n\n📷 配图{len(images)}张:\n" + "\n".join(images)
+    elements.append(card_kit.fold("帖子全文", detail))
+
+    return card_kit.Card(
+        title=f"📣 博主发帖 · {name}", elements=elements, fallback=_format_post(post),
+        family="intel",
+        summary=card_kit.summary_text(name, "发新帖", gist),
+        subtitle=f"发帖 {when_str}" if when_str else "",
+        link_url=post.get("url") or "", link_text="看原帖")
 
 
 async def scan_blogger_posts():
@@ -137,8 +184,7 @@ async def scan_blogger_posts():
         if not is_new:
             continue
         total_new += 1
-        ok = await notifier.send_dual(
-            _format_post(post), lark_title="📣 博主发帖", template="orange")
+        ok = await notifier.send_card(build_post_card(post))
         if ok:
             recent = await repository.get_recent_posts(cfg.get("user_code", ""), limit=50)
             for r in recent:

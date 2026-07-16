@@ -75,11 +75,12 @@ def _hhmm_to_min(hhmm: str) -> int:
     return int(h) * 60 + int(m)
 
 
-def drain_alerts(today: str | None = None, now_hhmm: str | None = None) -> list[str]:
-    """取出今日达到阈值且尚未推送过的预警行(大白话文案), 并标记已推。"""
+def drain_alert_events(today: str | None = None, now_hhmm: str | None = None) -> list[dict]:
+    """取出今日达到阈值且尚未推送过的预警事件, 并标记已推。
+    返回 [{kind, seg(大白话文案行), recovered}], 供灯串/影响说明构卡用。"""
     today = today or date.today().isoformat()
     now_hhmm = now_hhmm or datetime.now().strftime("%H:%M")
-    lines = []
+    out: list[dict] = []
     with _lock:
         for kind, (label, threshold) in KINDS.items():
             ev = _events.get(kind)
@@ -100,22 +101,71 @@ def drain_alerts(today: str | None = None, now_hhmm: str | None = None) -> list[
             except Exception:
                 recovered = False
             seg += ", 现在已恢复正常" if recovered else ", 目前可能还没恢复(系统会继续自动跳过)"
-            lines.append(seg)
-    return lines
+            out.append({"kind": kind, "seg": seg, "recovered": recovered})
+    return out
+
+
+def drain_alerts(today: str | None = None, now_hhmm: str | None = None) -> list[str]:
+    """取出今日待推预警行(大白话文案), 并标记已推。(drain_alert_events 的文案视图)"""
+    return [e["seg"] for e in drain_alert_events(today, now_hhmm)]
+
+
+# 灯串短名 / 影响说明(👉行动建议区, 大白话讲清降级后系统在干什么)
+_KIND_SHORT = {
+    "index_trends_frozen": "大盘分时",
+    "market_stats_empty": "涨跌家数",
+    "kline_network_down": "个股日K",
+}
+_KIND_IMPACT = {
+    "index_trends_frozen": "大盘分时异常段已自动跳过",
+    "market_stats_empty": "涨跌家数缺口轮次不会误报",
+    "kline_network_down": "个股日K已用缓存兜底",
+}
+
+
+def build_health_card(events: list[dict]):
+    """数据源健康预警 → 基线 v1.1 系统卡(grey): 结论行灯串 → 异常项列表 → 👉影响说明 → 折叠。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
+
+    by_kind = {e["kind"]: e for e in events}
+    lights = []
+    for kind in KINDS:
+        e = by_kind.get(kind)
+        status = "ok" if not e else ("warn" if e["recovered"] else "bad")
+        lights.append((status, _KIND_SHORT.get(kind, kind)))
+    legend = "　".join(f"{'🟢' if s == 'ok' else ('🟡' if s == 'warn' else '🔴')}{n}"
+                       for s, n in lights)
+    elements: list = [md_element(card_kit.light_string(lights) + "\n" + legend)]
+    elements.append(md_element("\n".join(f"- {e['seg']}" for e in events)))
+    impact = (_KIND_IMPACT.get(events[0]["kind"], "") if len(events) == 1
+              else "已自动跳过异常数据，无需处理")
+    elements.append(card_kit.advice(impact or "已自动跳过异常数据，无需处理"))
+    elements.append(card_kit.fold(
+        "要不要处理",
+        "波动期间系统已自动跳过异常数据, 不会因此误报, 一般无需处理; "
+        "若一整天反复出现再检查数据源。"))
+
+    fallback = ("行情数据源刚才有点波动:\n\n" + "\n".join(f"- {e['seg']}" for e in events) +
+                "\n\n波动期间系统已自动跳过异常数据, 不会因此误报, 一般无需处理; "
+                "若一整天反复出现再检查数据源。")
+    all_recovered = all(e["recovered"] for e in events)
+    return card_kit.Card(
+        title="⚙️ 数据源健康预警", elements=elements, fallback=fallback, family="system",
+        summary=card_kit.summary_text(
+            "数据源预警", f"{len(events)}项",
+            "已恢复" if all_recovered else "可能未恢复"),
+        tags=[("已恢复", "grey")] if all_recovered else [("观察中", "orange")])
 
 
 async def flush_data_health():
-    """有待推预警则推一条文本(企微+飞书走 notifier 既有通道)。由 check_data_sanity 每轮调用。"""
-    lines = drain_alerts()
-    if not lines:
+    """有待推预警则推一张系统灰卡(notifier.send_card 双通道)。由 check_data_sanity 每轮调用。"""
+    events = drain_alert_events()
+    if not events:
         return
-    text = ("行情数据源刚才有点波动:\n\n" + "\n".join(f"- {x}" for x in lines) +
-            "\n\n波动期间系统已自动跳过异常数据, 不会因此误报, 一般无需处理; "
-            "若一整天反复出现再检查数据源。")
     try:
         from backend.services import notifier
-        # 走红色告警模版(非默认蓝色"盘面播报"), 让真·源故障一眼可辨、不与日常播报混淆。
-        await notifier.send_dual(text, lark_title="⚠️ 数据源健康预警", template="red")
-        logger.warning(f"[data_health] 源健康预警已推送: {lines}")
+        await notifier.send_card(build_health_card(events))
+        logger.warning(f"[data_health] 源健康预警已推送: {[e['seg'] for e in events]}")
     except Exception as e:
         logger.warning(f"[data_health] 预警推送失败: {e}")

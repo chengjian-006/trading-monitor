@@ -20,7 +20,8 @@ from datetime import datetime
 
 from backend.core.config import load_config
 from backend import data_fetcher
-from backend.services import notifier
+from backend.services import card_kit, notifier
+from backend.services.lark_notifier import md_element
 from backend.services.attack_direction_analyst import _fmt_mcap, _enrich_with_concepts
 
 logger = logging.getLogger(__name__)
@@ -166,41 +167,49 @@ def _parse_llm_json(raw: str) -> dict | None:
         return None
 
 
-def _build_auction_card(d: dict, near_lu_count: int, strong_count: int, elapsed: float):
-    """混合式结构化卡片: 一句话定调 + 字段行(氛围/密度/风格/杀跌) + 题材主线表 + 操作。
-    返回 (企微文本, 飞书elements)。密度行用硬数据(near_lu/strong)不靠 AI。"""
-    from backend.services import lark_notifier
-    headline = str(d.get("headline") or "").strip()
+def _build_auction_card(d: dict, near_lu_count: int, strong_count: int,
+                        indices: list | None = None, elapsed: float = 0.0):
+    """情报卡(基线 v1.1): heading 定调 → KPI 三栏 → 氛围/风格/杀跌 → 题材主线 →
+    👉 一句话定性 → 折叠方法论。返回 (企微文本, 飞书elements, meta)。
+    密度(涨停预排/高开≥5%)用硬数据不靠 AI。"""
+    headline = str(d.get("headline") or "").strip() or "集合竞价后开盘共性"
     vibe = str(d.get("vibe") or "").strip()
     style = str(d.get("style") or "").strip()
     kill = str(d.get("kill") or "").strip() or "无明显杀跌"
     action = str(d.get("action") or "").strip()
     density = f"涨停预排{near_lu_count}｜≥5% {strong_count}只"
     mls = [m for m in (d.get("mainlines") or []) if isinstance(m, dict)][:4]
-    footer = f"——基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度 · 用时 {elapsed:.1f}s"
+    footer = (f"基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度，"
+              f"AI 提炼开盘共性；密度为硬数据（涨停预排=高开≥9.5%）· 用时 {elapsed:.1f}s")
 
-    field_md = "\n".join([
-        f"📣 **{headline}**" if headline else "📣 **集合竞价后开盘共性**",
-        "",
-        f"🌡 氛围　{vibe}",
-        f"🔥 密度　{density}",
-        f"⚖ 风格　{style}",
-        f"❄ 杀跌　{kill}",
-    ])
-    elements = [lark_notifier.md_element(field_md)]
+    # 结论区: heading 一句话定调 + KPI 三栏(上证竞价/涨停预排/高开≥5%)
+    sh = next((x for x in (indices or []) if "上证" in str(x.get("name") or "")), None)
+    kpi_items: list = []
+    if sh is not None:
+        sh_pct = float(sh.get("pct_change") or 0)
+        kpi_items.append(("上证竞价", f"{sh_pct:+.2f}%",
+                          "red" if sh_pct >= 0 else "green"))
+    kpi_items.append(("涨停预排", f"{near_lu_count}只", "red" if near_lu_count else None))
+    kpi_items.append(("高开≥5%", f"{strong_count}只"))
+    if len(kpi_items) < 3:
+        kpi_items.append(("题材主线", f"{len(mls)}条"))
+
+    elements = [
+        card_kit.heading_md(f"📣 {headline}"),
+        card_kit.kpi_row(kpi_items[:3]),
+        md_element("\n".join([f"🌡 氛围　{vibe}", f"⚖ 风格　{style}", f"❄ 杀跌　{kill}"])),
+    ]
     if mls:
         # 移动优化(v1.7.581): 逐条换行文本行, 方向加粗前置, 代表股全名换行不截
-        #   (原 2列表格把代表股列表挤单元格, 手机端字符级截断被吃掉)
         mlines = [f"**{str(m.get('direction', ''))}**　{str(m.get('reps', ''))}" for m in mls]
-        elements.append(lark_notifier.md_element("🎯 **题材主线**"))
-        elements.append(lark_notifier.md_element("\n".join(mlines)))
+        elements.append(md_element("🎯 **题材主线**\n" + "\n".join(mlines)))
     if action:
-        elements.append(lark_notifier.md_element(f"✅ **操作**　{action}"))
-    elements.append(lark_notifier.md_element(footer))
+        elements.append(card_kit.advice(action))
+    elements.append(card_kit.fold("方法论", footer))
 
     tlines = [
         "【集合竞价后开盘共性】", "",
-        f"📣 {headline}" if headline else "📣 集合竞价后开盘共性", "",
+        f"📣 {headline}", "",
         f"🌡 氛围  {vibe}",
         f"🔥 密度  {density}",
         f"⚖ 风格  {style}",
@@ -210,16 +219,18 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int, elapsed:
         tlines += ["", "🎯 题材主线"]
         tlines += [f"  · {m.get('direction', '')} → {m.get('reps', '')}" for m in mls]
     if action:
-        tlines += ["", f"✅ 操作: {action}"]
-    tlines += ["", footer]
-    return "\n".join(tlines), elements
+        tlines += ["", f"👉 {action}"]
+    tlines += ["", f"——{footer}"]
+    meta = {"headline": headline, "near_lu": near_lu_count, "strong": strong_count}
+    return "\n".join(tlines), elements, meta
 
 
-async def build_auction_summary_part() -> tuple[list[str], list] | None:
-    """计算集合竞价开盘共性 → (企微文本行, 飞书elements); 未就绪/LLM无返回→None。
+async def build_auction_summary_part() -> tuple[list[str], list, dict] | None:
+    """计算集合竞价开盘共性 → (企微文本行, 飞书elements, meta); 未就绪/LLM无返回→None。
 
     供 run_auction_0926 合并卡 与 run_auction_summary 独立推送 共用(v1.7.553 抽出)。
-    JSON 解析失败时返回 (纯文本行, []) —— 文本仍出, 只是无飞书表格。
+    meta = {headline, near_lu, strong} 供信封摘要(基线 v1.1)。
+    JSON 解析失败时返回 (纯文本行, [], meta) —— 文本仍出, 只是无飞书结构卡。
     """
     if not _is_trading_day():
         logger.info("[auction_summary] 非交易日, 跳过")
@@ -274,8 +285,9 @@ async def build_auction_summary_part() -> tuple[list[str], list] | None:
     elapsed = _time.time() - t0
     parsed = _parse_llm_json(analysis)
     if parsed and (parsed.get("headline") or parsed.get("vibe") or parsed.get("mainlines")):
-        text, elements = _build_auction_card(parsed, near_lu_count, strong_count, elapsed)
-        return text.split("\n"), elements
+        text, elements, meta = _build_auction_card(
+            parsed, near_lu_count, strong_count, indices, elapsed)
+        return text.split("\n"), elements, meta
     # JSON 解析失败 → 纯文本行(无 elements, 不丢推送)
     logger.warning("[auction_summary] JSON 解析失败, 回退纯文本")
     text = (
@@ -283,7 +295,7 @@ async def build_auction_summary_part() -> tuple[list[str], list] | None:
         f"{analysis.strip()}\n\n"
         f"——基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度 · 用时 {elapsed:.1f}s"
     )
-    return text.split("\n"), []
+    return text.split("\n"), [], {"headline": "", "near_lu": near_lu_count, "strong": strong_count}
 
 
 async def run_auction_summary():
@@ -291,9 +303,16 @@ async def run_auction_summary():
     built = await build_auction_summary_part()
     if not built:
         return
-    tlines, elements = built
+    tlines, elements, meta = built
     if elements:
-        sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 盘面播报", elements=elements)
+        card = card_kit.Card(
+            title="📊 盘面播报", elements=elements, fallback="\n".join(tlines),
+            family="intel",
+            summary=card_kit.summary_text(
+                "盘面播报", meta.get("headline"),
+                f"涨停预排{meta.get('near_lu', 0)}只"),
+        )
+        sent = await notifier.send_card(card)
     else:
         sent = await notifier.send_wechat_text("\n".join(tlines))
     logger.info(f"[auction_summary] 独立推送结果={sent}")
@@ -307,7 +326,6 @@ async def run_auction_0926():
     """
     if not _is_trading_day():
         return
-    from backend.services import lark_notifier
     from backend.services.auction_sector_strength import build_auction_sector_part
 
     summary, sector = await asyncio.gather(
@@ -324,12 +342,14 @@ async def run_auction_0926():
 
     tlines: list[str] = []
     elements: list = []
+    s_meta: dict = summary[2] if summary else {}
+    b_meta: dict = sector[2] if sector else {}
     if summary:
         tlines += summary[0]
         elements += summary[1]
     if sector:
         if elements:
-            elements.append(lark_notifier.md_element(
+            elements.append(md_element(
                 "<font color='grey'>━━━━━━ 竞价板块强弱 ━━━━━━</font>"))
             tlines += ["", "──────────"]
         tlines += sector[0]
@@ -339,7 +359,18 @@ async def run_auction_0926():
         logger.warning("[auction_0926] 两部分都无内容, 跳过")
         return
     if elements:
-        sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 竞价播报", elements=elements)
+        # 摘要 = 定调一句 + 涨停预排 + 竞价最强板块(基线 v1.1: 标的+事件+关键数)
+        bits = [s_meta.get("headline") or ""]
+        if s_meta:
+            bits.append(f"涨停预排{s_meta.get('near_lu', 0)}只")
+        if b_meta.get("top_board"):
+            bits.append(f"最强{b_meta['top_board']}{b_meta.get('top_pct', 0):+.1f}%")
+        card = card_kit.Card(
+            title="📊 竞价播报", elements=elements, fallback="\n".join(tlines),
+            family="intel", subtitle="开盘共性 + 板块强弱",
+            summary=card_kit.summary_text("竞价播报", *bits),
+        )
+        sent = await notifier.send_card(card)
     else:
         sent = await notifier.send_wechat_text("\n".join(tlines))
     logger.info(f"[auction_0926] 合并竞价卡推送={sent} "

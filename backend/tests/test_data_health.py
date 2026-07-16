@@ -110,29 +110,46 @@ class TestStockCodeFilterForKlineHealth:
             assert not _is_individual_stock(code), code
 
 
-class TestRedAlertTemplate:
-    """真·源故障走红色告警模版, 与默认蓝色"盘面播报"区分, 显著标识。"""
+class TestSystemGreyCard:
+    """基线 v1.1: 数据源预警 → 系统灰卡(结论行灯串 + 异常项列表 + 👉影响说明 + 折叠)。"""
 
     def setup_method(self):
         data_health.reset_for_test()
 
-    async def test_flush_uses_red_template_and_warning_title(self, monkeypatch):
+    async def test_flush_sends_grey_system_card_with_lights(self, monkeypatch):
         from unittest.mock import AsyncMock
         from backend.services import notifier
         sent = AsyncMock(return_value=True)
-        monkeypatch.setattr(notifier, "send_dual", sent)
+        monkeypatch.setattr(notifier, "send_card", sent)
         for _ in range(5):   # 达到 kline_network_down 阈值
             data_health.report("kline_network_down", detail="最近: 600519")
         await data_health.flush_data_health()
         assert sent.await_count == 1
-        _, kwargs = sent.await_args
-        assert kwargs.get("template") == "red"
-        assert "数据源健康预警" in kwargs.get("lark_title", "")
+        card = sent.await_args.args[0]
+        assert card.family == "system" and card.template == "grey"
+        assert "数据源健康预警" in card.title
+        head = card.elements[0]["content"]                     # 结论行 = 灯串
+        assert "🟢" in head and ("🔴" in head or "🟡" in head)
+        assert "个股日K" in head
+        assert any(e.get("tag") == "markdown" and "👉" in e.get("content", "")
+                   for e in card.elements)                     # 影响说明
+        assert card.elements[-1]["tag"] == "collapsible_panel"  # 处理建议折叠
+        assert "600519" in card.fallback                        # 回退同源信息量
+        assert "数据源预警" in card.summary
 
     async def test_flush_noop_when_no_alert(self, monkeypatch):
         from unittest.mock import AsyncMock
         from backend.services import notifier
         sent = AsyncMock(return_value=True)
-        monkeypatch.setattr(notifier, "send_dual", sent)
+        monkeypatch.setattr(notifier, "send_card", sent)
         await data_health.flush_data_health()
         assert sent.await_count == 0
+
+    def test_drain_alert_events_structured(self):
+        data_health.report("index_trends_frozen", detail="停在10:00",
+                           today="2026-07-16", now_hhmm="10:31")
+        events = data_health.drain_alert_events(today="2026-07-16", now_hhmm="10:36")
+        assert len(events) == 1
+        assert events[0]["kind"] == "index_trends_frozen"
+        assert events[0]["recovered"] is True
+        assert "停在10:00" in events[0]["seg"]

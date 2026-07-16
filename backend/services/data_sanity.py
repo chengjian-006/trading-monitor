@@ -111,10 +111,10 @@ async def check_data_sanity():
     problems = []
     # 陈旧判定跳过"恢复宽限窗"(开盘/午休回来前3分钟) — 该窗内大面积陈旧是结构性必然, 非真异常
     if h["stale"] >= ALERT_MIN_COUNT and not _in_resume_grace():
-        problems.append(f"行情陈旧: {h['stale']}/{h['total']} 只 >6 分钟未更新")
+        problems.append(f"行情陈旧 **{h['stale']}/{h['total']}** 只超6分钟未更新")
     # 行情缺失(全池无价): 早盘连续竞价(09:30)前是撮合前结构性正常, 跳过; 09:30后才是真缺失
     if h["null_price"] >= ALERT_MIN_COUNT and not _before_am_continuous():
-        problems.append(f"行情缺失: {h['null_price']}/{h['total']} 只无价格")
+        problems.append(f"行情缺失 **{h['null_price']}/{h['total']}** 只无价格")
     if not problems:
         return
 
@@ -122,11 +122,17 @@ async def check_data_sanity():
     if now - _last_alert_at < ALERT_COOLDOWN:
         return
     _last_alert_at = now
-    text = ("⚠️ 行情数据自检告警\n\n" + "\n".join(problems) +
-            "\n\n盘中行情刷新可能异常(已自愈仍超阈值), 请检查新浪/同花顺数据源或后端日志。")
+    text = build_sanity_alert_text(problems)
     try:
         from backend.services import notifier
         await notifier.send_wechat_text(text)
         logger.warning(f"[data_sanity] 告警已推送: {problems}")
     except Exception as e:
         logger.warning(f"[data_sanity] 告警推送失败: {e}")
+
+
+def build_sanity_alert_text(problems: list[str]) -> str:
+    """自检告警正文(基线 v1.1 轻处理, 保持纯文本通道): 结论前置(实测值加粗) + 👉建议。"""
+    return ("⚠️ 行情数据自检告警\n\n" + "\n".join(problems) +
+            "\n\n盘中行情刷新可能异常(已自愈仍超阈值)。\n"
+            "👉 **检查新浪/同花顺数据源或后端日志**")

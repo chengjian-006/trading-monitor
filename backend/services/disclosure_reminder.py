@@ -61,6 +61,53 @@ async def _user_codes() -> list[str]:
     return sorted(codes)
 
 
+def build_disclosure_card(rows: list[dict], hold_codes: set, today: date | None = None):
+    """财报披露日历 → 基线 v1.1 结构卡(情报族 blue):
+    结论行 → 全短列表(股票|披露日|类型, >8行 Top5+全量折叠) → 👉防御建议 → 折叠(全量+回测依据)。"""
+    from backend.services import card_kit
+
+    today = today or date.today()
+    trows: list[tuple] = []
+    long_lines: list[str] = []   # 长值(代码/报告年度/剩余天数)下沉折叠
+    for r in rows:
+        held = str(r["code"]) in hold_codes
+        rt = REPORT_TYPE_CN.get(str(r["report_type"]), "定期报告")
+        d = str(r["appoint_date"])[:10]
+        try:
+            dleft = (date.fromisoformat(d) - today).days
+        except Exception:
+            dleft = ""
+        mark = "🔴" if held else ""
+        left = f" · {dleft}天后" if dleft != "" else ""
+        trows.append((f"{mark}{r['name']}", d[5:10], rt))
+        long_lines.append(f"**{d}**{left}　{mark}**{r['name']}**({r['code']}) {r['report_year']}{rt}")
+
+    elements: list = [md_element(
+        f"自选/持仓未来 **{REMIND_WITHIN_DAYS}** 天内 **{len(rows)}** 只披露定期报告（🔴=持仓）")]
+    headers = ["股票", "披露日", "类型"]
+    if len(trows) > 8:
+        elements.append(card_kit.short_table(headers, trows[:5]))
+        elements.append(md_element(f"…等 **{len(trows)}** 只，全量见折叠"))
+    else:
+        elements.append(card_kit.short_table(headers, trows))
+    elements.append(card_kit.advice("拿不准的持仓，披露前先减仓避险"))
+    elements.append(card_kit.fold(
+        "全部名单与回测依据",
+        "\n".join(long_lines) +
+        "\n\n财报是二元事件——回测显示利空跌幅(-2%~-2.9%)远大于利好涨幅，"
+        "拿不准就该在披露前避险；要不要减由你决定。"))
+
+    fallback = (f"📅 财报披露日历\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(rows)}** 只披露定期报告。\n"
+                "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。\n\n"
+                + "\n".join(long_lines))
+    return card_kit.Card(
+        title=f"📅 财报披露日历 · {len(rows)}只", elements=elements, fallback=fallback,
+        family="intel",
+        summary=card_kit.summary_text("财报披露日历", f"{len(rows)}只",
+                                      f"最近{trows[0][1]}" if trows else ""),
+        subtitle=f"未来{REMIND_WITHIN_DAYS}天窗口")
+
+
 async def run_disclosure_reminder() -> None:
     """交易日盘前: 自选+持仓里未来 REMIND_WITHIN_DAYS 日内披露定期报告的票 → 推提醒卡。"""
     from backend.core.trading_calendar import is_workday
@@ -86,27 +133,8 @@ async def run_disclosure_reminder() -> None:
     except Exception:
         pass
 
-    # 手机友好2列: 预约披露日是核心可扫值独占列; 持仓标记+报告类型并入股票格
-    # 移动优化(v1.7.581): 逐条换行文本行, 披露日(关键值)前置加粗, 名称/代码/年报类型全名换行不截
-    #   (原 股票格塞 名称+代码+年报类型, 手机端字符级截断→代码/年报类型被吃掉, 年报半年报分不清)
-    tlines = []
-    for r in rows:
-        held = str(r["code"]) in hold_codes
-        rt = REPORT_TYPE_CN.get(str(r["report_type"]), "定期报告")
-        d = str(r["appoint_date"])[:10]
-        try:
-            dleft = (date.fromisoformat(d) - today).days
-        except Exception:
-            dleft = ""
-        mark = "🔴" if held else ""
-        left = f" · {dleft}天后" if dleft != "" else ""
-        tlines.append(f"**{d}**{left}　{mark}**{r['name']}**({r['code']}) {r['report_year']}{rt}")
-    title = "📅 财报披露日历·近期"
-    body = (f"{title}\n\n你的自选/持仓里未来{REMIND_WITHIN_DAYS}天内有 **{len(rows)}** 只披露定期报告。\n"
-            "财报是二元事件——回测显示利空跌幅远大于利好涨幅,拿不准的持仓可在披露前降低仓位避险。")
     try:
-        await notifier.send_dual_card(body, lark_title=title,
-                                      elements=[md_element(body), md_element("\n".join(tlines))])
+        await notifier.send_card(build_disclosure_card(rows, hold_codes, today))
         logger.info(f"[disclosure] 披露提醒已推: {len(rows)} 只")
     except Exception as e:
         logger.warning(f"[disclosure] 推送失败: {e}")

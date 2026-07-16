@@ -20,7 +20,8 @@ from datetime import datetime
 
 from backend.fetcher.http_client import HEADERS, _get_client
 from backend.models import repository
-from backend.services import notifier
+from backend.services import card_kit, notifier
+from backend.services.lark_notifier import md_element
 
 logger = logging.getLogger(__name__)
 
@@ -232,23 +233,29 @@ async def _build_relay_data(themes: list[dict], gn_clean: list[dict],
     return rows, summary
 
 
-def _board_line(b: dict, my_codes: set[str]) -> str:
-    """单板块一行(移动优化: 涨幅前置短列 + 板块名/领涨股全名, 手机窄屏换行不截)。
-    (原 2 列 md 表格把 板块名+领涨股 挤一格, 飞书手机端超宽字符级截断→领涨股被切;
-     改换行文本行: 涨幅红/绿短列前置, 板块加粗, 领涨命中自选仍标红, 无截断。)"""
-    leader = b["leader_name"] or ""
-    if leader and b["leader_code"] and b["leader_code"] in my_codes:
+def _board_row(b: dict, my_codes: set[str]) -> tuple:
+    """单板块一行表格行(基线 v1.1 全短列): (板块, 涨幅, 领涨股)。
+    板块/领涨股均为短值; 领涨命中自选标红; 领涨放末列(手机截了不心疼)。"""
+    leader = b["leader_name"] or "—"
+    if b["leader_name"] and b["leader_code"] and b["leader_code"] in my_codes:
         leader = f"<font color='red'>{leader}</font>"   # 命中自选标红
-    pct_color = "red" if b["pct"] >= 0 else "green"
-    pct = f"<font color='{pct_color}'>{b['pct']:+.1f}%</font>"
-    tail = f"　领涨 {leader}" if leader else ""
-    return f"{pct}　**{b['name']}**{tail}"
+    return (f"**{b['name']}**", card_kit.pct_md(b["pct"]), leader)
 
 
-async def build_auction_sector_part() -> tuple[list[str], list] | None:
-    """计算竞价板块强弱 → (企微文本行, 飞书elements); 非交易日/榜未就绪→None。
+def _relay_advice(n_ok: int, n_weak: int) -> str:
+    """承接判级 → 👉 一句话定性(情报卡的建议是定性不是操作指令)。"""
+    if n_ok >= 3:
+        return "热点延续日，顺主线低吸为主"
+    if n_weak >= 2 and n_ok <= 1:
+        return "退潮日，控仓观望别接力"
+    return "分化轮动日，只做承接住的方向"
+
+
+async def build_auction_sector_part() -> tuple[list[str], list, dict] | None:
+    """计算竞价板块强弱 → (企微文本行, 飞书elements, meta); 非交易日/榜未就绪→None。
 
     供 run_auction_0926 合并卡 与 run_auction_sector_strength 独立推送 共用(v1.7.553 抽出)。
+    meta = {top_board, top_pct, relay, advice} 供信封摘要(基线 v1.1)。
     """
     if not _is_trading_day():
         logger.info("[auction_sector] 非交易日, 跳过")
@@ -313,55 +320,88 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
                           # 换行文本行不再挤表格, 板块名给全名(手机换行不截)
                           "board": f"行业{rank_in_hy}/{len(hy)}" if rank_in_hy else b["name"]})
 
-    # ── 飞书 V2 卡: 精简重构 — 竞价最强TOP5 / 持仓板块 / 承接 ──
-    from backend.services import lark_notifier
+    # ── 飞书结构卡(基线 v1.1 情报卡): KPI 三栏 → 多空条+全短列表格 → 👉 定性 → 折叠 ──
     idx_line = "　".join(
         f"{x['name']} {x['pct_change']:+.2f}%" for x in (indices or [])[:4]
     ) or "指数取数失败"
     elapsed = _time.time() - t0
 
-    # header: 竞价时间 + 指数 + 用时
-    elements = [
-        lark_notifier.md_element(f"🕤 **09:26 集合竞价**　{idx_line}　|　腾讯板块榜 · 用时 {elapsed:.1f}s"),
-    ]
-
-    # 合并行业+概念 → "竞价最强 TOP5" (换行文本行: 板块名/领涨股全名不截)
+    # 合并行业+概念 → "竞价最强 TOP5"
     merged = hy_top + gn_top
     merged.sort(key=lambda x: -x["pct"])
     top5 = merged[:5]
-    elements.append(lark_notifier.md_element(f"🔥 **竞价最强 TOP5**（{len(hy)}行业 + {len(gn_clean)}概念）"))
-    elements.append(lark_notifier.md_element(
-        "\n".join(_board_line(b, my_codes) for b in top5)))
+    top1 = top5[0] if top5 else None
+    n_ok = sum(1 for r in relay_rows if r["icon"] == "✅")
+    n_weak = sum(1 for r in relay_rows if r["icon"] == "⚠️")
+    up_n = sum(1 for b in hy if b["pct"] > 0)
+    down_n = sum(1 for b in hy if b["pct"] < 0)
 
-    # 持仓关联 (换行文本行: 涨幅前置 + 持仓名 + 所在板块/名次全名不截)
-    if hold_rows:
-        hlines = []
-        for r in hold_rows:
-            pc = "red" if r["pct"] >= 0 else "green"
-            hlines.append(
-                f"<font color='{pc}'>{r['pct']:+.1f}%</font>　**{r['name']}**　{r['board']}")
-        elements.append(lark_notifier.md_element("💼 **持仓关联板块**"))
-        elements.append(lark_notifier.md_element("\n".join(hlines)))
-
-    # 承接 (换行文本行: 判级+溢价前置 + 题材全名不截)
+    # 结论区: KPI 三栏(上证竞价 / 最强板块 / 昨日热点承接)
+    sh = next((x for x in (indices or []) if "上证" in str(x.get("name") or "")), None)
+    kpi_items: list = []
+    if sh is not None:
+        sh_pct = float(sh.get("pct_change") or 0)
+        kpi_items.append(("上证竞价", f"{sh_pct:+.2f}%", "red" if sh_pct >= 0 else "green"))
+    if top1:
+        kpi_items.append((f"最强 {top1['name']}", f"{top1['pct']:+.1f}%",
+                          "red" if top1["pct"] >= 0 else "green"))
     if relay_rows:
-        rlines = []
+        kpi_items.append(("昨日热点承接", f"{n_ok}承/{n_weak}弱",
+                          "red" if n_ok > n_weak else ("green" if n_weak > n_ok else None)))
+    if len(kpi_items) < 3:
+        kpi_items.append(("行业上涨", f"{up_n}/{len(hy)}"))
+
+    elements: list = [card_kit.kpi_row(kpi_items[:3])]
+
+    # 数据区 1: 行业竞价多空条(31 个一级行业涨跌分布)
+    elements.append(md_element(
+        f"{len(hy)}个一级行业竞价　" + card_kit.long_short_bar(down_n, up_n)))
+
+    # 数据区 2: 竞价最强 TOP5 全短列表格(板块 | 涨幅 | 领涨, 领涨命中自选标红)
+    elements.append(md_element(f"🔥 **竞价最强 TOP5**（{len(hy)}行业 + {len(gn_clean)}概念）"))
+    elements.append(card_kit.short_table(
+        ["板块", "涨幅", "领涨"], [_board_row(b, my_codes) for b in top5]))
+
+    # 数据区 3: 持仓关联板块(≤8 行, 全短列)
+    if hold_rows:
+        elements.append(md_element("💼 **持仓关联板块**"))
+        elements.append(card_kit.short_table(
+            ["持仓", "涨幅", "板块位"],
+            [(f"**{r['name']}**", card_kit.pct_md(r["pct"]), r["board"]) for r in hold_rows]))
+
+    # 数据区 4: 昨日热点承接(题材 | 承接 | 溢价)
+    if relay_rows:
+        rrows = []
         for r in relay_rows[:5]:
             lv_color = "red" if r["icon"] == "✅" else ("green" if r["icon"] == "⚠️" else "grey")
-            cell = f"<font color='{lv_color}'>{r['icon']} {r['level']}</font>"
-            if r["premium"] is not None:
-                pc = "red" if r["premium"] >= 0 else "green"
-                cell += f"　<font color='{pc}'>{r['premium']:+.1f}%</font>"
+            prem = (card_kit.pct_md(r["premium"], bold=False)
+                    if r["premium"] is not None else "—")
             theme = ("⭐" if r["my"] else "") + r["theme"]
-            rlines.append(f"{cell}　{theme}")
-        elements.append(lark_notifier.md_element(f"🔁 **昨日热点 · 今晨承接**　{relay_summary}"))
-        elements.append(lark_notifier.md_element("\n".join(rlines)))
-        elements.append(lark_notifier.md_element(
-            "<font color='grey'>✅强承接 🔶一般 ⚠️转弱　溢价=昨停今竞均涨　⭐=自选有票</font>"))
+            rrows.append((theme, f"<font color='{lv_color}'>{r['icon']}{r['level']}</font>", prem))
+        elements.append(md_element("🔁 **昨日热点 · 今晨承接**"))
+        elements.append(card_kit.short_table(["题材", "承接", "溢价"], rrows))
 
-    # footer
-    elements.append(lark_notifier.md_element(
-        "<font color='grey'>领涨红=命中自选 · 数据源:腾讯板块榜</font>"))
+    # 👉 一句话定性(承接判级定调; 无承接数据时按行业广度定调)
+    if relay_rows:
+        adv = _relay_advice(n_ok, n_weak)
+    else:
+        adv = "竞价偏暖，开盘顺强势方向看" if up_n >= down_n else "竞价偏冷，开盘先看后动"
+    elements.append(card_kit.advice(adv))
+
+    # 折叠: 行业最弱 + 四指数 + 口径说明
+    fold_lines = ["❄️ **行业最弱**"]
+    for b in hy_bottom:
+        fold_lines.append(f"{card_kit.pct_md(b['pct'], bold=False)}　{b['name']}"
+                          + (f"　领涨 {b['leader_name']}" if b["leader_name"] else ""))
+    fold_lines += [
+        "",
+        f"🕤 四指数竞价　{idx_line}",
+        "",
+        "📐 口径：✅强承接 ○一般 ⚠️转弱；溢价=昨日该题材涨停股今晨竞价涨幅均值；"
+        "⭐=自选池有票；领涨标红=命中自选；"
+        f"数据源 腾讯板块榜 · 用时 {elapsed:.1f}s",
+    ]
+    elements.append(card_kit.fold("行业最弱与口径说明", "\n".join(fold_lines)))
 
     # ── 企微纯文本回退 ──
     def tline(b: dict) -> str:
@@ -385,10 +425,17 @@ async def build_auction_sector_part() -> tuple[list[str], list] | None:
     if hold_rows:
         tlines += ["", "💼 持仓所在板块"]
         tlines += [f"  {r['name']} → {r['board']} {r['pct']:+.1f}%" for r in hold_rows]
+    tlines += ["", f"👉 {adv}"]
 
+    meta = {
+        "top_board": top1["name"] if top1 else "",
+        "top_pct": top1["pct"] if top1 else 0.0,
+        "relay": f"承接{n_ok}/转弱{n_weak}" if relay_rows else "",
+        "advice": adv,
+    }
     logger.info(f"[auction_sector] 板块强弱计算完成, 行业{len(hy)} 概念{len(gn_clean)}, "
                 f"承接{len(relay_rows)}条 持仓{len(hold_rows)}条, 耗时{elapsed:.1f}s")
-    return tlines, elements
+    return tlines, elements, meta
 
 
 async def run_auction_sector_strength():
@@ -396,6 +443,16 @@ async def run_auction_sector_strength():
     built = await build_auction_sector_part()
     if not built:
         return
-    tlines, elements = built
-    sent = await notifier.send_dual_card("\n".join(tlines), lark_title="📊 竞价分析", elements=elements)
+    tlines, elements, meta = built
+    bits = []
+    if meta.get("top_board"):
+        bits.append(f"最强{meta['top_board']}{meta.get('top_pct', 0):+.1f}%")
+    if meta.get("relay"):
+        bits.append(meta["relay"])
+    card = card_kit.Card(
+        title="📊 竞价分析", elements=elements, fallback="\n".join(tlines),
+        family="intel", subtitle="竞价板块强弱 · 腾讯板块榜",
+        summary=card_kit.summary_text("竞价分析", *bits),
+    )
+    sent = await notifier.send_card(card)
     logger.info(f"[auction_sector] 独立推送结果={sent}")

@@ -195,8 +195,19 @@ ALERT_COOLDOWN_SECONDS = 3600
 _last_alert_at: dict[str, float] = {}
 
 
+def build_task_failure_text(job_id: str, handler_name: str, count: int, err_msg: str) -> str:
+    """任务失败告警正文(基线 v1.1 轻处理, 保持纯文本通道): 结论前置 + 任务名加粗 + 👉建议。"""
+    return (
+        f"⚠️ 调度任务连续失败\n\n"
+        f"**{job_id}** 连续失败 **{count}** 次（阈值 {ALERT_THRESHOLD}）\n"
+        f"handler: {handler_name}\n"
+        f"最近错误: {err_msg[:200]}\n\n"
+        f"👉 **检查 backend 日志或对应数据源状态**"
+    )
+
+
 async def _maybe_alert_task_failure(job_id: str, handler_name: str, count: int, err_msg: str):
-    """连续失败达到阈值时推送企微告警, 同 job 1 小时内不重复推。"""
+    """连续失败达到阈值时推送告警(纯文本通道不变), 同 job 1 小时内不重复推。"""
     if count < ALERT_THRESHOLD:
         return
     now = time.time()
@@ -204,14 +215,7 @@ async def _maybe_alert_task_failure(job_id: str, handler_name: str, count: int, 
     if now - last < ALERT_COOLDOWN_SECONDS:
         return
     _last_alert_at[job_id] = now
-    text = (
-        f"⚠️ 调度任务连续失败告警\n\n"
-        f"任务: {job_id}\n"
-        f"handler: {handler_name}\n"
-        f"连续失败次数: {count}\n"
-        f"最近错误: {err_msg[:200]}\n\n"
-        f"已超过阈值 {ALERT_THRESHOLD}, 请检查 backend 日志或对应数据源状态"
-    )
+    text = build_task_failure_text(job_id, handler_name, count, err_msg)
     try:
         from backend.services import notifier
         await notifier.send_wechat_text(text)

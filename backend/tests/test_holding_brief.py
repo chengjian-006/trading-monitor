@@ -12,6 +12,7 @@ from backend.services.holding_brief import (
     parse_ai_verdicts,
     render_wechat_text,
     build_lark_elements,
+    build_brief_card,
 )
 
 
@@ -209,3 +210,33 @@ def test_build_brief_prompt_carries_data():
     system, user = build_brief_prompt([_payload()], "震荡偏强")
     assert "JSON" in system and "持有/加仓/减仓/清仓" in system
     assert "000725" in user and "震荡偏强" in user
+
+
+# ---------- 基线 v1.1 结构卡 ----------
+
+def test_build_brief_card_structure():
+    payloads = [_payload()]
+    verdicts = {"000725": {"action": "减仓", "target": 7.0, "stop": 6.5, "reason": "滞涨"}}
+    card = build_brief_card(payloads, verdicts, "震荡偏强")
+    assert card.family == "intel" and card.template == "blue"
+    # 结论区 = KPI 三栏(持仓/建议减清/次日环境)
+    kpi = card.elements[0]
+    assert kpi["tag"] == "column_set" and len(kpi["columns"]) == 3
+    assert "1只" in kpi["columns"][1]["elements"][0]["content"]   # 减/清 1 只
+    # 逐股数据区仍是换行文本块(移动优化), 无表格竖线
+    assert any(e.get("tag") == "markdown" and "减仓" in e.get("content", "")
+               and "滞涨" in e.get("content", "") and "|" not in e.get("content", "")
+               for e in card.elements)
+    # 行动建议 + 免责折叠(长值/口径下沉)
+    assert any(e.get("tag") == "markdown" and "👉" in e.get("content", "") for e in card.elements)
+    assert card.elements[-1]["tag"] == "collapsible_panel"
+    # 锁屏摘要标配
+    assert "持仓研判晚报" in card.summary and "减/清1只" in card.summary
+    assert "京东方A" in card.fallback   # 回退同源信息
+
+
+def test_build_brief_card_empty_holdings():
+    card = build_brief_card([], {}, "震荡")
+    assert card.family == "intel"
+    assert "空仓" in card.elements[0]["content"]
+    assert "今日空仓" in card.summary
