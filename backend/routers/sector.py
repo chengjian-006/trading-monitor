@@ -1,110 +1,21 @@
-"""板块强度 API - v1.7.x.
+"""板块 API - v1.7.x.
 
-给前端决策快查卡按需拉指定 codes 的板块实时强度数据 (板块涨幅 / 龙头涨幅 / 自身排名).
-不依赖已下线的 sector_leader 调度任务 (cfzy_biz_stock_pool.sector_rank 字段恒空).
-
-设计:
-  - 输入 codes 集合
-  - 找每只票的 industry (从 stock pool 已有字段读)
-  - unique industries 集合并发拉 get_sector_overview
-  - 内部 30s 缓存 (复用 fetcher.sectors 内缓存) 减少外部 API 压力
+v1.7.640: strength-batch(板块强弱, 给决策快查卡的逐票板块实时强度)已移除(用户拍板)——
+东财板块接口对生产 IP 封禁, 每次调用都是池内全部行业(~44个)逐个失败的废请求
+(2~3s 延迟 + "Industry BK map failed" 日志刷屏), 数据恒空打分层空转, 前后端整链砍掉。
+保留 /ranking (行业板块涨幅榜热力图, 有腾讯备源+DB兜底, 工作正常)。
 """
-import asyncio
 import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
 from backend.core.auth import get_current_user
-from backend.models import repository
 from backend import data_fetcher
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sector", tags=["sector"])
-
-
-@router.get("/strength-batch")
-async def sector_strength_batch(
-    user: Annotated[dict, Depends(get_current_user)],
-    codes: str = Query("", description="逗号分隔 code 列表"),
-):
-    """返回 { code: {industry, pct_today, leader_name, leader_pct, self_pct, self_rank} }.
-
-    - industry/leader/pct_today 取自 get_sector_overview (30s 缓存)
-    - self_rank: 自己在板块 top 5 内的名次, 不在 top 5 → None
-    - self_pct: 自己当日涨跌幅 (来自股票池 row 已存的 pct_change)
-    """
-    code_list = [c.strip() for c in codes.split(",") if c.strip()]
-    if not code_list:
-        return {}
-    code_list = code_list[:50]   # 上限保护
-
-    # 读股票池 (一次 query)
-    all_stocks = await repository.list_all_stocks()
-    stocks_by_code: dict[str, dict] = {s["code"]: s for s in all_stocks if s["code"] in code_list}
-    if not stocks_by_code:
-        return {}
-
-    # 收集涉及的 industries
-    industries = sorted({s.get("industry") or "" for s in stocks_by_code.values() if s.get("industry")})
-    if not industries:
-        return {code: _empty_strength(stocks_by_code[code]) for code in code_list if code in stocks_by_code}
-
-    # 并发拉每个 industry 的 overview (30s 缓存命中)
-    sem = asyncio.Semaphore(5)
-
-    async def _fetch_one(industry: str):
-        async with sem:
-            try:
-                ov = await data_fetcher.get_sector_overview(industry, top_n=5)
-                return industry, ov
-            except Exception as e:
-                logger.warning(f"[sector_strength] {industry} 取数失败: {e}")
-                return industry, None
-
-    pairs = await asyncio.gather(*[_fetch_one(ind) for ind in industries])
-    overview_map: dict[str, dict | None] = {ind: ov for ind, ov in pairs}
-
-    # 拼装输出
-    out: dict[str, dict] = {}
-    for code in code_list:
-        stock = stocks_by_code.get(code)
-        if not stock:
-            continue
-        industry = stock.get("industry") or ""
-        self_pct = stock.get("pct_change")
-        ov = overview_map.get(industry) if industry else None
-        if not ov:
-            out[code] = {
-                "industry": industry, "pct_today": None,
-                "leader_name": "", "leader_pct": None,
-                "self_pct": self_pct, "self_rank": None,
-            }
-            continue
-        # 自己在 top 5 内的名次
-        self_rank = None
-        for i, item in enumerate(ov.get("top_stocks") or [], 1):
-            if item.get("code") == code:
-                self_rank = i
-                break
-        out[code] = {
-            "industry": industry,
-            "pct_today": ov.get("pct_today"),
-            "leader_name": ov.get("leader_name") or "",
-            "leader_pct": ov.get("leader_pct"),
-            "self_pct": self_pct,
-            "self_rank": self_rank,
-        }
-    return out
-
-
-def _empty_strength(stock: dict) -> dict:
-    return {
-        "industry": stock.get("industry") or "",
-        "pct_today": None, "leader_name": "", "leader_pct": None,
-        "self_pct": stock.get("pct_change"), "self_rank": None,
-    }
 
 
 @router.get("/ranking")
