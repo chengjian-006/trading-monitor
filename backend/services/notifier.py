@@ -611,7 +611,18 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         # v2 卡(战绩走原生表格); 失败回退旧 markdown 卡
         elements = _build_signal_elements(code, name, signal_name, direction, price, detail,
                                           strategy, pct_change, model_stats, basics, sector, background)
-        if quick_md:
+        # 快捷动作: 应用机器人通道 → 真回调按钮(点击不跳页, 原地toast, v1.7.631);
+        #           webhook 通道 → 原 markdown 签名链接行
+        app_buttons = False
+        try:
+            from backend.services import lark_app
+            app_buttons = lark_app.enabled()
+        except Exception:
+            app_buttons = False
+        if app_buttons:
+            elements = list(elements) + _pref_svc.build_quick_action_button_rows(
+                user_id or 1, code, signal_id, direction)
+        elif quick_md:
             elements = list(elements) + [lark_notifier.md_element(quick_md)]
         if risk_banner:
             elements = [lark_notifier.md_element(risk_banner)] + list(elements)

@@ -161,6 +161,94 @@ def decide(prefs: list[dict], code: str, signal_id: str, today: date | None = No
     return {"suppress_all": False, "mute_lark": mute_lark, "reason": ""}
 
 
+# ── 快捷动作公共执行器 (v1.7.631): HTTP落地页(routers/quick.py)与飞书卡片回调(lark_app)共用 ──
+
+KIND_LABEL = {
+    "mute": "今日免打扰(仅飞书)",
+    "snooze": "个股静音",
+    "model_off": "今日关此模型",
+    "ack": "标记已处理",
+    "stop_snooze": "止损提醒静音",
+    "ma_watch_snooze": "破位警戒静音",
+    "surge_snooze": "二波提醒静音",
+    "snooze_until_retrigger": "个股静音·直到再突破",
+    "mark_sold": "标记已卖出",
+}
+
+
+async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, str, str]:
+    """执行一条快捷设置(落库+联动), 返回 (ok, 动作名, 结果说明)。
+
+    调用方需先做各自的鉴权(HTTP 路由验 HMAC 签名; 卡片回调由飞书长连接身份保证)。
+    """
+    from backend.models.repo import push_pref as pref_repo
+
+    if k not in VALID_KINDS:
+        return False, "无效操作", "未知的设置类型。"
+
+    # 恢复今日免打扰: 撤销当日 mute, 不新增偏好
+    if k == "unmute":
+        n = await pref_repo.revoke_kind(u, "mute")
+        if n:
+            return True, "已恢复今日推送", "今日免打扰已取消，飞书推送恢复正常。"
+        return True, "无需恢复", "当前没有生效的今日免打扰。"
+
+    until = until_for(k, d)
+    await pref_repo.add_pref(u, k, t, until)
+
+    # 今日免打扰: 往未被静音的渠道发一条可随时点的恢复入口
+    if k == "mute":
+        await _send_mute_recovery(u)
+
+    # 标记已卖出: 该票从持仓降级为观察(status hold→watch), 压掉后续卖出/持仓类提醒(买点照常)
+    if k == "mark_sold" and t:
+        try:
+            from backend.models import repository
+            await repository.update_stock(t, u, status="watch")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"[quick] 标记已卖出翻转持仓状态失败({t}): {e}")
+
+    label = KIND_LABEL.get(k, k)
+    if k == "mute":
+        detail = "今天剩余的飞书推送已静音，明日自动恢复。"
+    elif k == "snooze":
+        detail = f"已对 {t} 静音至 {until.strftime('%m-%d')}，期间不再推送其信号。"
+    elif k == "model_off":
+        detail = f"已关闭「{t}」今日推送，明日自动恢复。"
+    elif k == "stop_snooze":
+        detail = f"已静音 {t} 的止损升级提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "ma_watch_snooze":
+        detail = f"已静音 {t} 的尾盘破位警戒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "surge_snooze":
+        detail = f"已静音 {t} 的二波过前高提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
+    elif k == "snooze_until_retrigger":
+        _code = t.split("|", 1)[0]
+        detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
+    elif k == "mark_sold":
+        detail = f"已标记 {t} 为已卖出，已从持仓列表移出（转为自选观察），不再推送该票的卖出/减仓/持仓提醒。导入新交割单后自动归位。"
+    else:  # ack
+        detail = "该信号已标记处理，当日不再重复提醒。"
+    return True, f"已设置：{label}", detail
+
+
+async def _send_mute_recovery(user_id: int) -> None:
+    """开启今日免打扰后, 往微信/PushPlus(未被静音的渠道)发一条带「恢复」链接的确认, 随时可点。"""
+    import logging
+    try:
+        from backend.core.config import load_config
+        from backend.services import notifier
+        site = (load_config().get("site_url", "") or "").rstrip("/")
+        if not site:
+            return
+        link = build_quick_link(site, user_id, "unmute")
+        content = ("已开启**今日免打扰**(仅静音飞书, 微信照常), 明日 0 点自动恢复。\n\n"
+                   f"想提前恢复 👉 [点此恢复今日推送]({link})")
+        await notifier._fanout_pushplus("🔕 已开启今日免打扰", content)
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"[quick] 免打扰恢复确认发送失败: {e}")
+
+
 # ── 推送卡片里的快捷动作行 ──
 
 def build_quick_actions_md(site: str, user_id, code: str, signal_id: str, direction: str) -> str:
@@ -222,6 +310,49 @@ def build_mark_sold_md(site: str, user_id, code: str, name: str = "") -> str:
         return ""
     link = build_quick_link(site, user_id, "mark_sold", target=code, days=365)
     return f"[✅ 已卖出]({link})"
+
+
+# ── 应用机器人模式: 快捷动作变真回调按钮(点击不跳页, 原地toast; v1.7.631) ──
+
+def build_quick_action_button_rows(user_id, code: str, signal_id: str, direction: str) -> list[dict]:
+    """信号卡快捷动作按钮行(schema2.0 回调按钮, 仅应用机器人通道用)。
+
+    行1: [✅ 已卖出](卖/减仓类) + [🔕 今日免打扰]
+    行2(有个股): [🔕 静音今日] [🔕 静音本周] [🔕 静到再突破]
+    与 build_quick_actions_md(webhook 链接版)动作对齐, 静音三档从落地页上提为直接按钮。
+    """
+    from backend.services import lark_app
+
+    rows: list[dict] = []
+    row1 = []
+    if direction in ("sell", "reduce") and code:
+        row1.append(lark_app.callback_button(
+            "✅ 已卖出", lark_app.quick_action_value(user_id, "mark_sold", code, 365), style="primary"))
+    row1.append(lark_app.callback_button(
+        "🔕 今日免打扰", lark_app.quick_action_value(user_id, "mute")))
+    rows.append(lark_app.button_row(row1))
+    if code and signal_id:
+        rows.append(lark_app.button_row([
+            lark_app.callback_button(
+                "🔕 静音今日", lark_app.quick_action_value(user_id, "snooze", code, 1)),
+            lark_app.callback_button(
+                "🔕 静音本周", lark_app.quick_action_value(user_id, "snooze", code, days_until_week_end())),
+            lark_app.callback_button(
+                "🔕 静到再突破",
+                lark_app.quick_action_value(user_id, "snooze_until_retrigger", f"{code}|{signal_id}", 0)),
+        ]))
+    return rows
+
+
+def build_surge_action_button_rows(user_id, code: str) -> list[dict]:
+    """二波过前高卡逐票静音按钮行(应用机器人通道): 当日不提醒 / 本周不提醒。"""
+    from backend.services import lark_app
+    return [lark_app.button_row([
+        lark_app.callback_button(
+            "🔕 当日不提醒", lark_app.quick_action_value(user_id, "surge_snooze", code, 1)),
+        lark_app.callback_button(
+            "🔕 本周不提醒", lark_app.quick_action_value(user_id, "surge_snooze", code, days_until_week_end())),
+    ])]
 
 
 # ── 个股信号静音: 落地页选到期语义(仅今日/本周/直到再突破) ──

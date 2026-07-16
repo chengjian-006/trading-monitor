@@ -54,6 +54,12 @@ async def lifespan(app: FastAPI):
     # 全市场名称表为空时, 后台非阻塞首填(走新浪批量行情), 不卡启动; 已有则跳过留给定时任务
     from backend.services.stock_names_refresher import ensure_stock_names_seeded
     asyncio.create_task(ensure_stock_names_seeded())
+    # 飞书应用机器人卡片回调长连接(v1.7.631, lark_app_enabled 时才启; 缺依赖/未配置安全跳过)
+    try:
+        from backend.services.lark_app import start_ws_listener
+        start_ws_listener()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("飞书应用长连接启动失败(忽略): %s", e)
     yield
     scheduler.shutdown()
     await close_db()

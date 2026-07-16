@@ -34,7 +34,17 @@ DIRECTION_TEMPLATE = {"buy": "red", "sell": "green", "reduce": "orange", "plunge
 
 
 async def _post(webhook: str, payload: dict, label: str) -> bool:
-    """飞书自定义机器人 POST, 3 次重试. 不做生产环境闸门(由调用方决定是否发)."""
+    """飞书发送统一出口. 应用机器人通道启用时卡片优先走应用(支持回调按钮, v1.7.631),
+    失败自动回退 webhook 自定义机器人; 未启用则一切照旧. 3 次重试, 无生产闸门(调用方决定)."""
+    try:
+        from backend.services import lark_app
+        if payload.get("msg_type") == "interactive" and lark_app.enabled():
+            if await lark_app.send_card_payload(payload):
+                logger.info(f"[lark] {label} 应用通道推送成功")
+                return True
+            logger.warning(f"[lark] {label} 应用通道失败, 回退webhook")
+    except Exception as e:
+        logger.warning(f"[lark] {label} 应用通道异常({e}), 回退webhook")
     if not webhook:
         return False
     for attempt in range(1, 4):

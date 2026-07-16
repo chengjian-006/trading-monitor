@@ -156,6 +156,35 @@ async def test_signal_card(user: Annotated[dict, Depends(require_admin)]):
                    else "发送失败: 检查个人飞书开关/Webhook是否已配, 或当前非生产环境"}
 
 
+@router.get("/lark-app/chats")
+async def lark_app_chats(_: Annotated[dict, Depends(require_admin)]):
+    """机器人所在群列表(拿 chat_id 填 lark_app_chat_id 用)。需先配好 lark_app_id/secret。"""
+    from backend.services import lark_app
+    c = lark_app.app_config()
+    if not (c["app_id"] and c["app_secret"]):
+        return {"ok": False, "msg": "请先在 config.json 配置 lark_app_id / lark_app_secret", "chats": []}
+    chats = await lark_app.list_chats()
+    return {"ok": True, "chats": chats,
+            "msg": "" if chats else "没有查到群: 确认应用已发布、机器人已被拉进群、开了 im:chat 权限"}
+
+
+@router.post("/test-lark-app-card")
+async def test_lark_app_card(user: Annotated[dict, Depends(require_admin)]):
+    """发一张带回调按钮的测试卡(走应用机器人通道), 验证点按钮原地toast不跳页。"""
+    from backend.services import lark_app
+    from backend.services import push_pref as pp
+    from backend.services import lark_notifier
+    if not lark_app.enabled():
+        return {"ok": False, "msg": "应用通道未启用: 检查 lark_app_enabled/lark_app_id/secret/chat_id"}
+    elements = [
+        lark_notifier.md_element("**回调按钮测试卡**\n点下面按钮应原地弹提示、不打开浏览器。"),
+        *pp.build_quick_action_button_rows(user["id"], "002929", "BUY_TEST", "sell"),
+    ]
+    card = lark_notifier._build_card_v2("🧪 应用机器人·回调按钮测试", elements, "blue")
+    ok = await lark_app.send_card_payload({"msg_type": "interactive", "card": card})
+    return {"ok": ok, "msg": "已发送, 去飞书群点按钮试试" if ok else "发送失败, 看服务日志"}
+
+
 @router.post("/test-surge-card")
 async def test_surge_card(user: Annotated[dict, Depends(require_admin)]):
     """发样例「二波过前高」提醒卡(走真实 send_dual 通道), 与生产推送 1:1(含逐票静音快捷行)。

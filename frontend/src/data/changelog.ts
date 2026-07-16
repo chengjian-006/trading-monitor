@@ -12,6 +12,25 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.631',
+    date: '2026-07-16',
+    title: '飞书推送升级应用机器人通道：卡片按钮点击不再跳浏览器（基建就绪，待配置启用）',
+    changes: [
+      {
+        text: '解决「点飞书卡片快捷按钮要跳浏览器新页面」的体验问题：新增飞书企业自建应用机器人通道，卡片上的快捷动作（已卖出/今日免打扰/静音今日/静音本周/静到再突破/二波静音）变成真回调按钮——点击原地弹提示，全程不离开飞书。回调走长连接（lark-oapi），无需公网回调地址。',
+        tag: 'new',
+      },
+      {
+        text: '架构：飞书发送统一出口路由——应用通道启用时所有卡片改经应用机器人发到指定群（支持回调按钮），失败自动回退原 webhook 群机器人；未启用（默认）一切照旧零影响。快捷设置执行逻辑抽成公共服务（execute_quick_action），HTTP 落地页与卡片回调共用同一套落库/联动。',
+        tag: 'improve',
+      },
+      {
+        text: '配套：config.json 新增 lark_app_enabled/lark_app_id/lark_app_secret/lark_app_chat_id 四键；管理员辅助端点 GET /api/config/lark-app/chats（查机器人所在群拿 chat_id）、POST /api/config/test-lark-app-card（发带按钮的测试卡）。启用前提：飞书开放平台建企业自建应用+机器人能力+im 权限+长连接订阅+发布，机器人拉进推送群。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.630',
     date: '2026-07-16',
     title: '大盘风险标记补齐：推送横幅带触发时间锚点 + 网页端全局顶栏横幅',

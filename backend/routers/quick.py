@@ -20,32 +20,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/quick", tags=["quick"])
 
 
-async def _send_mute_recovery(user_id: int) -> None:
-    """开启今日免打扰后, 往微信/PushPlus(未被静音的渠道)发一条带「恢复」链接的确认, 随时可点。"""
-    try:
-        from backend.services import notifier
-        site = (load_config().get("site_url", "") or "").rstrip("/")
-        if not site:
-            return
-        link = pref_svc.build_quick_link(site, user_id, "unmute")
-        content = ("已开启**今日免打扰**(仅静音飞书, 微信照常), 明日 0 点自动恢复。\n\n"
-                   f"想提前恢复 👉 [点此恢复今日推送]({link})")
-        await notifier._fanout_pushplus("🔕 已开启今日免打扰", content)
-    except Exception as e:
-        logger.warning(f"[quick] 免打扰恢复确认发送失败: {e}")
-
-# kind → 中文动作名(确认页与管理页共用)
-_KIND_LABEL = {
-    "mute": "今日免打扰(仅飞书)",
-    "snooze": "个股静音",
-    "model_off": "今日关此模型",
-    "ack": "标记已处理",
-    "stop_snooze": "止损提醒静音",
-    "ma_watch_snooze": "破位警戒静音",
-    "surge_snooze": "二波提醒静音",
-    "snooze_until_retrigger": "个股静音·直到再突破",
-    "mark_sold": "标记已卖出",
-}
+# kind → 中文动作名(管理页用; 执行逻辑已抽到 pref_svc.execute_quick_action, v1.7.631)
+_KIND_LABEL = pref_svc.KIND_LABEL
 
 
 def _confirm_page(title: str, detail: str, ok: bool = True) -> HTMLResponse:
@@ -85,51 +61,8 @@ async def quick_set(
     if exp < time.time():
         return _confirm_page("链接已过期", "链接已过期，请从最新推送卡片操作。", ok=False)
 
-    # 恢复今日免打扰: 撤销当日 mute, 不新增偏好
-    if k == "unmute":
-        n = await pref_repo.revoke_kind(u, "mute")
-        if n:
-            return _confirm_page("已恢复今日推送", "今日免打扰已取消，飞书推送恢复正常。")
-        return _confirm_page("无需恢复", "当前没有生效的今日免打扰。")
-
-    until = pref_svc.until_for(k, d)
-    await pref_repo.add_pref(u, k, t, until)
-
-    # 今日免打扰: 往未被静音的渠道发一条可随时点的恢复入口
-    if k == "mute":
-        await _send_mute_recovery(u)
-
-    # 标记已卖出: 顺手把这只票从持仓降级为观察(status hold→watch), 立即从持仓列表/浮盈消失,
-    # 且 scanner「非持仓票只推买点」自动压掉后续卖出/减仓/止盈卡。留在自选, 买点仍照常提醒。
-    # 真实归位靠明日导入交割单(见 trade_analysis 的自动撤销); 手动纠正可去设置页撤销本条。
-    if k == "mark_sold" and t:
-        try:
-            from backend.models import repository
-            await repository.update_stock(t, u, status="watch")
-        except Exception as e:
-            logger.warning(f"[quick] 标记已卖出翻转持仓状态失败({t}): {e}")
-
-    label = _KIND_LABEL.get(k, k)
-    if k == "mute":
-        detail = "今天剩余的飞书推送已静音，明日自动恢复。"
-    elif k == "snooze":
-        detail = f"已对 {t} 静音至 {until.strftime('%m-%d')}，期间不再推送其信号。"
-    elif k == "model_off":
-        detail = f"已关闭「{t}」今日推送，明日自动恢复。"
-    elif k == "stop_snooze":
-        detail = f"已静音 {t} 的止损升级提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
-    elif k == "ma_watch_snooze":
-        detail = f"已静音 {t} 的尾盘破位警戒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
-    elif k == "surge_snooze":
-        detail = f"已静音 {t} 的二波过前高提醒至 {until.strftime('%m-%d')}（其它买卖点/异动照常）。"
-    elif k == "snooze_until_retrigger":
-        _code = t.split("|", 1)[0]
-        detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
-    elif k == "mark_sold":
-        detail = f"已标记 {t} 为已卖出，已从持仓列表移出（转为自选观察），不再推送该票的卖出/减仓/持仓提醒。导入新交割单后自动归位。"
-    else:  # ack
-        detail = "该信号已标记处理，当日不再重复提醒。"
-    return _confirm_page(f"已设置：{label}", detail)
+    ok, label, detail = await pref_svc.execute_quick_action(u, k, t, d)
+    return _confirm_page(label, detail, ok=ok)
 
 
 @router.get("/snooze-options")
