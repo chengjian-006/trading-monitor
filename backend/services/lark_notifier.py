@@ -180,30 +180,52 @@ def md_table(columns: list, rows: list) -> dict:
 
 
 def _build_card_v2(title: str, elements: list, template: str = "blue",
-                   link_url: str = "", link_text: str = "查看完整报告") -> dict:
+                   link_url: str = "", link_text: str = "查看完整报告",
+                   summary: str = "", subtitle: str = "",
+                   text_tags: list | None = None) -> dict:
+    """schema 2.0 卡片信封。基线 v1.1 新增(全部可选, 不传行为不变):
+    summary   锁屏横幅/会话列表摘要(标的+事件+关键数字), 替代默认"[卡片]"占位
+    subtitle  header 副标题(单行, 超长省略, 务必短)
+    text_tags header 彩色小标签 [(文本, 颜色), ...] 最多 3 个(飞书 V6.11+)
+    """
     full_title = f"{title}          {_time_str()}"
     body_elements = list(elements)
     if link_url:
         # schema 2.0 不支持 action 按钮容器 → 用 markdown 链接代替
         body_elements.append({"tag": "markdown", "content": f"[👉 {link_text}]({link_url})"})
+    config: dict = {"wide_screen_mode": True, "width_mode": "fill"}
+    if summary:
+        config["summary"] = {"content": summary[:120]}
+    header: dict = {
+        "title": {"tag": "plain_text", "content": (full_title or "盘面播报")[:120]},
+        "template": template,
+    }
+    if subtitle:
+        header["subtitle"] = {"tag": "plain_text", "content": subtitle[:60]}
+    if text_tags:
+        header["text_tag_list"] = [
+            {"tag": "text_tag", "text": {"tag": "plain_text", "content": str(t)[:12]},
+             "color": c or "grey"}
+            for t, c in list(text_tags)[:3]
+        ]
     return {
         "schema": "2.0",
-        "config": {"wide_screen_mode": True, "width_mode": "fill"},
-        "header": {
-            "title": {"tag": "plain_text", "content": (full_title or "盘面播报")[:120]},
-            "template": template,
-        },
+        "config": config,
+        "header": header,
         "body": {"elements": body_elements},
     }
 
 
 async def post_lark_card_v2(webhook: str, title: str, elements: list, template: str = "blue",
-                            link_url: str = "", link_text: str = "查看完整报告") -> bool:
+                            link_url: str = "", link_text: str = "查看完整报告",
+                            summary: str = "", subtitle: str = "",
+                            text_tags: list | None = None) -> bool:
     """飞书发 schema 2.0 卡片(可含 table 组件)。失败返回 False, 由调用方回退到纯文本卡。"""
     if not webhook or not elements:
         return False
     payload = {"msg_type": "interactive",
-               "card": _build_card_v2(title, elements, template, link_url, link_text)}
+               "card": _build_card_v2(title, elements, template, link_url, link_text,
+                                      summary=summary, subtitle=subtitle, text_tags=text_tags)}
     return await _post(webhook, payload, "card2")
 
 

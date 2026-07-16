@@ -106,8 +106,15 @@ async def _send(alert_type: str, items: list[dict]) -> bool:
                 logger.warning(f"[alert_throttle] {alert_type} 飞书表格卡构造失败, 回退文本: {e}")
                 built = None
             if built:
-                title, elements = built
-                ok = await notifier.send_dual_card(text, lark_title=title, elements=elements)
+                # 兼容两种返回: (title, elements) 或 (title, elements, extra)
+                # extra = 信封字段 dict(template/summary/subtitle/text_tags, 基线v1.1)
+                if len(built) == 3:
+                    title, elements, extra = built
+                else:
+                    title, elements = built
+                    extra = {}
+                ok = await notifier.send_dual_card(text, lark_title=title, elements=elements,
+                                                   **(extra or {}))
                 sent_via_card = True
         if not sent_via_card:
             ok = await notifier.send_wechat_text(text)

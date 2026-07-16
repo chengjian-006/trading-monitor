@@ -305,13 +305,34 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
                            pct_change: float = 0.0, model_stats: dict | None = None,
                            basics: dict | None = None, sector: dict | None = None,
                            background: dict | None = None) -> list:
-    """飞书 v2 卡 elements: 头/现价 + 背景标签 + 战绩表(近3月/近6月) + 我的策略 + 触发条件/计划/共振成交 + 行动。"""
-    from backend.services import lark_notifier
-    header = f"**{name}**　`{code}`\n{_kpi_line(price, pct_change, direction, bold=True)}"
+    """飞书 v2 卡 elements(基线v1.1五区): KPI三栏 + 背景标签 + 数据区 + 👉计划 + 折叠 + 动作。"""
+    from backend.services import card_kit, lark_notifier
+    # 结论区: KPI 三栏大字(现价/今日涨幅/第三栏按方向取最有用的一个数)
+    # plunge(大盘急跌)无个股口径, 保持旧版单行头
+    if direction == "plunge":
+        els = [lark_notifier.md_element(_kpi_line(price, pct_change, direction, bold=True))]
+    else:
+        pct_color = "red" if pct_change > 0 else ("green" if pct_change < 0 else None)
+        third = ("方向", DIRECTION_SHORT.get(direction, direction))
+        if direction == "buy" and _has_model_stats(model_stats):
+            wr = model_stats.get("win_rate_3m")
+            if wr is not None and (model_stats.get("n_3m") or 0) > 0:
+                third = ("近3月胜率", f"{wr:.0f}%")
+            elif model_stats.get("rank_3m"):
+                third = ("模型排名", f"第{model_stats['rank_3m']}名")
+        elif basics and basics.get("popularity_rank") and basics["popularity_rank"] <= 100:
+            third = ("人气榜", f"第{basics['popularity_rank']}")
+        els = [card_kit.kpi_row([
+            ("现价", f"¥{price:.2f}"),
+            ("今日涨幅", f"{pct_change:+.2f}%", pct_color),
+            third,
+        ])]
+    # 触发模型全名重点突出(基线第二批批注: header彩签只有12字短名, 全名必须在结论区加粗可见)
+    if signal_name:
+        els.append(lark_notifier.md_element(f"⚡ 触发模型　**{signal_name}**"))
     _bl = _basics_line(basics, bold=True)
     if _bl:
-        header += f"\n{_bl}"
-    els = [lark_notifier.md_element(header)]
+        els.append(lark_notifier.md_element(_bl))
 
     # ⚠️📈 背景标签(黑天鹅/业绩预增) — 紧跟头部, 风险优先看
     _bg = _background_line(background, bold=True)
@@ -351,17 +372,24 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
     rule = MODEL_RULES.get(signal_name, "")
     if rule:
         body.append(f"📐 模型规则：{rule}")
-    if plan:
-        body.append("📋 **计划**　" + " · ".join(_bold_nums(x.strip()) for x in plan.split("/") if x.strip()))
     if reso:
         body.append(f"🔗 {reso}")
     if body:
         els.append(lark_notifier.md_element("\n".join(body)))
 
-    # 📊 全市场回测战绩 — 放最后, 参考信息不抢主内容
+    # 👉 行动建议区(基线v1.1): 交易计划升格为建议行, 数据区之后动作行之前
+    if plan:
+        els.append(card_kit.advice(
+            "计划　" + " · ".join(_bold_nums(x.strip()) for x in plan.split("/") if x.strip())))
+
+    # 📊 全市场回测战绩 — 放最后, 参考信息不抢主内容(胜率条 + 全短列表)
     if direction == "buy" and _has_model_stats(model_stats):
         ms = model_stats
-        els.append(lark_notifier.md_element(f"**📊 模型战绩**（{ms.get('model_name', '')}）"))
+        wr3 = ms.get("win_rate_3m")
+        head = f"**📊 模型战绩**（{ms.get('model_name', '')}）"
+        if wr3 is not None and (ms.get("n_3m") or 0) > 0:
+            head += "\n" + card_kit.strength_bar(min(max(wr3 / 100.0, 0.0), 1.0), f"{wr3:.0f}%")
+        els.append(lark_notifier.md_element(head))
         cols = [
             {"name": "period", "display_name": "周期"},
             {"name": "wr", "display_name": "胜率"},
@@ -590,11 +618,21 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
     # 飞书并推(独立通道, 不受企微开关影响) — 交互卡片: 信号头进彩色标题栏, 正文加粗
     lark_ok = False
     if lark_on and lark_webhook and not mute_lark:
-        from backend.services import lark_notifier
+        from backend.services import card_kit, lark_notifier
         from backend.services import push_pref as _pref_svc
+        # 标题公式(基线v1.1): emoji 事件名 · 标的(代码); 模型名下沉到 header 彩签
+        _subject = f"{name}({code})" if code and name else signal_name
         lark_title, risk_banner = await _risk_deco(
-            f"{DIRECTION_EMOJI.get(direction, '')} {DIRECTION_SHORT.get(direction, '')} · [{signal_name}]")
+            f"{DIRECTION_EMOJI.get(direction, '')} {DIRECTION_SHORT.get(direction, '')} · {_subject}")
         lark_template = lark_notifier.DIRECTION_TEMPLATE.get(direction, "blue")
+        # 信封三件(基线v1.1): 锁屏摘要 + 彩签(模型名/排名)
+        lark_summary = card_kit.summary_text(
+            name, code, signal_name, f"¥{price:.2f}" if price else "",
+            f"{pct_change:+.1f}%" if pct_change else "")
+        _tag_color = {"buy": "red", "sell": "green"}.get(direction, "orange")
+        lark_tags: list = [(signal_name, _tag_color)] if signal_name else []
+        if direction == "buy" and model_stats and model_stats.get("rank_3m"):
+            lark_tags.append((f"第{model_stats['rank_3m']}名", "orange"))
         # 个股信号卡片底部加"查看分时图"按钮, 跳系统分时页 (大盘预警 plunge 不挂个股图)
         link = ""
         site = (load_config().get("site_url", "") or "").rstrip("/")
@@ -627,7 +665,8 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
         if risk_banner:
             elements = [lark_notifier.md_element(risk_banner)] + list(elements)
         lark_ok = await lark_notifier.post_lark_card_v2(
-            lark_webhook, lark_title, elements, lark_template, link_url=link, link_text="查看分时图")
+            lark_webhook, lark_title, elements, lark_template, link_url=link, link_text="查看分时图",
+            summary=lark_summary, text_tags=lark_tags)
         if not lark_ok:
             lark_body = _build_lark_signal(code, name, signal_name, direction, price, detail,
                                            strategy, pct_change, model_stats, basics, sector, background)
@@ -750,9 +789,11 @@ async def send_dual(content: str, *, lark_title: str = "📊 盘面播报",
 
 async def send_dual_card(content: str, *, lark_title: str, elements: list,
                          link_url: str = "", link_text: str = "",
-                         template: str = "blue") -> bool:
+                         template: str = "blue", summary: str = "",
+                         subtitle: str = "", text_tags: list | None = None) -> bool:
     """企微纯文本 + 飞书原生表格卡(schema 2.0, post_lark_card_v2); 飞书表格卡失败回退纯文本卡。
-    给「带表格的合并推送」用(如资金回流·板块预警的自选个股网格)。企微无原生表格, 始终发 content 文本兜底。"""
+    给「带表格的合并推送」用(如资金回流·板块预警的自选个股网格)。企微无原生表格, 始终发 content 文本兜底。
+    summary/subtitle/text_tags 为基线 v1.1 信封字段(锁屏摘要/副标题/彩签), 透传 lark_notifier。"""
     if not await is_production():
         ip = await get_outbound_ip()
         logger.info(f"[send_dual_card] 非生产环境 IP={ip}，跳过推送: {lark_title}")
@@ -770,7 +811,8 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
                 elements = [lark_notifier.md_element(banner)] + list(elements)
             lark_ok = await lark_notifier.post_lark_card_v2(
                 lark_webhook, lark_title, elements, template=template,
-                link_url=link_url, link_text=link_text)
+                link_url=link_url, link_text=link_text,
+                summary=summary, subtitle=subtitle, text_tags=text_tags)
             if not lark_ok:
                 logger.warning(f"[send_dual_card] 飞书表格卡失败, 回退纯文本卡: {lark_title}")
         if not lark_ok:
@@ -778,6 +820,16 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
 
     pp_ok = await _fanout_pushplus(lark_title, body)
     return lark_ok or pp_ok
+
+
+async def send_card(card) -> bool:
+    """card_kit.Card 统一发送出口(基线 v1.1): 飞书结构卡 + PushPlus 用 fallback 纯文本,
+    家族色/摘要/副标题/彩签取自 Card 字段; 风险横幅由 send_dual_card 内自动注入。"""
+    return await send_dual_card(
+        card.fallback, lark_title=card.title, elements=card.elements,
+        link_url=card.link_url, link_text=card.link_text,
+        template=card.template, summary=card.summary,
+        subtitle=card.subtitle, text_tags=card.tags)
 
 
 async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
@@ -946,8 +998,14 @@ async def send_market_report(content: str, slot_name: str, context: dict | None 
             elements = [lark_notifier.md_element(narrative[:3500])] + sig_tables + bt_tables
             if banner:
                 elements = [lark_notifier.md_element(banner)] + elements
+            # 信封(基线v1.1): 锁屏摘要 = 时段 + 信号计数
+            _sig = (context or {}).get("signals_summary") or {}
+            _summ_parts = ["盘面日报", slot_name]
+            if _sig.get("total"):
+                _summ_parts.append(f"信号{_sig['total']}条(买{_sig.get('buy', 0)}卖{_sig.get('sell', 0)})")
             lark_ok = await lark_notifier.post_lark_card_v2(
-                lark_webhook, title, elements, link_url=site_url, link_text="查看完整报告")
+                lark_webhook, title, elements, link_url=site_url, link_text="查看完整报告",
+                summary=" ".join(str(p) for p in _summ_parts if p))
             if not lark_ok:
                 logger.warning("[market_report] 表格卡推送失败, 回退纯文本卡")
         if not lark_ok:
