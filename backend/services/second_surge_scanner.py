@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 # 进程内每日去重: {date_str: set(code)}。跨日自动切换(只留今日一份)。
 _fired_today: dict[str, set] = {}
+# 当日 20 线不上翘被拦下的票: {date_str: set(code)}。MA20 上翘只由已收盘日线决定, 全天恒定,
+# 一旦判不上翘即整天拉黑省得每 tick 重查日线(与 _fired 同套跨日切换)。
+_ma20_blocked: dict[str, set] = {}
 
 
 def _mark_fired(day: str, code: str):
@@ -31,6 +34,17 @@ def _mark_fired(day: str, code: str):
 
 def _already_fired(day: str, code: str) -> bool:
     return code in _fired_today.get(day, set())
+
+
+def _mark_ma20_blocked(day: str, code: str):
+    if day not in _ma20_blocked:
+        _ma20_blocked.clear()         # 跨日: 只留今日
+        _ma20_blocked[day] = set()
+    _ma20_blocked[day].add(code)
+
+
+def _is_ma20_blocked(day: str, code: str) -> bool:
+    return code in _ma20_blocked.get(day, set())
 
 
 def _params() -> dict:
@@ -91,7 +105,8 @@ async def run_second_surge_scan():
         return
 
     day = now.strftime("%Y-%m-%d")
-    codes = [c for c in codes if not _already_fired(day, c)]     # 今日已报的跳过(省算)
+    # 今日已报 / 20线不上翘被拉黑的跳过(省算)
+    codes = [c for c in codes if not _already_fired(day, c) and not _is_ma20_blocked(day, c)]
     if not codes:
         return
 
@@ -107,7 +122,8 @@ async def run_second_surge_scan():
 
     site = (load_config().get("site_url", "") or "").rstrip("/")
     min_amt = float(p.get("min_amount_now", 50_000_000))
-    hits: list[dict] = []
+    # 1) 先跑形态+流动性, 攒出候选(此时先不登记 fired: 还要过 20 线上翘闸门)
+    candidates: list[dict] = []
     for code in codes:
         if pp.surge_snooze_active(prefs, code):
             continue
@@ -121,9 +137,41 @@ async def run_second_surge_scan():
             continue
         if ss.cum_amount(trends) < min_amt:                     # 流动性底线(当日累计成交额)
             continue
-        _mark_fired(day, code)                                  # 每股每天一次(命中即登记)
+        candidates.append({"code": code, "r": r})
+
+    if not candidates:
+        return
+
+    # 2) 20 日均线温和上翘闸门: 只用已收盘日线判趋势(不掺今日盘中价), 一次批量取收盘。
+    #    不上翘 → 今日整天拉黑(MA20 由收盘日线决定, 全天恒定); 日线取数失败/不足则本 tick 不报但不拉黑。
+    if p.get("require_ma20_up", True):
+        lb = int(p.get("ma20_up_lookback", 3))
+        cand_codes = [c["code"] for c in candidates]
+        try:
+            closes_map = await repository.fetch_kline_close_batch(cand_codes, 20 + lb, before=day)
+        except Exception as e:
+            logger.warning(f"[second_surge] 取日线收盘判MA20失败, 本轮跳过: {e}")
+            return
+        kept: list[dict] = []
+        for c in candidates:
+            closes = closes_map.get(c["code"]) or []
+            if len(closes) < 20 + lb:                          # 日线不足(次新等): 本轮不报, 不永久拉黑
+                continue
+            if ss.ma20_rising(closes, lb):
+                kept.append(c)
+            else:
+                _mark_ma20_blocked(day, c["code"])             # 20线掉头, 整天不再算
+        candidates = kept
+        if not candidates:
+            return
+
+    # 3) 过闸的候选: 登记 fired(每股每天一次) + 组卡
+    hits: list[dict] = []
+    for c in candidates:
+        code = c["code"]
+        _mark_fired(day, code)
         hits.append({
-            "name": name_map.get(code, code), "code": code, "r": r,
+            "name": name_map.get(code, code), "code": code, "r": c["r"],
             "action_md": pp.build_surge_actions_md(site, 1, code) if site else "",
         })
 

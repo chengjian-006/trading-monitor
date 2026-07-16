@@ -5,7 +5,7 @@
   放量 ≥vol_mult×基准量 拉升 ≥leg_rise_min → 现价创当日新高(过 H1)。确认后报。
 """
 from backend.services.second_surge import (
-    baseline_vol, detect_second_surge, cum_amount, build_surge_card,
+    baseline_vol, detect_second_surge, cum_amount, build_surge_card, ma20_rising,
 )
 
 # 默认参数(= 生产原设计: 深回落≥1.5% / 放量≥1.8× / 二波涨≥0.8% / 窗口4分钟)
@@ -103,6 +103,28 @@ class TestAmountAndCard:
         assert "2只" in t2
 
 
+class TestMa20Rising:
+    def test_rising_passes(self):
+        # 逐日抬升的收盘(最新在前): 昨收MA20 明显 > 3日前MA20 → 上翘
+        closes = [30 - i * 0.1 for i in range(30)]     # closes[0]=30(最新最高), 越老越低
+        assert ma20_rising(closes, lookback=3) is True
+
+    def test_flat_counts_as_rising(self):
+        # 完全走平: 昨收MA20 == 3日前MA20 → 仍算过(只滤明确掉头)
+        closes = [20.0] * 30
+        assert ma20_rising(closes, lookback=3) is True
+
+    def test_falling_blocked(self):
+        # 逐日下行(最新在前=越新越低): 昨收MA20 < 3日前MA20 → 掉头, 拦下
+        closes = [20 + i * 0.1 for i in range(30)]     # closes[0]=20(最新最低)
+        assert ma20_rising(closes, lookback=3) is False
+
+    def test_insufficient_history_blocked(self):
+        # 不足 20+lookback 根(次新股) → 判不满足(宁缺毋滥)
+        assert ma20_rising([10.0] * 22, lookback=3) is False
+        assert ma20_rising([10.0] * 23, lookback=3) is True
+
+
 class TestScannerDedup:
     def test_daily_dedup_and_crossday_reset(self):
         from backend.services import second_surge_scanner as sc
@@ -115,3 +137,15 @@ class TestScannerDedup:
         assert sc._already_fired("2026-07-08", "600000") is False
         assert sc._already_fired("2026-07-09", "600001") is True
         sc._fired_today.clear()
+
+    def test_ma20_blocked_dedup_and_crossday_reset(self):
+        from backend.services import second_surge_scanner as sc
+        sc._ma20_blocked.clear()
+        sc._mark_ma20_blocked("2026-07-08", "600000")
+        assert sc._is_ma20_blocked("2026-07-08", "600000") is True
+        assert sc._is_ma20_blocked("2026-07-08", "600001") is False
+        # 跨日: 新日期首次登记应清掉昨日
+        sc._mark_ma20_blocked("2026-07-09", "600001")
+        assert sc._is_ma20_blocked("2026-07-08", "600000") is False
+        assert sc._is_ma20_blocked("2026-07-09", "600001") is True
+        sc._ma20_blocked.clear()

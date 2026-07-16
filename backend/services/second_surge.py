@@ -31,7 +31,25 @@ DEFAULT_PARAMS = {
     "min_amount_now": 50_000_000,  # 触发时累计成交额下限(元, 流动性; 扫描器层用trends估算)
     "start_minute": 585,           # 09:45 起触发(需时间形成第一波+回落; 分钟序号=时*60+分)
     "include_index": True,         # 含概念指数(用户0708: 在池即扫不排除)
+    "require_ma20_up": True,       # 20日均线须温和上翘才报(扫描器层闸门, 见 ma20_rising)
+    "ma20_up_lookback": 3,         # 「上翘」回看天数: 昨收MA20 ≥ 该天数前的MA20(走平也算)
 }
+
+
+def ma20_rising(closes_desc: list[float], lookback: int = 3) -> bool:
+    """20日均线温和上翘: 昨收算的 MA20 ≥ lookback 日前的 MA20(走平也算, 只滤明确掉头)。
+
+    closes_desc = 不含今日的历史日线收盘(最新在前); 需 ≥ 20+lookback 根才判, 不足视为不满足。
+    刻意只用【已收盘】日线判趋势结构, 绝不掺今日盘中现价 —— 二波过前高当天股价本就是涨的,
+    若把今日价算进 MA20 则几乎必然上翘, 闸门形同虚设(见记忆 second-surge-backtest)。
+    """
+    lb = max(1, int(lookback))
+    need = 20 + lb
+    if len(closes_desc) < need:
+        return False
+    ma_now = sum(closes_desc[:20]) / 20            # 昨收算的 MA20
+    ma_prev = sum(closes_desc[lb:lb + 20]) / 20    # lb 日前算的 MA20
+    return ma_now >= ma_prev
 
 
 def cum_amount(trends: list[dict]) -> float:
