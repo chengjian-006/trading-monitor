@@ -3,7 +3,8 @@
 from datetime import date, timedelta
 
 from backend.services.ma_break_watch import (
-    break_streaks, build_watch_card, deepest_broken, find_cost_line, MA_PERIODS, WATCH_MA,
+    break_streaks, build_watch_card, deepest_broken, find_cost_line, recovered_today,
+    MA_PERIODS, WATCH_MA,
 )
 from backend.services import push_pref as pp
 
@@ -224,6 +225,57 @@ def test_watch_filter_semantics_via_streaks():
 
     already = [10.0] * 23 + [9.0, 9.0]                  # 前两日已收在MA20下方
     assert break_streaks(already, price=9.0)[20] >= 2   # 老早破了 → 不再喊
+
+
+# ── 今日收复(解除通知补全): 昨日破位、今日站回所有均线(带缓冲) ──
+
+def test_recovered_today_reports_deepest_yesterday_break():
+    # 昨收9.0 破 MA5/10/20 → 昨日在警戒名单; 今日10.5 站回所有均线且超0.5%缓冲 → 报最深MA20
+    closes = [10.0] * 28 + [9.0]
+    assert recovered_today(closes, price=10.5) == 20
+
+
+def test_recovered_today_none_when_no_yesterday_break():
+    # 昨日没破位(不在警戒名单) → 无所谓收复
+    assert recovered_today([10.0] * 29, price=10.5) is None
+
+
+def test_recovered_today_none_within_buffer():
+    # 今日9.96 已高于MA20(≈9.948)但在0.5%缓冲带内(贴线) → 防贴线反复, 不算收复
+    closes = [10.0] * 28 + [9.0]
+    assert recovered_today(closes, price=9.96) is None
+
+
+def test_recovered_today_none_still_below_some_ma():
+    closes = [10.0] * 28 + [9.0]
+    assert recovered_today(closes, price=9.5) is None
+
+
+def test_recovered_today_none_on_short_history():
+    assert recovered_today([10.0, 9.0], price=10.5) is None
+
+
+def test_card_recovered_section_appended_to_tail():
+    holds = [{"name": "甲", "code": "000001", "price": 10.0, "pct": -1.0,
+              "streaks": {5: 2, 10: 0, 20: 0},
+              "actions_md": "[当日不提醒](http://x)"}]
+    rec = [{"name": "丁", "code": "600000", "ma": 20},
+           {"name": "戊", "code": "600001", "ma": 5}]
+    card = build_watch_card(holds, [], rec)
+    joined = str(card.elements)
+    assert "今日收复" in joined
+    assert "丁（收回MA20上方）" in joined and "戊（收回MA5上方）" in joined
+    assert "今日收复" in card.fallback and "丁（收回MA20上方）" in card.fallback
+    # 动作行(快捷链接)仍然永远最后
+    assert "当日不提醒" in card.elements[-1]["content"]
+
+
+def test_card_no_recovered_section_when_empty():
+    holds = [{"name": "甲", "code": "000001", "price": 10.0, "pct": -1.0,
+              "streaks": {5: 2, 10: 0, 20: 0}, "actions_md": ""}]
+    card = build_watch_card(holds)
+    assert "今日收复" not in str(card.elements)
+    assert "今日收复" not in card.fallback
 
 
 # ── 基线 v1.1 Card 结构: 家族色 / 短表 / 折叠长值 / 动作行 ──

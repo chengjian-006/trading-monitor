@@ -12,7 +12,12 @@
 
 熄火(任一): ① 持仓消失(卖了) ② 现价站回首次止损价上方 ③ 用户点"当日/本周不提醒"(stop_snooze)。
 
-本模块纯逻辑(连续天数/累计多亏/站回判定/文案)可单测; DB 取信号持仓 + 定时编排在下半段。
+解除通知(v1.7.642 补全审计): 熄火①②达成时补发一张 dismiss_card 形态的灰卡「✅ 预警解除 ·
+止损压力 · 股票名」收尾(③静音是用户主动闭嘴, 不发)。每个升级 episode 只发一次; 站回解除
+防抖 = 超首止损价 1% 缓冲立即确认, 或缓冲带内连续 2 个检查点(09:30/11:20)确认, 防贴线反复。
+跨日状态(曾升级/站回检查点/已解除)落 cfzy_biz_guard_throttle(重启不丢、不重复发)。
+
+本模块纯逻辑(连续天数/累计多亏/站回判定/解除防抖/文案)可单测; DB 取信号持仓 + 定时编排在下半段。
 """
 from __future__ import annotations
 
@@ -20,6 +25,13 @@ from __future__ import annotations
 HARD_STOP_IDS = ("SELL_WEAK_STOP", "SELL_LOSS_5", "SELL_LOSS_8", "SELL_LOSS_10")
 
 ESCALATE_N_DAYS = 2   # 连续 ≥N 个交易日仍触发 → 升级
+
+STOP_DISMISS_BUFFER = 0.01   # 站回解除缓冲: 现价超首止损价 1% → 立即确认(免等第2检查点)
+
+# guard_throttle 跨日标记 rule 名(解除通知用, 与 holding_guard 的规则键不冲突)
+_GT_ESC = "stop_esc"                    # 升级红卡已发(episode 活跃标记, 活跃期间每日续写)
+_GT_RECOVER_CK = "stop_esc_recover"     # 站回检查点计数(缓冲带内连续确认用, 跌回即清)
+_GT_DISMISSED = "stop_esc_dismissed"    # 解除灰卡已发(≥最近一次升级标记日 = 本轮已解除)
 
 
 # ══════════════ 纯函数(可单测) ══════════════
@@ -68,6 +80,53 @@ def extra_loss(first_stop_price: float, current_price: float, qty: int) -> int:
 def price_recovered(current_price: float, first_stop_price: float) -> bool:
     """现价站回首次止损价上方 → 熄火。"""
     return current_price > first_stop_price
+
+
+def dismiss_confirmed(current_price: float, first_stop_price: float,
+                      prev_checkpoints: int, buffer: float = STOP_DISMISS_BUFFER) -> bool:
+    """站回解除防抖: 未站回一律 False; 超首止损价 buffer 缓冲立即确认;
+    缓冲带内(贴线)需此前已有 ≥1 个站回检查点(即本次为连续第 2 个)才确认。"""
+    if current_price <= first_stop_price:
+        return False
+    if current_price > first_stop_price * (1 + buffer):
+        return True
+    return prev_checkpoints >= 1
+
+
+def active_days_between(first_date: str, trading_days_desc: list[str]) -> int:
+    """首次止损日(含)至今的交易日数, 解除卡"生效 N 个交易日"用; 至少 1。"""
+    return max(1, sum(1 for d in trading_days_desc if d >= first_date))
+
+
+def build_stop_dismiss_card(*, name: str, code: str, reason: str,
+                            first_stop_date: str, first_stop_price: float,
+                            current_price: float, days_active: int):
+    """止损压力解除灰卡(card_kit.dismiss_card 标准型)。reason: 'recovered'站回 | 'sold'持仓已清。
+
+    防抖由调用方保证(dismiss_confirmed); 持仓消失是确定性事实, 无需防抖。每 episode 只发一次。"""
+    from backend.services.card_kit import dismiss_card
+
+    try:
+        m, d = int(first_stop_date[5:7]), int(first_stop_date[8:10])
+        issued = f"{m}月{d}日"
+    except (ValueError, IndexError):
+        issued = first_stop_date
+    if reason == "sold":
+        cond = "持仓已清出（交割单导入确认），止损压力随仓位消除"
+        if current_price > 0:
+            cond += f"；现价 ¥{current_price:.2f}，首次止损价 ¥{first_stop_price:.2f}"
+        advice = "已离场，本票止损升级提醒结束"
+        period = ""
+    else:
+        pct = (current_price / first_stop_price - 1) * 100 if first_stop_price > 0 else 0.0
+        cond = (f"现价 **¥{current_price:.2f}** 站回首次止损价 ¥{first_stop_price:.2f} 上方"
+                f"（{pct:+.1f}%，超1%缓冲或连续2检查点确认，防贴线反复）")
+        advice = "止损压力解除，恢复正常持有策略"
+        period = f"首止损价 ¥{first_stop_price:.2f} → 现价 ¥{current_price:.2f}"
+    return dismiss_card(
+        f"止损压力 · {name}({code})",
+        issued_str=issued, days_active=days_active,
+        condition_md=cond, period_md=period, advice_text=advice)
 
 
 def build_escalation_card(*, name: str, code: str, day_n: int,
@@ -137,6 +196,69 @@ import logging  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
+async def _episode_active(code: str) -> bool:
+    """该股是否有'已发升级红卡且尚未解除'的活跃 episode(guard_throttle 跨日标记)。"""
+    from backend.models.repo import guard_throttle as gt
+    esc_d = await gt.last_date(code, _GT_ESC)
+    if not esc_d:
+        return False
+    dis_d = await gt.last_date(code, _GT_DISMISSED)
+    return not (dis_d and dis_d >= esc_d)
+
+
+async def _send_dismiss(code: str, card, today: str) -> None:
+    """发解除灰卡: 先记'已解除'标记再推(照'先落库再推'模式, 防发送后标记失败重复发)。"""
+    from backend.models.repo import guard_throttle as gt
+    from backend.services import notifier
+    await gt.bump(today, code, _GT_DISMISSED, None)
+    await gt.clear(code, _GT_RECOVER_CK)
+    await notifier.send_card(card)
+
+
+async def _dismiss_recovered(code: str, name: str, price: float,
+                             first: dict, tdays: list[str], today: str) -> None:
+    """熄火②站回的解除分支: 防抖(超1%缓冲 或 缓冲带内连续第2个检查点)确认后发灰卡, 每 episode 一次。"""
+    from backend.models.repo import guard_throttle as gt
+    if not await _episode_active(code):
+        return
+    first_price = float(first.get("price") or 0)
+    prev_ck = await gt.total_cnt(code, _GT_RECOVER_CK)
+    if not dismiss_confirmed(price, first_price, prev_ck):
+        await gt.bump(today, code, _GT_RECOVER_CK, None)   # 贴线带内: 只记检查点, 下次连续再确认
+        return
+    first_date = str(first["d"])[:10]
+    card = build_stop_dismiss_card(
+        name=name, code=code, reason="recovered",
+        first_stop_date=first_date, first_stop_price=first_price,
+        current_price=price, days_active=active_days_between(first_date, tdays))
+    await _send_dismiss(code, card, today)
+    logger.info(f"[stop_escalation] 解除(站回): {name}({code}) 现价{price} > 首止损{first_price}")
+
+
+async def _dismiss_sold(code: str, quote: dict, tdays: list[str],
+                        today: str, user_id: int) -> None:
+    """熄火①持仓消失的解除分支: 曾升级、持仓已清 → 发一次解除灰卡(确定性事实, 无需防抖)。"""
+    from backend.models import repository
+    if not await _episode_active(code):
+        return
+    fires = await repository.get_stop_fires_by_code(code, list(HARD_STOP_IDS), user_id, days=30)
+    if not fires:
+        return
+    first = fires[0]
+    first_price = float(first.get("price") or 0)
+    if first_price <= 0:
+        return
+    first_date = str(first["d"])[:10]
+    name = quote.get("name") or code
+    card = build_stop_dismiss_card(
+        name=name, code=code, reason="sold",
+        first_stop_date=first_date, first_stop_price=first_price,
+        current_price=float(quote.get("price") or 0),
+        days_active=active_days_between(first_date, tdays))
+    await _send_dismiss(code, card, today)
+    logger.info(f"[stop_escalation] 解除(持仓消失): {name}({code})")
+
+
 async def stop_escalation_tick():
     """定时(09:30 / 11:20)扫真实持仓的硬止损未执行升级。只推送, 不落信号库(不污染胜率)。"""
     from backend.core.trading_calendar import is_workday
@@ -157,7 +279,16 @@ async def stop_escalation_tick():
         logger.warning(f"[stop_escalation] 取持仓失败: {e}")
         return
     codes = [c for c in qty_map if qty_map.get(c, 0) > 0]
-    if not codes:
+
+    # 解除①候选: 曾发升级红卡(guard_throttle 标记)、持仓已消失(卖了) → 补发解除灰卡
+    from backend.models.repo import guard_throttle as gt
+    try:
+        gone = [c for c in await gt.recent_rule_codes(_GT_ESC, days=7)
+                if qty_map.get(c, 0) <= 0]
+    except Exception as e:
+        logger.warning(f"[stop_escalation] 取升级标记失败: {e}")
+        gone = []
+    if not codes and not gone:
         return
 
     try:
@@ -165,13 +296,24 @@ async def stop_escalation_tick():
     except Exception:
         prefs = []
     try:
-        quotes = await data_fetcher.get_realtime_quotes(codes)
+        quotes = await data_fetcher.get_realtime_quotes(codes + gone)
     except Exception as e:
         logger.warning(f"[stop_escalation] 取现价失败: {e}")
         return
 
     tdays = recent_trading_days_desc(30)
     site = (load_config().get("site_url", "") or "").rstrip("/")
+    from datetime import date as _date
+    today = _date.today().isoformat()
+
+    # 解除①: 持仓消失(确定性事实, 无需防抖); 熄火③静音的票不发(用户主动闭嘴)
+    for code in gone:
+        if pp.stop_snooze_active(prefs, code):
+            continue
+        try:
+            await _dismiss_sold(code, quotes.get(code) or {}, tdays, today, user_id)
+        except Exception as e:
+            logger.warning(f"[stop_escalation] 解除卡(持仓消失)失败({code}): {e}")
 
     for code in codes:
         # 用户已标记该票为已卖出 → 跳过所有卖出/持仓类提醒
@@ -194,17 +336,21 @@ async def stop_escalation_tick():
         if not fires:
             continue
 
-        fire_dates = {str(f["d"])[:10] for f in fires}
-        run = consecutive_stop_days(fire_dates, tdays)
-        if not should_escalate(run):
-            continue
-
         first = fires[0]                                   # 最早一条 = 首次止损
         first_price = float(first.get("price") or 0)
         if first_price <= 0:
             continue
-        # 熄火②: 现价已站回首次止损价上方
+        # 熄火②: 现价已站回首次止损价上方 → 不推红卡; 有活跃升级 episode 则走解除分支(防抖)
         if price_recovered(price, first_price):
+            try:
+                await _dismiss_recovered(code, name, price, first, tdays, today)
+            except Exception as e:
+                logger.warning(f"[stop_escalation] 解除卡(站回)失败({code}): {e}")
+            continue
+
+        fire_dates = {str(f["d"])[:10] for f in fires}
+        run = consecutive_stop_days(fire_dates, tdays)
+        if not should_escalate(run):
             continue
 
         qty = int(qty_map.get(code, 0))
@@ -228,3 +374,10 @@ async def stop_escalation_tick():
             await notifier.send_card(card)
         except Exception as e:
             logger.warning(f"[stop_escalation] 推送失败({code}): {e}")
+            continue
+        # 解除通知跨日标记: 红卡已发(episode 活跃续写) + 价仍在首止损下方 → 站回检查点断链重置
+        try:
+            await gt.bump(today, code, _GT_ESC, None)
+            await gt.clear(code, _GT_RECOVER_CK)
+        except Exception as e:
+            logger.warning(f"[stop_escalation] 升级标记落库失败({code}): {e}")

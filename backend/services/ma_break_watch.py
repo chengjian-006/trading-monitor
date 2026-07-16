@@ -82,6 +82,30 @@ def find_cost_line(closes: list[float], highs: list[float], lows: list[float],
     return None
 
 
+RECOVER_BUFFER = 0.005   # 收复确认缓冲: 现价须高于所有均线 0.5%(防贴线反复, 解除通知铁律)
+
+
+def recovered_today(closes: list[float], price: float) -> int | None:
+    """今日收复判定(解除通知补全): 昨日收盘有均线破位(=昨日在警戒名单)、今日尾盘现价
+    站回【所有】均线上方且超 RECOVER_BUFFER 缓冲 → 返回昨日最深破位周期(供"收回MAxx上方"文案);
+    否则 None。closes: 不含今日的历史收盘(升序, 末位=昨收); price: 今日尾盘现价。
+
+    缓冲带内(高于线但 <0.5%)不算收复(既不在破位名单也不报收复, 次日再看), 防贴线反复横跳。"""
+    if len(closes) < 2 or price <= 0:
+        return None
+    deep = deepest_broken(break_streaks(closes[:-1], closes[-1]))
+    if deep is None:
+        return None
+    m = len(closes)
+    for n in MA_PERIODS:
+        if m < n - 1:
+            continue
+        ma_today = (sum(closes[-(n - 1):]) + price) / n if n > 1 else price
+        if price < ma_today * (1 + RECOVER_BUFFER):
+            return None
+    return deep
+
+
 def _streak_label(n: int, days: int) -> str:
     return f"破MA{n}·今日新破" if days == 1 else f"破MA{n}·连续{days}日"
 
@@ -104,7 +128,8 @@ def _short_mark(deep: int | None, days: int, cost: dict | None) -> str:
     return "+".join(parts)
 
 
-def build_watch_card(items: list[dict], watch_items: list[dict] | None = None):
+def build_watch_card(items: list[dict], watch_items: list[dict] | None = None,
+                     recovered_items: list[dict] | None = None):
     """合并警戒卡(基线 v1.1) → card_kit.Card, family=exit(green, 离场族), 经 notifier.send_card 发送。
 
     items(持仓段) 每项:
@@ -115,6 +140,10 @@ def build_watch_card(items: list[dict], watch_items: list[dict] | None = None):
     watch_items(自选段, v1.7.606) 每项:
       {name, code, price, pct, dist_pct(距MA20 %), model(当初买点中文名), model_at(触发日)}
       只收【今日新跌破 MA20】, 只在转弱当天报这一次。
+
+    recovered_items(今日收复段, v1.7.642 解除通知补全) 每项: {name, code, ma(昨日最深破位周期)}
+      昨日在警戒名单、今日收盘站回所有均线(超0.5%缓冲, 见 recovered_today)的持仓票;
+      并入本卡尾部一行"✅ 今日收复", 不单发卡(避免新增推送条数)。
 
     排版: 持仓/自选各一张全短列 md_table(股票|涨跌|破位 / 股票|涨跌|当初买点);
     现价/距MA百分比/成本线价格等长值 + 口径说明下沉折叠; 逐票 snooze/已卖出链接放动作行(最后)。
@@ -208,6 +237,12 @@ def build_watch_card(items: list[dict], watch_items: list[dict] | None = None):
         notes.append("自选段=中期趋势转弱，当初买点由信号库反查，仅供复盘重估是否保留，非卖点。")
     detail_parts.append("\n".join(notes))
     elements.append(card_kit.fold("口径与完整明细（现价/距MA/成本线）", "\n\n".join(detail_parts)))
+    # 今日收复段(解除通知补全): 昨日警戒名单内、今日站回所有均线的票, 卡尾一行收口
+    rec_line = ""
+    if recovered_items:
+        rec_line = ("✅ **今日收复**：" + "、".join(
+            f"{r['name']}（收回MA{r['ma']}上方）" for r in recovered_items))
+        elements.append(md_element(rec_line))
     if action_lines:                  # 快捷动作行(逐票 ma_watch_snooze + 已卖出)永远最后
         elements.append(md_element("\n".join(action_lines)))
 
@@ -222,6 +257,8 @@ def build_watch_card(items: list[dict], watch_items: list[dict] | None = None):
         fb_notes.append("均线同破多档只报最深；🔴主力成本区=放量起涨K线最低价(跌破=资金弃守,仅提示非硬卖点)；收复自动消失。")
     if wlines:
         fb_notes.append("自选段=中期趋势转弱, 仅供复盘重估是否保留, 非卖点。")
+    if rec_line:
+        parts.append(rec_line)
     fallback = "\n\n".join(parts) + "\n\n" + " ".join(fb_notes)
 
     summary_segs = " ".join(segs) if segs else "0只"
@@ -342,6 +379,7 @@ async def run_ma_break_watch():
     site = (load_config().get("site_url", "") or "").rstrip("/")
     today = _date.today().isoformat()
     items: list[dict] = []
+    recovered_items: list[dict] = []
     for code in codes:
         if pp.ma_watch_snooze_active(prefs, code):
             continue
@@ -372,8 +410,11 @@ async def run_ma_break_watch():
                             [float(x) for x in d["volume"].tolist()])
         if cl and price < cl["low"]:
             cost_break = {"price": cl["low"], "date": str(d["date"].iloc[cl["idx"]])[:10]}
-        # 入卡 = 破均线 或 跌破成本线
+        # 入卡 = 破均线 或 跌破成本线; 都没有 → 判"今日收复"(昨日警戒名单内、今日站回所有均线)
         if not any(v > 0 for v in streaks.values()) and not cost_break:
+            rec_ma = recovered_today(closes, price)
+            if rec_ma is not None:
+                recovered_items.append({"name": q.get("name") or code, "code": code, "ma": rec_ma})
             continue
         actions_md = pp.build_ma_watch_actions_md(site, user_id, code) if site else ""
         sold_md = pp.build_mark_sold_md(site, user_id, code, q.get("name") or code)
@@ -387,14 +428,18 @@ async def run_ma_break_watch():
         })
 
     if not items and not watch_items:
+        if recovered_items:   # 今日收复只并入既有警戒卡, 不单发(避免新增推送条数)
+            logger.info(f"[ma_break_watch] 今日无破位警戒, {len(recovered_items)} 只收复不单发卡: "
+                        + "、".join(r["name"] for r in recovered_items))
         return
     # 排序: 跌破成本线(资金弃守,最重)优先 → 再按最深破位均线周期 → 连续天数
     items.sort(key=lambda it: (1 if it.get("cost_break") else 0,
                                deepest_broken(it["streaks"]) or 0,
                                it["streaks"].get(deepest_broken(it["streaks"]) or 0, 0)),
                reverse=True)
-    card = build_watch_card(items, watch_items)
-    logger.info(f"[ma_break_watch] 持仓破位 {len(items)} 只, 自选今日新破MA20 {len(watch_items)} 只")
+    card = build_watch_card(items, watch_items, recovered_items)
+    logger.info(f"[ma_break_watch] 持仓破位 {len(items)} 只, 自选今日新破MA20 {len(watch_items)} 只, "
+                f"今日收复 {len(recovered_items)} 只")
     try:
         await notifier.send_card(card)
     except Exception as e:

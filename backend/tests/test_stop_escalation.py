@@ -71,6 +71,80 @@ class TestPriceRecovered:
         assert se.price_recovered(147.03, 147.03) is False
 
 
+class TestDismissConfirmed:
+    """站回解除防抖: 超首止损价1%缓冲立即确认; 缓冲带内需连续第2个检查点; 未站回一律 False。"""
+
+    def test_below_first_stop_never_confirms(self):
+        assert se.dismiss_confirmed(140.0, 147.03, prev_checkpoints=5) is False
+
+    def test_equal_first_stop_not_confirmed(self):
+        assert se.dismiss_confirmed(147.03, 147.03, prev_checkpoints=5) is False
+
+    def test_above_buffer_confirms_immediately(self):
+        # 147.03 * 1.01 = 148.5003 → 148.51 超缓冲, 无需历史检查点
+        assert se.dismiss_confirmed(148.51, 147.03, prev_checkpoints=0) is True
+
+    def test_in_band_first_checkpoint_not_confirmed(self):
+        # 站回但在1%缓冲带内(贴线), 第一个检查点只记数不解除
+        assert se.dismiss_confirmed(147.50, 147.03, prev_checkpoints=0) is False
+
+    def test_in_band_second_checkpoint_confirms(self):
+        # 缓冲带内, 此前已有≥1个站回检查点 → 连续第2个确认解除
+        assert se.dismiss_confirmed(147.50, 147.03, prev_checkpoints=1) is True
+
+
+class TestActiveDaysBetween:
+    DAYS = ["2026-06-19", "2026-06-18", "2026-06-17", "2026-06-16", "2026-06-15"]
+
+    def test_counts_trading_days_from_first_stop(self):
+        assert se.active_days_between("2026-06-17", self.DAYS) == 3   # 17/18/19
+
+    def test_same_day_is_one(self):
+        assert se.active_days_between("2026-06-19", self.DAYS) == 1
+
+    def test_never_below_one(self):
+        assert se.active_days_between("2026-06-30", self.DAYS) == 1
+
+
+class TestBuildStopDismissCard:
+    def _card(self, reason="recovered", current_price=148.60):
+        return se.build_stop_dismiss_card(
+            name="阳光电源", code="300274", reason=reason,
+            first_stop_date="2026-06-12", first_stop_price=147.03,
+            current_price=current_price, days_active=4)
+
+    def test_grey_system_family_dismiss_form(self):
+        card = self._card()
+        assert card.family == "system" and card.template == "grey"
+        assert card.tags == [("已解除", "grey")]
+
+    def test_title_names_pressure_and_stock(self):
+        card = self._card()
+        assert "解除" in card.title and "止损压力" in card.title
+        assert "阳光电源(300274)" in card.title
+
+    def test_subtitle_timeline_days_active(self):
+        card = self._card()
+        assert "生效 4 个交易日" in card.subtitle and "6月12日" in card.subtitle
+
+    def test_recovered_condition_has_prices(self):
+        card = self._card()
+        joined = str(card.elements)
+        assert "站回" in joined
+        assert "¥148.60" in joined and "¥147.03" in joined     # 现价 vs 首止损价
+        assert "148.60" in card.fallback and "147.03" in card.fallback
+
+    def test_sold_condition_wording(self):
+        card = self._card(reason="sold")
+        joined = str(card.elements)
+        assert "持仓已清" in joined
+        assert "持仓已清" in card.fallback
+
+    def test_summary_for_lockscreen(self):
+        card = self._card()
+        assert "阳光电源" in card.summary and "解除" in card.summary
+
+
 class TestBuildEscalationCard:
     def _card(self):
         return se.build_escalation_card(
