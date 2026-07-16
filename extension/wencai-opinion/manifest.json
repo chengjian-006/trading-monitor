@@ -17,6 +17,12 @@
     }
   ],
   "background": { "service_worker": "background.js" },
+  "commands": {
+    "ask-preset": {
+      "suggested_key": { "default": "Alt+Shift+W" },
+      "description": "问财观点：问第一条预置问题（在问财页走前台浮层，否则后台跑）"
+    }
+  },
   "permissions": ["storage", "alarms", "cookies", "notifications"],
   "host_permissions": [
     "https://www.iwencai.com/*",

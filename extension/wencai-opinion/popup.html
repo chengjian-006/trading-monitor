@@ -6,21 +6,24 @@
 </head>
 <body>
   <div class="hd">💡 问财观点 · 设置</div>
+  <div class="quota" id="quota">额度加载中…</div>
 
   <div class="sec">
     <div class="row"><label>后台问一句（不用开问财页）</label></div>
     <div id="askBtns" class="askbtns"></div>
-    <div class="row2">
-      <input id="askInput" type="text" placeholder="或输入自定义问题…">
-      <button id="askGo" class="btn sm">问</button>
-    </div>
+    <div class="row2"><input id="askInput" type="text" placeholder="或输入自定义问题…"><button id="askGo" class="btn sm">问</button></div>
     <div id="askStatus" class="status"></div>
   </div>
 
   <div class="sec">
+    <div class="row"><label>最近问答（点击重看）</label></div>
+    <div id="history" class="history"><span class="muted">暂无</span></div>
+  </div>
+
+  <div class="sec">
     <div class="row"><label>服务器地址</label><input id="serverUrl" type="text" placeholder="http://124.71.75.5"></div>
-    <div class="row"><label>上报密钥 token</label><input id="token" type="text" placeholder="向管理员索取 / 分发包已预填"></div>
-    <div class="row"><label>我的昵称（观点卡显示是谁问的）</label><input id="uploader" type="text" placeholder="选填，如：老王"></div>
+    <div class="row"><label>上报密钥 token</label><input id="token" type="text" placeholder="分发包已预填，一般不用动"></div>
+    <div class="row"><label>我的昵称（留空自动用同花顺账号号）</label><input id="uploader" type="text" placeholder="选填，如：老王"></div>
   </div>
 
   <div class="sec">
@@ -41,10 +44,7 @@
       <textarea id="schedQuestions" rows="2" placeholder="留空则跑第一条预置问题"></textarea></div>
   </div>
 
-  <div class="foot">
-    <button id="save" class="btn">保存设置</button>
-    <span id="saveMsg" class="savemsg"></span>
-  </div>
+  <div class="foot"><button id="save" class="btn">保存设置</button><span id="saveMsg" class="savemsg"></span></div>
   <script src="popup.js"></script>
 </body>
 </html>

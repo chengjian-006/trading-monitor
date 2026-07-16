@@ -339,7 +339,7 @@ async def ingest_opinion(req: OpinionIngestRequest):
         0, question, answer, stocks, (req.agent_mode or "").strip(),
         (req.trace_id or "").strip(), (req.uploader or "").strip())
     return {"ok": True, "id": oid, "stock_count": len(stocks),
-            "stocks": [s["name"] for s in stocks]}
+            "stocks": [s["name"] for s in stocks], "stock_items": stocks}
 
 
 @router.get("/opinions")
