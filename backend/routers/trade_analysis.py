@@ -107,6 +107,15 @@ async def _import_and_analyze(user_id: int, new_trades: list[dict]) -> dict:
             holdings[code] = {"name": info["name"], "quantity": info["still_holding"]}
     await repository.sync_positions_from_trades(user_id, holdings)
 
+    # 自动归位: 交割单是持仓真相。若某票导入后仍/又持有(holding>0), 撤销其「已卖出」手动标记,
+    # 让它重回持仓被跟踪(处理「先手点已卖出→后来又买回并导入」)。真卖掉的(holding=0)标记留着无害。
+    try:
+        from backend.models.repo import push_pref as pref_repo
+        for code in holdings:
+            await pref_repo.revoke_kind(user_id, "mark_sold", code)
+    except Exception as e:
+        logger.warning(f"[trade_analysis] 撤销已卖出标记失败: {e}")
+
     # 导入后重建交易回合改后台执行: 逐股串行写远程库要40秒+, 同步做会把导入请求
     # 拖到超过前端超时(误报"请求失败"); 回合只供收益分析页, 晚几十秒就绪可接受
     _schedule_rounds_rebuild(user_id)

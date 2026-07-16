@@ -602,6 +602,11 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
             link = f"{site}/intraday?code={code}&name={quote(name)}"
         # 快捷设置动作行(今日免打扰/个股静音/关模型/标记已处理), 走带签名的 /api/quick 链接
         quick_md = _pref_svc.build_quick_actions_md(site, user_id or 1, code, signal_id, direction)
+        # 卖出/减仓类卡加「已卖出」: 点了这只票从持仓消失 + 压后续卖出/减仓/持仓提醒(买点仍照常)
+        if direction in ("sell", "reduce") and code:
+            sold_md = _pref_svc.build_mark_sold_md(site, user_id or 1, code, name)
+            if sold_md:
+                quick_md = f"{quick_md}　·　{sold_md}" if quick_md else sold_md
         # v2 卡(战绩走原生表格); 失败回退旧 markdown 卡
         elements = _build_signal_elements(code, name, signal_name, direction, price, detail,
                                           strategy, pct_change, model_stats, basics, sector, background)

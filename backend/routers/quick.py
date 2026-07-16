@@ -99,6 +99,16 @@ async def quick_set(
     if k == "mute":
         await _send_mute_recovery(u)
 
+    # 标记已卖出: 顺手把这只票从持仓降级为观察(status hold→watch), 立即从持仓列表/浮盈消失,
+    # 且 scanner「非持仓票只推买点」自动压掉后续卖出/减仓/止盈卡。留在自选, 买点仍照常提醒。
+    # 真实归位靠明日导入交割单(见 trade_analysis 的自动撤销); 手动纠正可去设置页撤销本条。
+    if k == "mark_sold" and t:
+        try:
+            from backend.models import repository
+            await repository.update_stock(t, u, status="watch")
+        except Exception as e:
+            logger.warning(f"[quick] 标记已卖出翻转持仓状态失败({t}): {e}")
+
     label = _KIND_LABEL.get(k, k)
     if k == "mute":
         detail = "今天剩余的飞书推送已静音，明日自动恢复。"
@@ -116,7 +126,7 @@ async def quick_set(
         _code = t.split("|", 1)[0]
         detail = f"已静音 {_code}，直到它安静≥1个交易日后再次触发该买点时才重新提醒。"
     elif k == "mark_sold":
-        detail = f"已标记 {t} 为已卖出，后续不再推送该票的卖出/持仓提醒。导入新交割单买入后自动恢复。"
+        detail = f"已标记 {t} 为已卖出，已从持仓列表移出（转为自选观察），不再推送该票的卖出/减仓/持仓提醒。导入新交割单后自动归位。"
     else:  # ack
         detail = "该信号已标记处理，当日不再重复提醒。"
     return _confirm_page(f"已设置：{label}", detail)

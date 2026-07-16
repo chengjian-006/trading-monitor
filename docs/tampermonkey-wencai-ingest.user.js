@@ -125,25 +125,18 @@
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  async function runAll(silent) {
+  // 跑指定的一批语句(每条: fetch问财→normalize→上报), 汇总弹窗。
+  async function runList(queries, silent) {
     const log = [];
     if (!getCookie('v')) { const m = '⚠️ 没取到 v cookie, 请确认已登录 iwencai'; if (!silent) alert(m); return; }
-    if (INGEST_TOKEN === 'PUT_YOUR_TOKEN_HERE') { alert('请先在脚本里填 INGEST_TOKEN'); return; }
-
-    let queries;
-    try {
-      const r = await gmPost('/api/wencai/ingest/queries', { token: INGEST_TOKEN });
-      queries = r.queries || [];
-    } catch (e) { const m = '拉语句清单失败: ' + e.message; if (!silent) alert(m); console.error('[wencai]', m); return; }
-    if (!queries.length) { if (!silent) alert('服务器没有启用的选股语句'); return; }
-
+    if (!queries.length) { if (!silent) alert('没有可跑的语句'); return; }
     for (let i = 0; i < queries.length; i++) {
       const q = queries[i];
       if (i > 0) await sleep(QUERY_INTERVAL_MS);
       try {
         const answer = await fetchWencai(q.query);
         const datas = findDatas(answer, 0);
-        if (!datas) { log.push('· ' + q.name + ': 无结果(风控或无匹配)'); continue; }
+        if (!datas) { log.push('· ' + q.name + ': 无结果(语句非筛选条件, 或风控/无匹配)'); continue; }
         const items = normalize(datas);
         const res = await gmPost('/api/wencai/ingest', {
           token: INGEST_TOKEN, strategy_id: q.strategy_id, strategy_name: q.name,
@@ -160,5 +153,32 @@
     if (!silent) alert(summary);
   }
 
-  GM_registerMenuCommand('▶ 跑问财选股并上报', () => runAll(false));
+  // 页面加载时拉一次语句清单, 为「全部 / 只跑自定义 / 每条单独」各注册一个油猴菜单命令,
+  // 这样想跑哪条点哪条, 不必每次全跑一遍(降风控 + 省时)。语句在系统里增删改, 刷新菜单即同步。
+  async function loadMenu() {
+    if (INGEST_TOKEN === 'PUT_YOUR_TOKEN_HERE') {
+      GM_registerMenuCommand('⚠️ 请先在脚本里填 INGEST_TOKEN', () => {});
+      return;
+    }
+    let queries = [];
+    try {
+      const r = await gmPost('/api/wencai/ingest/queries', { token: INGEST_TOKEN });
+      queries = r.queries || [];
+    } catch (e) {
+      GM_registerMenuCommand('↻ 拉语句清单失败, 点此重试', () => location.reload());
+      console.error('[wencai] 拉清单失败', e);
+      return;
+    }
+    GM_registerMenuCommand('▶ 跑全部语句 (' + queries.length + '条)', () => runList(queries, false));
+    const custom = queries.filter((q) => /^u\d+_q/.test(q.strategy_id));
+    if (custom.length) {
+      GM_registerMenuCommand('▶ 只跑我的自定义 (' + custom.length + '条)', () => runList(custom, false));
+    }
+    for (const q of queries) {
+      GM_registerMenuCommand('　└ 只跑: ' + q.name, () => runList([q], false));
+    }
+    GM_registerMenuCommand('↻ 刷新语句菜单(改了语句后点)', () => location.reload());
+  }
+
+  loadMenu();
 })();

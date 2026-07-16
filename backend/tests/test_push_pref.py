@@ -114,3 +114,42 @@ class TestStopSnooze:
                                                  today=date(2026, 6, 19))
         assert "当日不提醒" in md and "本周不提醒" in md
         assert md.count("k=stop_snooze") == 2 and md.count("t=300274") == 2 and "sig=" in md
+
+
+class TestMarkSold:
+    """已卖出标记: 点了→这只票从持仓消失(status翻watch, 在端点侧)+压所有卖出/持仓类提醒。
+    与 decide() 隔离: 买点照常推(卖了还能盯着再进)。"""
+
+    def test_mark_sold_is_valid_kind(self):
+        assert "mark_sold" in pp.VALID_KINDS
+
+    def test_until_far_future(self):
+        d = date(2026, 7, 16)
+        # 远期占位: 靠手动撤销 / 导入新交割单归位, 非日期过期
+        assert pp.until_for("mark_sold", 365, today=d) > date(2036, 1, 1)
+
+    def test_active_for_matching_code(self):
+        prefs = [{"kind": "mark_sold", "target": "002747"}]
+        assert pp.mark_sold_active(prefs, "002747") is True
+
+    def test_inactive_for_other_code(self):
+        prefs = [{"kind": "mark_sold", "target": "000001"}]
+        assert pp.mark_sold_active(prefs, "002747") is False
+
+    def test_inactive_when_no_prefs(self):
+        assert pp.mark_sold_active([], "002747") is False
+
+    def test_decide_ignores_mark_sold(self):
+        # 关键隔离: 标记已卖出只压卖出/持仓提醒, 不进 decide → 该票买点仍照常推
+        v = pp.decide([{"kind": "mark_sold", "target": "002747"}],
+                      code="002747", signal_id="BUY_RALLY_MA10")
+        assert v["suppress_all"] is False and v["mute_lark"] is False
+
+    def test_button_md_has_signed_mark_sold_link(self):
+        md = pp.build_mark_sold_md("http://x.cn/", user_id=1, code="002747", name="埃斯顿")
+        assert "已卖出" in md
+        assert "k=mark_sold" in md and "t=002747" in md and "sig=" in md
+
+    def test_button_md_empty_without_site_or_code(self):
+        assert pp.build_mark_sold_md("", 1, "002747", "埃斯顿") == ""
+        assert pp.build_mark_sold_md("http://x.cn/", 1, "", "") == ""
