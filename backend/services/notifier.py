@@ -668,7 +668,7 @@ async def send_wechat_markdown(content: str) -> bool:
         return False
     cfg = load_config()
     title, banner = await _risk_deco("📊 盘面分析")
-    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
+    body = (banner + "\n\n" if banner else "") + content
 
     # 飞书走交互卡片, lark_md 渲染 **加粗** (企微 markdown 的加粗语法两边通用)
     lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False), body,
@@ -688,7 +688,7 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
         return False
     cfg = load_config()
     title, banner = await _risk_deco("📊 盘面播报")
-    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
+    body = (banner + "\n\n" if banner else "") + content
 
     lark_ok = False
     if not mute_lark:
@@ -741,7 +741,7 @@ async def send_dual(content: str, *, lark_title: str = "📊 盘面播报",
         return False
     cfg = load_config()
     lark_title, banner = await _risk_deco(lark_title)
-    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
+    body = (banner + "\n\n" if banner else "") + content
     lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False),
                                  body, title=lark_title, template=template)
     pp_ok = await _fanout_pushplus(lark_title, body)
@@ -759,7 +759,7 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
         return False
     cfg = load_config()
     lark_title, banner = await _risk_deco(lark_title)
-    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
+    body = (banner + "\n\n" if banner else "") + content
 
     lark_ok = False
     lark_webhook = cfg.get("lark_webhook", "")
@@ -790,7 +790,7 @@ async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
         logger.info(f"[send_dual_card_to] 非生产环境 IP={ip}，跳过推送: {lark_title}")
         return False
     lark_title, banner = await _risk_deco(lark_title)
-    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
+    body = (banner + "\n\n" if banner else "") + content
 
     lark_ok = False
     if lark_on and lark_webhook:
@@ -963,19 +963,16 @@ def _build_report_text(slot_name: str, context: dict | None, *,
                        include_buy_tracking: bool = True, include_signals: bool = True) -> str:
     """将市场数据构建为纯文本格式摘要。
     include_buy_tracking / include_signals = False 时省略对应段(飞书侧改用原生表格单独渲染)。"""
-    now = datetime.now()
-    lines = [
-        f"🕐 {now.strftime('%H:%M')}",
-        f"📊 盘面日报 — {slot_name}",
-        now.strftime('%Y-%m-%d %H:%M'),
-    ]
+    # 时间/标题不进正文: 飞书卡片标题栏已带「📊 盘面日报 · slot + HH:MM(周x)」, 微信消息自带时间戳(v1.7.634)
+    lines: list[str] = []
 
     if not context:
         return "\n".join(lines)
 
     indices = context.get("indices", [])
     if indices:
-        lines.append("")
+        if lines:
+            lines.append("")
         for i in indices:
             arrow = "📈" if i["pct_change"] > 0 else "📉"
             lines.append(f"{arrow} {i['name']} {i['price']:.2f} ({i['pct_change']:+.2f}%)")
