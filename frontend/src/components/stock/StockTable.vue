@@ -1007,6 +1007,7 @@ const columns = computed(() => allColumns.value)
       :name="alertRow?.name || ''"
       @changed="reloadAlerts"
     />
+    <!-- v1.7.643: virtual-scroll — 187行只渲染视口内~25行, 盘中每3s行情tick的重渲成本降一个量级 -->
     <NDataTable
       :columns="columns"
       :data="stocks"
@@ -1016,6 +1017,7 @@ const columns = computed(() => allColumns.value)
       :row-key="(row: Stock) => row.code"
       :scroll-x="1452"
       flex-height
+      virtual-scroll
       style="flex: 1; min-height: 0"
       :expanded-row-keys="expandedKeys"
       :row-props="rowProps"

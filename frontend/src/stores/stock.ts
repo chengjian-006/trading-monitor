@@ -84,9 +84,13 @@ export const useStockStore = defineStore('stock', () => {
         }
       }
 
-      // Preserve server order
+      // Preserve server order — v1.7.643: 顺序没变就不动(原来每3s都in-place sort, 白触发一轮数组响应式)
       const orderMap = new Map(fresh.map((s, i) => [s.code, i]))
-      stocks.value.sort((a, b) => (orderMap.get(a.code) ?? 0) - (orderMap.get(b.code) ?? 0))
+      const inOrder = stocks.value.every((s, i, arr) =>
+        i === 0 || (orderMap.get(arr[i - 1].code) ?? 0) <= (orderMap.get(s.code) ?? 0))
+      if (!inOrder) {
+        stocks.value.sort((a, b) => (orderMap.get(a.code) ?? 0) - (orderMap.get(b.code) ?? 0))
+      }
 
       // Apply flash
       if (newFlash.size > 0) {

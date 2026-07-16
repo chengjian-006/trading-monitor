@@ -36,6 +36,12 @@ class StockReorderRequest(BaseModel):
     codes: list[str]
 
 
+# v1.7.643: pct_5d 基准价当日进程内缓存 — 「5个交易日前收盘」一整天不变, 原来盘中每3秒的
+# /api/stocks 轮询都对全池(~187码)拉20天K线(跨云RDS大结果集), 纯属重复劳动。
+# 缓存 {code: (ref_close, last_close)}, 日期翻转整体作废; 当日只有缓存缺码(新加票)才查库。
+_PCT5D_CACHE: dict = {"date": "", "refs": {}}
+
+
 async def _attach_pct_5d(stocks: list[dict]) -> None:
     """给每只票算 5 日涨幅 = (最新价 - 5个交易日前收盘) / 5个交易日前收盘 ×100。
     5个交易日前收盘 取自 K线缓存(只为股票池保温, 必有数据)中早于今天的第5根。"""
@@ -43,20 +49,32 @@ async def _attach_pct_5d(stocks: list[dict]) -> None:
     if not codes:
         return
     today = datetime.now().strftime("%Y-%m-%d")
-    min_td = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
-    try:
-        kmap = await repository.fetch_kline_cache_for_codes(codes, min_td)
-    except Exception as e:
-        logger.warning(f"[pct_5d] K线缓存取数失败: {e}")
-        kmap = {}
+    if _PCT5D_CACHE["date"] != today:
+        _PCT5D_CACHE["date"] = today
+        _PCT5D_CACHE["refs"] = {}
+    refs: dict = _PCT5D_CACHE["refs"]
+
+    missing = [c for c in codes if c not in refs]
+    if missing:
+        min_td = (datetime.now() - timedelta(days=20)).strftime("%Y-%m-%d")
+        try:
+            kmap = await repository.fetch_kline_cache_for_codes(missing, min_td)
+        except Exception as e:
+            logger.warning(f"[pct_5d] K线缓存取数失败: {e}")
+            kmap = None
+        if kmap is not None:
+            for c in missing:
+                prev = [k for k in (kmap.get(c) or []) if str(k["trade_date"]) < today]  # 排除今天
+                if len(prev) >= 5:
+                    refs[c] = (float(prev[-5].get("close") or 0),   # 5个交易日前收盘
+                               float(prev[-1].get("close") or 0))   # 最近收盘(price缺失时兜底)
+                else:
+                    refs[c] = (0.0, 0.0)   # 数据不足也缓存, 防每次轮询重查
+
     for s in stocks:
         s["pct_5d"] = None
-        kls = kmap.get(s["code"]) or []
-        prev = [k for k in kls if str(k["trade_date"]) < today]  # 排除今天
-        if len(prev) < 5:
-            continue
-        ref = float(prev[-5].get("close") or 0)               # 5个交易日前收盘
-        price = float(s.get("price") or 0) or float(prev[-1].get("close") or 0)
+        ref, last_close = refs.get(s["code"]) or (0.0, 0.0)
+        price = float(s.get("price") or 0) or last_close
         if ref > 0 and price > 0:
             s["pct_5d"] = round((price - ref) / ref * 100, 2)
 
