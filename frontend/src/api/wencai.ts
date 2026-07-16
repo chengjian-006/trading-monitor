@@ -83,3 +83,30 @@ export async function deleteWencaiQuery(id: number): Promise<{ ok: boolean }> {
   const { data } = await client.delete(`/api/wencai/queries/${id}`)
   return data
 }
+
+// ── 问财观点参考 (v1.7.627): chat 智能调度投顾式推荐存档 ──
+export interface WencaiOpinionStock {
+  code: string
+  name: string
+  primary: boolean
+}
+
+export interface WencaiOpinion {
+  id: number
+  question: string
+  answer_text: string
+  stocks: WencaiOpinionStock[]
+  agent_mode: string
+  trace_id: string
+  created_at: string
+}
+
+export async function listWencaiOpinions(): Promise<{ opinions: WencaiOpinion[] }> {
+  const { data } = await client.get('/api/wencai/opinions')
+  return data
+}
+
+export async function deleteWencaiOpinion(id: number): Promise<{ ok: boolean }> {
+  const { data } = await client.delete(`/api/wencai/opinions/${id}`)
+  return data
+}

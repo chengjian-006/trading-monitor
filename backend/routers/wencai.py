@@ -259,6 +259,95 @@ async def add_to_pool(req: AddToPoolRequest, user: Annotated[dict, Depends(get_c
     return {"ok": True, "added": added, "total": len(req.stocks)}
 
 
+# ── 问财观点参考 (v1.7.627) ──
+# chat「智能调度」投顾式推荐(aime stream-query SSE)的存档: 本地油猴登录态发问、把整段话术上报,
+# 服务器拿话术去撞全市场名称字典抽出被提及的股票。共享密钥鉴权(同 ingest)。是 LLM 观点非回测信号。
+
+_OPINION_MAX_ANSWER = 50000   # 话术封顶(防超大 body); MEDIUMTEXT 够存
+_OPINION_MAX_STOCKS = 12
+_CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
+
+
+async def _extract_stocks(text: str) -> list[dict]:
+    """从投顾话术里撞出被提及的 A 股: ①正文里的 6 位代码 ②全市场名称字典命中(全名 len>=3 防误伤)。
+
+    按出现次数降序、首现位置升序排, 第一只标 primary(主推通常反复提且靠前)。返回 [{code,name,primary}]。
+    """
+    if not text:
+        return []
+    try:
+        names = await repository.all_stock_names()   # [{code, name}]
+    except Exception:
+        names = []
+    code2name = {str(r["code"]): str(r["name"]) for r in names}
+    found: dict[str, dict] = {}   # code -> {code, name, count, idx}
+
+    for m in _CODE_RE.finditer(text):
+        code = m.group(1)
+        if code in code2name:
+            f = found.setdefault(code, {"code": code, "name": code2name[code],
+                                        "count": 0, "idx": m.start()})
+            f["count"] += 1
+            f["idx"] = min(f["idx"], m.start())
+
+    for r in names:
+        nm = str(r["name"])
+        if len(nm) < 3 or nm not in text:
+            continue
+        code = str(r["code"])
+        cnt = text.count(nm)
+        idx = text.find(nm)
+        f = found.get(code)
+        if f:
+            f["count"] += cnt
+            f["idx"] = min(f["idx"], idx)
+        else:
+            found[code] = {"code": code, "name": nm, "count": cnt, "idx": idx}
+
+    ranked = sorted(found.values(), key=lambda x: (-x["count"], x["idx"]))
+    return [{"code": s["code"], "name": s["name"], "primary": i == 0}
+            for i, s in enumerate(ranked[:_OPINION_MAX_STOCKS])]
+
+
+class OpinionIngestRequest(BaseModel):
+    token: str
+    question: str
+    answer_text: str = ""
+    trace_id: str = ""
+    agent_mode: str = ""
+
+
+@router.post("/opinion")
+async def ingest_opinion(req: OpinionIngestRequest):
+    """本地油猴代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
+
+    共享密钥鉴权(同 ingest)。答案话术在油猴里从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
+    """
+    if not _ingest_token_ok(req.token):
+        raise HTTPException(status_code=401, detail="ingest token 无效")
+    question = (req.question or "").strip()[:255]
+    if not question:
+        raise HTTPException(status_code=400, detail="question 为空")
+    answer = (req.answer_text or "").strip()[:_OPINION_MAX_ANSWER]
+    stocks = await _extract_stocks(answer)
+    oid = await repository.insert_wencai_opinion(
+        0, question, answer, stocks, (req.agent_mode or "").strip(), (req.trace_id or "").strip())
+    return {"ok": True, "id": oid, "stock_count": len(stocks),
+            "stocks": [s["name"] for s in stocks]}
+
+
+@router.get("/opinions")
+async def list_opinions(user: Annotated[dict, Depends(get_current_user)]):
+    """问财观点参考列表(全局 + 本人), 按时间倒序。"""
+    return {"opinions": await repository.list_wencai_opinions(user["id"])}
+
+
+@router.delete("/opinions/{opinion_id}")
+async def delete_opinion(opinion_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    await repository.delete_wencai_opinion(opinion_id, user["id"])
+    return {"ok": True}
+
+
 # ── 用户自定义选股语句 ──
 
 @router.get("/queries")

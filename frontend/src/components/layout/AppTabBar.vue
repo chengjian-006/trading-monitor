@@ -24,6 +24,7 @@ const moreGroups = [
       { key: 'signals', label: '监控看板', icon: '📊', path: '/' },
       { key: 'pool', label: '股票池', icon: '📋', path: '/pool' },
       { key: 'wencai', label: '问财候选榜', icon: '🔎', path: '/wencai' },
+      { key: 'wencai-opinion', label: '问财观点', icon: '💡', path: '/wencai-opinion' },
       { key: 'history', label: '信号历史', icon: '🕐', path: '/history' },
       { key: 'signal-config', label: '策略配置', icon: '🎯', path: '/signal-config' },
     ],

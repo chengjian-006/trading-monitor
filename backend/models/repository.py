@@ -119,6 +119,10 @@ from backend.models.repo.wencai_query import (  # noqa: F401
     add_query as add_wencai_query, update_query as update_wencai_query,
     delete_query as delete_wencai_query, list_all_enabled_queries,
 )
+from backend.models.repo.wencai_opinion import (  # noqa: F401
+    insert_opinion as insert_wencai_opinion, list_opinions as list_wencai_opinions,
+    delete_opinion as delete_wencai_opinion,
+)
 from backend.models.repo.sector_rotation import (  # noqa: F401
     upsert_sector_rotation, upsert_sector_prediction, get_sector_rotation,
 )
@@ -146,6 +150,7 @@ from backend.models.repo.stock_names import (  # noqa: F401
     upsert_many as upsert_stock_names,
     get_names as get_stock_names,
     count as count_stock_names,
+    all_names as all_stock_names,
 )
 from backend.models.repo.industry_map import (  # noqa: F401
     upsert_many as upsert_industry_map,

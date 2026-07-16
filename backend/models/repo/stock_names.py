@@ -3,7 +3,7 @@
 cfzy_sys_stock_names: 全A 代码→名称, 由 refresh_stock_names 定时刷新.
 模型回测逐笔明细给全市场票补名(自选股池只覆盖少量), backtester_5m.load_names 优先读本表.
 """
-from backend.models.repo._db import _executemany, _fetchall, _fetchone
+from backend.models.repo._db import _executemany, _fetchall, _fetchone  # noqa: F401
 
 
 async def upsert_many(rows: list[tuple]) -> int:
@@ -36,3 +36,9 @@ async def get_names(codes: list[str]) -> dict:
 async def count() -> int:
     r = await _fetchone("SELECT COUNT(*) AS cnt FROM cfzy_sys_stock_names")
     return int(r["cnt"]) if r else 0
+
+
+async def all_names() -> list[dict]:
+    """全市场 [{code, name}] (名称非空) — 供从文本里撞出被提及的股票。"""
+    return await _fetchall(
+        "SELECT code, name FROM cfzy_sys_stock_names WHERE name<>'' ORDER BY code")
