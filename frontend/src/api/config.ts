@@ -26,6 +26,11 @@ export async function testSignalCard() {
   return data as { ok: boolean; msg: string }
 }
 
+export async function testSurgeCard() {
+  const { data } = await client.post('/api/config/test-surge-card')
+  return data as { ok: boolean; msg: string }
+}
+
 export async function fetchUserProfile() {
   const { data } = await client.get('/api/users/profile')
   return data as { lark_webhook: string; lark_enabled: number }

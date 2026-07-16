@@ -7,7 +7,7 @@ import CursorTooltip from '../components/common/CursorTooltip.vue'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { SendOutline, SaveOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import { useConfigStore } from '../stores/config'
-import { testPushplus, testLark, saveConfig, saveThsPath, fetchThsGroups, fetchPushPrefs, revokePushPref, testSignalCard, type PushPref } from '../api/config'
+import { testPushplus, testLark, saveConfig, saveThsPath, fetchThsGroups, fetchPushPrefs, revokePushPref, testSignalCard, testSurgeCard, type PushPref } from '../api/config'
 import { useResponsive } from '../composables/useResponsive'
 
 const configStore = useConfigStore()
@@ -74,6 +74,21 @@ async function handleTestSignalCard() {
     message.error('发送失败')
   } finally {
     testCardLoading.value = false
+  }
+}
+
+const testSurgeLoading = ref(false)
+
+async function handleTestSurgeCard() {
+  testSurgeLoading.value = true
+  try {
+    const result = await testSurgeCard()
+    if (result.ok) message.success('测试二波卡已发送')
+    else message.warning(result.msg)
+  } catch {
+    message.error('发送失败')
+  } finally {
+    testSurgeLoading.value = false
   }
 }
 
@@ -317,7 +332,11 @@ async function handleTestLark() {
               <template #icon><NIcon><SendOutline /></NIcon></template>
               发送测试信号卡
             </NButton>
-            <span class="config-hint">发一条样例买点信号卡到你的飞书，可看到完整卡片(战绩表 + 查看分时图 + 快捷动作行)</span>
+            <NButton :loading="testSurgeLoading" @click="handleTestSurgeCard" type="info" secondary size="small">
+              <template #icon><NIcon><SendOutline /></NIcon></template>
+              发送测试二波卡
+            </NButton>
+            <span class="config-hint">发样例卡到你的飞书：信号卡(战绩表+快捷动作行) / 二波过前高提醒卡(逐票静音行)</span>
           </div>
         </div>
       </NCard>

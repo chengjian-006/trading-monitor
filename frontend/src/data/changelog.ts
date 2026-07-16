@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.624',
+    date: '2026-07-16',
+    title: '设置页加「发送测试二波卡」：一键发样例二波过前高提醒卡到飞书',
+    changes: [
+      {
+        text: '系统设置·预览测试区新增「发送测试二波卡」按钮：发一条样例「二波过前高」提醒卡（0716 润建股份真实触发数据，标题标注测试样例）到你的飞书，走真实 send_dual 通道，与生产推送 1:1（含逐票 当日/本周不提醒 快捷行）。后端 POST /api/config/test-surge-card（管理员），仅生产环境能真正推出。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.623',
     date: '2026-07-16',
     title: '「二波过前高」提醒加一道闸：20日均线须温和上翘才推',

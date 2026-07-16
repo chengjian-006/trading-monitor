@@ -154,3 +154,25 @@ async def test_signal_card(user: Annotated[dict, Depends(require_admin)]):
     return {"ok": ok,
             "msg": "已发送测试信号卡, 看你的飞书(卡片底部应有快捷动作行)" if ok
                    else "发送失败: 检查个人飞书开关/Webhook是否已配, 或当前非生产环境"}
+
+
+@router.post("/test-surge-card")
+async def test_surge_card(user: Annotated[dict, Depends(require_admin)]):
+    """发样例「二波过前高」提醒卡(走真实 send_dual 通道), 与生产推送 1:1(含逐票静音快捷行)。
+
+    样例数据取 0716 润建股份真实触发那条; 标题标注测试样例。仅生产环境能真正推出。
+    """
+    from backend.services import second_surge as ss
+    from backend.services import push_pref as pp
+
+    site = (load_config().get("site_url", "") or "").rstrip("/")
+    r = {"price_now": 58.39, "H1": 57.65, "h1_time": "09:38", "trough_pct": 2.1,
+         "leg_rise_pct": 2.1, "vol_mult": 1.9, "day_pct": 2.7}
+    action_md = pp.build_surge_actions_md(site, user["id"], "002929") if site else ""
+    title, body = ss.build_surge_card([
+        {"name": "润建股份", "code": "002929", "r": r, "action_md": action_md},
+    ])
+    ok = await notifier.send_dual(body, lark_title=title + "（测试样例）", template="red")
+    return {"ok": bool(ok),
+            "msg": "已发送测试二波卡, 看你的飞书" if ok
+                   else "发送失败: 检查飞书Webhook是否已配, 或当前非生产环境"}
