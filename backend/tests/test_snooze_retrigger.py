@@ -76,3 +76,10 @@ class TestSnoozeOptionsPage:
     def test_signal_snooze_link_points_to_options(self):
         link = ps.build_signal_snooze_link("https://x.com", 1, "600519", "BUY_VOL_BREAKOUT")
         assert "/api/quick/snooze-options?" in link and "sig=" in link
+
+    def test_page_discloses_full_stock_scope(self):
+        """0716 口径核查: 仅今日/本周走 kind=snooze(target=code), 压该票全部信号含卖点/止损,
+        落地页文案必须如实披露, 不能写成只静音该买点。"""
+        html = ps.render_snooze_options_page("https://x.com", 1, "600519", "涨停", "BUY_VOL_BREAKOUT")
+        assert "含卖点/止损" in html
+        assert "该票该买点不再推送" not in html   # 旧误导文案不得回归

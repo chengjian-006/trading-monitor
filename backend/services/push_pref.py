@@ -213,7 +213,8 @@ async def execute_quick_action(u: int, k: str, t: str, d: int) -> tuple[bool, st
     if k == "mute":
         detail = "今天剩余的飞书推送已静音，明日自动恢复。"
     elif k == "snooze":
-        detail = f"已对 {t} 静音至 {until.strftime('%m-%d')}，期间不再推送其信号。"
+        detail = (f"已对 {t} 静音至 {until.strftime('%m-%d')}，"
+                  f"期间不再推送其全部信号（含卖点/止损；止损连续未执行的升级红卡、尾盘破位警戒仍会提醒）。")
     elif k == "model_off":
         detail = f"已关闭「{t}」今日推送，明日自动恢复。"
     elif k == "stop_snooze":
@@ -383,7 +384,7 @@ def render_snooze_options_page(site: str, user_id, code: str, name: str, signal_
 <div style="max-width:420px;margin:12vh auto;padding:24px;background:#fff;border-radius:14px;
             box-shadow:0 2px 16px rgba(0,0,0,.06);">
   <div style="font-size:18px;font-weight:700;color:#333;">🔕 静音 {disp}</div>
-  <div style="margin:8px 0 18px;font-size:13px;color:#888;line-height:1.6;">选择静音时长，期间该票该买点不再推送：</div>
+  <div style="margin:8px 0 18px;font-size:13px;color:#888;line-height:1.6;">选择静音时长。「仅今日/本周」静音该票<b>全部信号（含卖点/止损）</b>；「直到再次突破」只静音该票该买点：</div>
   <a href="{today_link}" style="{btn}background:#eef2ff;color:#3730a3;">仅今日<span style="font-weight:400;font-size:12px;color:#888;"> · 明日自动恢复</span></a>
   <a href="{week_link}" style="{btn}background:#ecfdf5;color:#065f46;">本周<span style="font-weight:400;font-size:12px;color:#888;"> · 到本周日</span></a>
   <a href="{retrig_link}" style="{btn}background:#fff7ed;color:#9a3412;">直到再次突破<span style="font-weight:400;font-size:12px;color:#888;"> · 安静≥1日后重新触发才再提醒</span></a>

@@ -59,6 +59,21 @@ class TestDecide:
                       code="300166", signal_id="BUY_VOL_BREAKOUT")
         assert v["suppress_all"] is False
 
+    def test_snooze_also_suppresses_sell_signals(self):
+        """0716 口径核查·现状固化: kind=snooze(个股静音)按 code 全压——含 SELL_* 止损/卖点。
+        这是当前既定语义(落地页已如实披露「含卖点/止损」); 若产品拍板改为"止损穿透个股静音",
+        本测试与 decide() 一起改。安全网: 升级红卡(stop_escalation)/尾盘破位警戒(ma_break_watch)
+        走 send_card 通道, 不过 decide(), 不受个股静音影响。"""
+        v = pp.decide([{"kind": "snooze", "target": "300166"}],
+                      code="300166", signal_id="SELL_WEAK_STOP")
+        assert v["suppress_all"] is True
+
+    def test_ack_scope_is_single_model_not_whole_stock(self):
+        # 「标记已处理」只压该 code+该模型: 同股其它卖点(如止损)不受影响
+        v = pp.decide([{"kind": "ack", "target": "300166|SELL_BREAK_MA10"}],
+                      code="300166", signal_id="SELL_WEAK_STOP")
+        assert v["suppress_all"] is False
+
 
 class TestUntilDate:
     def test_today_scoped_kinds_until_today(self):
