@@ -25,6 +25,8 @@ _KIND_LABEL = pref_svc.KIND_LABEL
 
 
 def _confirm_page(title: str, detail: str, ok: bool = True) -> HTMLResponse:
+    """确认页(v1.7.632 自动关闭版): 设置已在服务端完成, 本页只是回执 ——
+    展示大✅后 0.6s 自动尝试关窗回到飞书; 关不掉的环境(部分浏览器限制)显示大字提示手动关。"""
     color = "#18a058" if ok else "#d03050"
     icon = "✅" if ok else "⚠️"
     html = f"""<!doctype html><html lang="zh"><head><meta charset="utf-8">
@@ -35,9 +37,24 @@ def _confirm_page(title: str, detail: str, ok: bool = True) -> HTMLResponse:
             box-shadow:0 2px 16px rgba(0,0,0,.06);text-align:center;">
   <div style="font-size:44px;line-height:1;">{icon}</div>
   <div style="margin-top:14px;font-size:19px;font-weight:600;color:{color};">{title}</div>
-  <div style="margin-top:10px;font-size:14px;color:#666;line-height:1.6;">{detail}</div>
-  <div style="margin-top:22px;font-size:12px;color:#aaa;">可在「设置 · 推送偏好」里查看或撤销</div>
-</div></body></html>"""
+  <div id="close-hint" style="margin-top:10px;font-size:14px;color:#666;line-height:1.6;">已生效，正在返回飞书…</div>
+  <div id="detail" style="display:none;margin-top:10px;font-size:14px;color:#666;line-height:1.6;">{detail}</div>
+  <div id="foot" style="display:none;margin-top:22px;font-size:12px;color:#aaa;">可在「设置 · 推送偏好」里查看或撤销</div>
+</div>
+<script>
+// 设置在服务端已完成, 本页只是回执 → 自动关窗回飞书。
+// window.close 对"脚本/链接打开的新窗口"多数浏览器放行; 被拦截(标签复用等)则退回完整详情页。
+setTimeout(function () {{
+  try {{ window.open('', '_self'); window.close(); }} catch (e) {{}}
+  setTimeout(function () {{
+    var h = document.getElementById('close-hint');
+    if (h) h.innerHTML = '<span style="font-size:17px;font-weight:600;">已完成，可关闭此页</span>';
+    var d = document.getElementById('detail'); if (d) d.style.display = 'block';
+    var f = document.getElementById('foot'); if (f) f.style.display = 'block';
+  }}, 400);
+}}, 600);
+</script>
+</body></html>"""
     return HTMLResponse(html)
 
 
