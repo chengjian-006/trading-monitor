@@ -229,6 +229,8 @@ def _today_from_snapshot(snap: dict[str, float]) -> dict:
         "avg_ret": sum(snap.values()) / n * 100,
         "zt_count": zt,
         "n": n,
+        "adv": adv,      # 涨家数(状态卡多空条用, 状态机不读)
+        "dec": dec,      # 跌家数
     }
 
 
@@ -310,31 +312,24 @@ async def get_risk_state_info() -> tuple[str, str]:
     return st, label
 
 
-# ── 推送 ──
-
-async def _push(text: str, title: str, template: str) -> None:
-    try:
-        from backend.services import notifier
-        await notifier.send_dual(text, lark_title=title, template=template)
-    except Exception as e:
-        logger.warning(f"[market_risk] 推送失败({title}): {e}")
-
-
-# ── 状态卡(v1.7.564 极简大白话版): 一行状态 + 一两行盘面白话 + 一行建议, 无表格无术语 ──
+# ── 状态卡(基线 v1.1): 状态迁移 + 大白话盘面 + [为什么触发] + 👉建议 + 信封字段 ──
 
 _LEVEL = {GREEN: 0, YELLOW: 1, RED: 2}
 _BADGE = {GREEN: "🟢 正常", YELLOW: "🟡 谨慎", RED: "🔴 空仓"}
 _DANGER = {GREEN: "正常", YELLOW: "谨慎档", RED: "最高危"}   # 档位说明, 让"跳档"一眼看懂危险级别
+_TAG = {GREEN: ("正常", "green"), YELLOW: ("谨慎", "orange"), RED: ("空仓", "red")}
 
 
 async def _push_state_card(title: str, template: str, old_state: str | None, new_state: str,
-                           lines: list[str], advice: str, why: str = "") -> None:
-    """市场风险状态卡(v1.7.588 元素版): 状态迁移(带档位说明) + 大白话盘面 + [为什么触发] + 👉建议。
+                           lines: list[str], advice: str, why: str = "",
+                           summary: str = "") -> None:
+    """市场风险状态卡(基线 v1.1): 状态迁移(带档位说明) + 大白话盘面 + [为什么触发] + 👉建议。
 
-    走 send_dual_card(飞书原生卡): 时间只在标题栏、正文不再重复(修版式冗余);
-    企微/PushPlus 收同款纯文本兜底。"""
+    header 色=风险家族(红空仓/橙谨慎); 信封字段=锁屏摘要(summary, 缺省取状态头) + 状态名彩签。
+    走 send_dual_card(飞书原生卡): 时间只在标题栏、正文不写时间; PushPlus 收同款纯文本兜底。"""
     try:
         from backend.services import notifier
+        from backend.services.card_kit import advice as _advice_el
         from backend.services.lark_notifier import md_element
         if old_state and old_state != new_state:
             head = (f"{_BADGE.get(old_state, old_state)}　→　"
@@ -344,11 +339,48 @@ async def _push_state_card(title: str, template: str, old_state: str | None, new
         elements = [md_element(f"**{head}**"), md_element("\n".join(lines))]
         if why:
             elements.append(md_element(f"<font color='grey'>{why}</font>"))
-        elements.append(md_element(f"👉 **{advice}**"))
+        elements.append(_advice_el(advice))
         text = "\n".join([head, "", *lines] + ([why] if why else []) + ["", f"👉 {advice}"])
-        await notifier.send_dual_card(text, lark_title=title, elements=elements, template=template)
+        tag_text, tag_color = _TAG.get(new_state, (new_state, "grey"))
+        await notifier.send_dual_card(
+            text, lark_title=title, elements=elements, template=template,
+            summary=summary or f"市场风险 {head}", text_tags=[(tag_text, tag_color)])
     except Exception as e:
         logger.warning(f"[market_risk] 状态卡推送失败({title}): {e}")
+
+
+async def _push_dismiss(card) -> None:
+    """解除卡统一发送口(card_kit.dismiss_card 产物), 失败只记日志不抛。"""
+    try:
+        from backend.services import notifier
+        await notifier.send_card(card)
+    except Exception as e:
+        logger.warning(f"[market_risk] 解除卡推送失败({getattr(card, 'title', '?')}): {e}")
+
+
+async def _nongreen_streak(today: str) -> tuple[str, int]:
+    """今日之前连续非 GREEN 的段: (发布日标签'M月D日', 生效交易日数)。
+
+    给解除卡的副标题时间线用(基线 v1.1 解除卡标准型)。查库失败/无段返回 ("", 0)。"""
+    try:
+        rows = await _fetchall(
+            "SELECT trade_date, state FROM cfzy_biz_market_risk "
+            "WHERE trade_date < %s ORDER BY trade_date DESC LIMIT 60", (today,))
+    except Exception:
+        return "", 0
+    first, n = "", 0
+    for r in rows:
+        if str(r["state"]) == GREEN:
+            break
+        first = str(r["trade_date"])[:10]
+        n += 1
+    if not first:
+        return "", 0
+    try:
+        d = datetime.strptime(first, "%Y-%m-%d")
+        return f"{d.month}月{d.day}日", n
+    except Exception:
+        return first, n
 
 
 # ── 退潮类维度统一发卡闸(v1.7.556 批次D 六合一) ──
@@ -358,14 +390,17 @@ async def _push_state_card(title: str, template: str, old_state: str | None, new
 _ebb_emit: dict = {}
 
 
-async def emit_risk_dimension(key: str, text: str) -> None:
-    """退潮/溢价等风控维度统一入口: 合并成一张状态化「大盘风控」卡, 当日按维度集合去重。"""
+async def emit_risk_dimension(key: str, text: str, advice_text: str = "") -> None:
+    """退潮/溢价等风控维度统一入口: 合并成一张状态化「大盘风控·退潮提示」卡, 当日按维度集合去重。
+
+    基线 v1.1 改造: card_kit.Card(family=risk 橙 / 状态 RED 时红), 结论 heading 行 +
+    各维度 ✅式列举(text 为 md, 由调用方给 ✅前缀) + 👉建议(各维度 advice_text 合并)。"""
     today = datetime.now().strftime("%Y-%m-%d")
     st = _ebb_emit.get("st")
     if not st or st["date"] != today:
         st = {"date": today, "dims": {}, "sig": None}
         _ebb_emit["st"] = st
-    st["dims"][key] = text
+    st["dims"][key] = {"text": text, "advice": advice_text}
     sig = tuple(sorted(st["dims"].keys()))
     if sig == st["sig"]:
         return   # 无新增维度 → 不重复推
@@ -377,18 +412,42 @@ async def emit_risk_dimension(key: str, text: str) -> None:
         state = await get_risk_state()
     except Exception:
         state = GREEN
-    tmpl = {"RED": "red", "YELLOW": "yellow"}.get(state, "red")
-    state_line = {
-        "RED": "当前大盘风控: 🔴 RED（空仓预警）",
-        "YELLOW": "当前大盘风控: 🟡 YELLOW（谨慎）",
-        "GREEN": "当前大盘风控: 🟢 GREEN（正常）",
-    }.get(state, "")
+
+    from backend.services import card_kit, notifier
+    from backend.services.lark_notifier import md_element
+
     order = {"退潮": 0, "溢价": 1}
     keys = sorted(st["dims"], key=lambda k: order.get(k, 9))
     n = len(keys)
-    header = "📛 大盘风控·退潮提示" + (f"（{n}项）" if n > 1 else "")
-    body = header + "\n\n" + state_line + "\n\n" + "\n\n──────────\n\n".join(st["dims"][k] for k in keys)
-    await _push(body, header, tmpl)
+    title = "📛 大盘风控·退潮提示" + (f"（{n}项）" if n > 1 else "")
+    tag_text, tag_color = _TAG.get(state, ("正常", "green"))
+    badge = _BADGE.get(state, state)
+
+    dims_md = "\n".join(st["dims"][k]["text"] for k in keys)
+    advices = []
+    for k in keys:
+        a = st["dims"][k]["advice"]
+        if a and a not in advices:
+            advices.append(a)
+    advice_line = "；".join(advices) or "整板在抽血，谨慎追高"
+
+    elements = [
+        card_kit.heading_md(f"退潮维度 {n} 项触发 · 当前大盘风控 {badge}"),
+        md_element(dims_md),
+        card_kit.advice(advice_line),
+    ]
+    fallback = "\n".join([
+        f"退潮维度 {n} 项触发 · 当前大盘风控 {badge}", "",
+        dims_md, "", f"👉 {advice_line}"])
+    card = card_kit.Card(
+        title=title, elements=elements, fallback=fallback,
+        family="risk_hot" if state == RED else "risk",
+        summary=card_kit.summary_text("大盘风控", "·".join(keys) + "提示", f"当前{tag_text}"),
+        tags=[(tag_text, tag_color)])
+    try:
+        await notifier.send_card(card)
+    except Exception as e:
+        logger.warning(f"[market_risk] 退潮提示卡推送失败: {e}")
 
 
 async def _current_state() -> str:
@@ -480,37 +539,55 @@ async def market_risk_eod():
     })
     _invalidate_cache()
 
-    # 状态迁移推送
+    # 状态迁移推送(数据区: 涨跌家数多空条, 快照 adv/dec 现成)
+    from backend.services import card_kit
+    bar = (card_kit.long_short_bar(cur["dec"], cur["adv"])
+           if cur.get("adv") is not None else "")
+    bar_lines = [bar] if bar else []
     if new_state == RED and prev_state != RED and already_state != RED:
         await _push_state_card(
             "🔴 空仓预警", "red", prev_state, RED,
             [f"全市场走弱: 近5天平均每天 **{cur['avg_ret_ma5']:+.2f}%**, "
-             f"守住20日线的票只剩 **{yest_breadth:.0f}%**, 创一年新低的有 {cur['low52_ratio']:.0f}%"],
-            "**空仓或停开新仓**. 历史上这种时候买入, 10次只赚3次、平均亏3.6%.")
+             f"守住20日线的票只剩 **{yest_breadth:.0f}%**, 创一年新低的有 {cur['low52_ratio']:.0f}%",
+             *bar_lines],
+            "**空仓或停开新仓**. 历史上这种时候买入, 10次只赚3次、平均亏3.6%.",
+            summary=f"市场风险升至空仓 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
     elif new_state == YELLOW and prev_state == GREEN:
         await _push_state_card(
-            "🟡 转谨慎", "yellow", prev_state, YELLOW,
+            "🟡 转谨慎", "orange", prev_state, YELLOW,
             [f"市场转弱: 只有 **{cur['advance_ratio']:.0f}%** 的票在涨, "
-             f"守住20日线的票 {yest_breadth:.0f}%, 涨停里炸板 {cur['zha_rate']:.0f}%"],
-            "正常交易但注意控制仓位.")
+             f"守住20日线的票 {yest_breadth:.0f}%, 涨停里炸板 {cur['zha_rate']:.0f}%",
+             *bar_lines],
+            "正常交易但注意控制仓位.",
+            summary=f"市场风险转谨慎 涨跌比{cur['advance_ratio']:.0f}% 广度{yest_breadth:.0f}%")
     elif new_state == YELLOW and prev_state == RED:
         # v1.7.570: RED→YELLOW 降级原来不推任何通知, 用户一直以为还在空仓预警。补一张降级卡。
         await _push_state_card(
-            "🟡 空仓预警降级·转谨慎", "yellow", prev_state, YELLOW,
+            "🟡 空仓预警降级·转谨慎", "orange", prev_state, YELLOW,
             [f"较前企稳(仍需谨慎): **{cur['advance_ratio']:.0f}%** 的票在涨, "
-             f"守住20日线的票回到 {yest_breadth:.0f}%, 已从空仓预警(RED)降到谨慎(YELLOW)"],
-            "可小仓试探, 但仍需控制仓位、别追高.")
+             f"守住20日线的票回到 {yest_breadth:.0f}%, 已从空仓预警(RED)降到谨慎(YELLOW)",
+             *bar_lines],
+            "可小仓试探, 但仍需控制仓位、别追高.",
+            summary=f"空仓预警降级转谨慎 涨跌比{cur['advance_ratio']:.0f}% 广度{yest_breadth:.0f}%")
     elif new_state == GREEN and prev_state != GREEN:
-        await _push_state_card(
-            "🟢 预警解除", "green", prev_state, GREEN,
-            [f"市场回暖: **{cur['advance_ratio']:.0f}%** 的票在涨, "
-             f"守住20日线的票回到 {yest_breadth:.0f}%"],
-            "恢复正常操作.")
+        # 基线 v1.1 解除卡标准型: 灰 header + 副标题时间线 + 写明解除条件 + 👉建议
+        issued, days = await _nongreen_streak(today)
+        card = card_kit.dismiss_card(
+            "市场风险预警",
+            issued_str=issued or "此前", days_active=max(days, 1),
+            condition_md=(f"涨跌比 **{cur['advance_ratio']:.0f}%** ≥ {YELLOW_EXIT_ADVANCE:.0f}%、"
+                          f"守住20日线 **{yest_breadth:.0f}%** ≥ {YELLOW_EXIT_BREADTH:.0f}%、"
+                          f"5日均收益 **{cur['avg_ret_ma5']:+.2f}%** 转正（三条全中）"),
+            advice_text="预警解除，恢复正常操作")
+        await _push_dismiss(card)
     elif new_state == GREEN and already_state == RED:
-        await _push(
-            f"[GREEN] 盘中预升级撤销\n\n"
-            f"收盘复核: 指标未达RED进入条件, 14:40盘中预升级按收盘数据撤销.",
-            "[GREEN] 盘中预升级撤销", "green")
+        # 盘中预升级撤销: 同为解除卡形态(灰 header 中性收尾)
+        card = card_kit.dismiss_card(
+            "空仓预警（盘中预升级）",
+            issued_str="今日 14:40 盘中", days_active=1,
+            condition_md="收盘复核指标未达空仓（RED）进入条件，14:40 盘中预升级按收盘数据撤销",
+            advice_text="撤销空仓预警，恢复正常操作")
+        await _push_dismiss(card)
 
     logger.info(f"[market_risk] EOD {today}: ar={cur['advance_ratio']:.1f}% "
                 f"br={yest_breadth} avg5={cur['avg_ret_ma5']:+.2f}% "
@@ -549,11 +626,15 @@ async def market_risk_intraday():
         "source": "intraday",
     })
     _invalidate_cache()
+    from backend.services import card_kit
+    bar_lines = ([card_kit.long_short_bar(cur["dec"], cur["adv"])]
+                 if cur.get("adv") is not None else [])
     await _push_state_card(
         "🔴 空仓预警(盘中提前)", "red", prev_state, RED,
         [f"盘中已跌到空仓线: 近5天平均每天 **{cur['avg_ret_ma5']:+.2f}%**, "
-         f"守住20日线的票只剩 **{yest_breadth:.0f}%**"],
-        "**尾盘不新开仓**. 收盘后(16:40)最终确认.")
+         f"守住20日线的票只剩 **{yest_breadth:.0f}%**", *bar_lines],
+        "**尾盘不新开仓**. 收盘后(16:40)最终确认.",
+        summary=f"空仓预警盘中提前 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
     logger.warning(f"[market_risk] 盘中预升级 RED: "
                    f"ar5={cur['avg_ret_ma5']:+.2f}% br={yest_breadth}")
 
@@ -644,8 +725,10 @@ async def market_risk_realtime():
     prev_eod = await _get_prev_state(today)
     level_cur = _LEVEL.get(current_rt, 0)
 
-    # 大白话盘面行(自选池实时)
+    # 大白话盘面行(自选池实时) + 涨跌家数多空条(数据现成)
+    from backend.services import card_kit
     rt_line = f"自选池{n}只，只 **{advance_ratio:.0f}%** 在涨、平均 **{avg_ret:+.2f}%**"
+    rt_bar = card_kit.long_short_bar(dec, adv)
 
     # ── 升级(转差): 危险要及时报, 不设冷静期 ──
     if _LEVEL.get(should_be, 0) > level_cur:
@@ -664,15 +747,17 @@ async def market_risk_realtime():
         if should_be == RED:
             await _push_state_card(
                 "🔴 市场风险 · 升到「空仓」档", "red", current_rt, RED,
-                [f"盘面大跌：{rt_line}"],
+                [f"盘面大跌：{rt_line}", rt_bar],
                 "立即停开新仓、别抄底，今天先保命。（16:40收盘复核，才定这档是否延续到明天）",
-                why=f"触发线：<{RT_ADVANCE_RED:.0f}%在涨 且 平均跌超{-RT_AVG_RET_RED:.0f}% = 空仓")
+                why=f"触发线：<{RT_ADVANCE_RED:.0f}%在涨 且 平均跌超{-RT_AVG_RET_RED:.0f}% = 空仓",
+                summary=f"市场风险升到空仓档 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
         else:
             await _push_state_card(
-                "🟡 市场风险 · 升到「谨慎」档", "yellow", current_rt, YELLOW,
-                [f"盘面转弱：{rt_line}"],
+                "🟡 市场风险 · 升到「谨慎」档", "orange", current_rt, YELLOW,
+                [f"盘面转弱：{rt_line}", rt_bar],
                 "注意控制仓位、别追高。（16:40收盘再定档）",
-                why=f"触发线：<{RT_YELLOW_ADVANCE:.0f}%在涨 或 平均跌超{-RT_YELLOW_AVG:.0f}% = 谨慎")
+                why=f"触发线：<{RT_YELLOW_ADVANCE:.0f}%在涨 或 平均跌超{-RT_YELLOW_AVG:.0f}% = 谨慎",
+                summary=f"市场风险升到谨慎档 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
         logger.info(f"[market_risk] 实时升级 {today} {t}: {current_rt}->{should_be} "
                     f"(涨跌比 {advance_ratio:.1f}% 均收益 {avg_ret:+.2f}%)")
         return
@@ -701,14 +786,23 @@ async def market_risk_realtime():
     _invalidate_cache()
 
     if target == GREEN:
-        await _push_state_card(
-            "🟢 市场风险 · 预警解除", "green", current_rt, GREEN,
-            [f"盘面回稳：{rt_line}"],
-            "恢复正常操作。（16:40收盘最终定档）")
+        # 基线 v1.1 解除卡: 灰 header + 副标题时间线 + 写明解除条件(过缓冲带) + 👉建议。
+        # 盘中降到 GREEN 的前提是 EOD 基线本就 GREEN → 预警必是今日盘中发布, 时间线取上次变档时刻。
+        issued = f"今日 {last.strftime('%H:%M')}" if last else "今日盘中"
+        card = card_kit.dismiss_card(
+            "市场风险预警（盘中）",
+            issued_str=issued, days_active=1,
+            condition_md=(f"自选池涨跌比回到 **{advance_ratio:.0f}%** ≥ "
+                          f"{RT_EXIT_YELLOW_ADVANCE:.0f}% 且 平均 **{avg_ret:+.2f}%** ≥ "
+                          f"{RT_EXIT_YELLOW_AVG}%（过缓冲带，防贴线反复）"),
+            period_md=f"盘面回稳：自选池{n}只 {advance_ratio:.0f}%在涨、平均{avg_ret:+.2f}%",
+            advice_text="恢复正常操作，16:40收盘最终定档")
+        await _push_dismiss(card)
     else:
         await _push_state_card(
-            "🟡 市场风险 · 降到「谨慎」档", "yellow", current_rt, YELLOW,
-            [f"跌势明显缓和：{rt_line}\n——是没那么急了，不是转多。"],
-            "空仓警报解除，可小仓试错、别重仓。（16:40收盘最终定档）")
+            "🟡 市场风险 · 降到「谨慎」档", "orange", current_rt, YELLOW,
+            [f"跌势明显缓和：{rt_line}\n——是没那么急了，不是转多。", rt_bar],
+            "空仓警报解除，可小仓试错、别重仓。（16:40收盘最终定档）",
+            summary=f"空仓降到谨慎 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
     logger.info(f"[market_risk] 实时降级 {today} {t}: {current_rt}->{target} "
                 f"(涨跌比回升至 {advance_ratio:.1f}% 均收益 {avg_ret:+.2f}%)")

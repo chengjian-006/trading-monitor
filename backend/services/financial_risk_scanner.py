@@ -186,37 +186,53 @@ def fin_section_text(hits: list[dict]) -> str:
 
 
 def fin_table(hits: list[dict]) -> dict:
-    """财务红旗飞书元素(移动优化): 2列 markdown 表「股票 | 告警级别」+ 表下每股一行红旗明细。
+    """财务红旗全短列表(基线 v1.1): 股票 | 级别 | 要点。
 
-    手机端原生 table 长内容会截断需点开, 故改 markdown: 表格只留可扫的短列(股票/告警级别·分数),
-    长的红旗明细(标签+数字, 一只可好几项)下沉到表格下方每股一行文本, 避免挤在窄单元格里被截。
-    返回单个 markdown 元素(表+明细合为一体), 与 table_element 一样可直接进 elements 列表。"""
-    from backend.services import lark_notifier
-    columns = [
-        {"name": "stock", "display_name": "股票", "data_type": "text"},
-        {"name": "level", "display_name": "告警级别", "data_type": "text"},
-    ]
+    级别 = 🔴高危/🟠中危/🟡关注(带分数), 要点 = 首个红旗标签(多项时 +等N项);
+    全量红旗明细(一只可好几项, 长)由 fin_fold 下沉折叠区。"""
+    from backend.services import card_kit
     rows = []
-    detail_lines = []
     for h in hits:
         label, emoji = risk_level(h["score"])
-        rows.append({"stock": f"{h['name']} {h['code']}", "level": f"{emoji}{label}{h['score']}"})
+        flags = h["flags"]
+        brief = flags[0]["label"] if flags else ""
+        if len(flags) > 1:
+            brief += f"等{len(flags)}项"
+        rows.append((f"{h['name']} {h['code']}", f"{emoji}{label}{h['score']}", brief))
+    return card_kit.short_table(["股票", "级别", "要点"], rows)
+
+
+def fin_fold(hits: list[dict]) -> dict:
+    """红旗全量明细折叠区(长值下沉): 每股一行 全部红旗标签+数字。"""
+    from backend.services import card_kit
+    lines = []
+    for h in hits:
         fl = "·".join(_flag_disp(f) for f in h["flags"])
-        detail_lines.append(f"• {h['name']} {fl}")
-    table_md = lark_notifier.md_table_str(columns, rows)
-    content = table_md + ("\n\n" + "\n".join(detail_lines) if detail_lines else "")
-    return lark_notifier.md_element(content)
+        lines.append(f"• {h['name']} {fl}（{h['year']}年报）")
+    return card_kit.fold("红旗全量明细", "\n".join(lines))
 
 
-def _build_push(hits: list[dict]) -> tuple[str, list]:
+def fin_elements(hits: list[dict]) -> list:
+    """财务红旗区域元素组: 全短列表 + 折叠明细(基线 v1.1 表格铁律)。"""
+    return [fin_table(hits), fin_fold(hits)]
+
+
+def _build_card(hits: list[dict]):
+    """独立兜底卡(基线 v1.1): 风险家族橙卡 + 🦢 + 全短列表 + 折叠明细 + 👉建议。"""
+    from backend.services import card_kit
+    n = len({h["code"] for h in hits})
     text = (f"{len(hits)}只自选股年报命中风险红旗（纯提示，不影响买卖点）\n\n"
-            + fin_section_text(hits))
+            + fin_section_text(hits)
+            + "\n\n数据=巨潮年报; 红旗多为ST/退市前兆。")
     elements = [
-        {"tag": "markdown",
-         "content": "**纯提示, 不影响买卖点。** 数据=巨潮年报; 红旗多为ST/退市前兆。"},
-        fin_table(hits),
+        *fin_elements(hits),
+        card_kit.advice("纯提示不动买卖点，命中票自查风险"),
     ]
-    return text, elements
+    return card_kit.Card(
+        title=f"🦢 财务红旗预警 · 自选{n}只",
+        elements=elements, fallback=text, family="risk",
+        summary=card_kit.summary_text(f"自选{n}只年报命中财务红旗", "巨潮年报打分"),
+        tags=[("财务红旗", "orange")])
 
 
 async def collect_financial_risk_hits() -> list[dict]:
@@ -248,6 +264,6 @@ async def scan_financial_risk():
         return
 
     from backend.services import notifier
-    text, elements = _build_push(hits)
-    ok = await notifier.send_dual_card(text, lark_title="⚠️ 自选股财务红旗", elements=elements)
+    card = _build_card(hits)
+    ok = await notifier.send_card(card)
     logger.warning(f"[fin_risk] 新增财务红旗 {len(hits)} 只, 推送={'成功' if ok else '失败/跳过'}")

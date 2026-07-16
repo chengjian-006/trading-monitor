@@ -119,19 +119,32 @@ def test_ann_section_text_injects_verdict():
     assert "🤖" not in ann_section_text(hits)
 
 
-def test_ann_table_adds_ai_verdict_when_verdicts():
-    # 移动优化后: ann_table 返回单个 markdown 元素(2列表 + 表下每股明细)。
-    # verdicts 给定时, 明细行尾挂 🤖AI研判; 缺省时不挂。
+def test_ann_table_short_columns_with_verdict_brief():
+    # 基线 v1.1: ann_table = 全短列表「股票|类型|要点」, 要点=AI严重度(有研判)或日期(无研判)。
     from backend.services.risk_announcement_scanner import ann_table
-    hits = [_hit("002217", "合力泰", "立案告知书", "立案调查")]
+    hits = [_hit("002217", "合力泰", "立案告知书", "立案调查", date="2026-06-01")]
     verdicts = {"002217": {"severity": "高", "emoji": "🔴", "text": "重大利空"}}
     el = ann_table(hits, verdicts)
     assert el["tag"] == "markdown"
     content = el["content"]
-    # 表头短列 + 股票/风险类型可扫
-    assert "股票" in content and "风险类型" in content
-    assert "合力泰" in content and "立案调查" in content
-    # AI 研判下沉到明细行
-    assert "🤖🔴高" in content and "重大利空" in content
-    # 无 verdict → 明细不挂研判
-    assert "🤖" not in ann_table(hits)["content"]
+    assert "| 股票 | 类型 | 要点 |" in content
+    assert "合力泰 002217" in content and "立案调查" in content
+    assert "🔴高" in content
+    # 长值(研判句/公告标题)不进表
+    assert "重大利空" not in content and "立案告知书" not in content
+    # 无 verdict → 要点列回落到日期
+    assert "06-01" in ann_table(hits)["content"]
+
+
+def test_ann_fold_carries_title_and_verdict():
+    # 长值下沉折叠: 公告标题+日期+AI研判句进 collapsible_panel。
+    from backend.services.risk_announcement_scanner import ann_fold
+    hits = [_hit("002217", "合力泰", "立案告知书", "立案调查", date="2026-06-01")]
+    verdicts = {"002217": {"severity": "高", "emoji": "🔴", "text": "重大利空"}}
+    el = ann_fold(hits, verdicts)
+    assert el["tag"] == "collapsible_panel"
+    detail = el["elements"][0]["content"]
+    assert "立案告知书" in detail and "06-01" in detail
+    assert "🤖🔴高" in detail and "重大利空" in detail
+    # 无 verdict → 不挂研判
+    assert "🤖" not in ann_fold(hits)["elements"][0]["content"]

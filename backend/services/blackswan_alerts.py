@@ -21,29 +21,37 @@ def _md(content: str) -> dict:
     return {"tag": "markdown", "content": content}
 
 
-def _build_combined(ann_hits: list[dict], fin_hits: list[dict],
-                    ann_verdicts: dict | None = None) -> tuple[str, list]:
-    """合成 (微信/PushPlus 文本, 飞书表格 elements)。两区域常驻。
-    ann_verdicts={code:{emoji,severity,text}} 给定时, 风险公告区每只票挂一句 AI 研判。"""
+def _build_card(ann_hits: list[dict], fin_hits: list[dict],
+                ann_verdicts: dict | None = None):
+    """合并卡(基线 v1.1): 风险家族橙卡 🦢, 两区域常驻(全短列表+长值/AI研判进折叠) + 👉建议。
+    ann_verdicts={code:{emoji,severity,text}} 给定时, 风险公告区挂 AI 研判(严重度进表, 句子进折叠)。"""
+    from backend.services import card_kit
     no_new = "本次无新增"
+    n = len({h["code"] for h in ann_hits} | {h["code"] for h in fin_hits})
 
-    # —— 微信/PushPlus 文本版: 两区域 ——
+    # —— 微信/PushPlus 文本版(fallback, 同源信息量): 两区域 ——
     text_parts = [
         f"🚨 风险公告（{len(ann_hits)}）",
         ann.ann_section_text(ann_hits, ann_verdicts) if ann_hits else no_new,
         f"\n📉 财务红旗（{len(fin_hits)}）",
         fin.fin_section_text(fin_hits) if fin_hits else no_new,
-        "\n纯提示, 不影响买卖点。",
+        "\n纯提示, 不影响买卖点。监管/财务红旗多为 ST 黑天鹅前兆。",
     ]
     text = "\n".join(text_parts)
 
-    # —— 飞书表格版: 两区域 ——
+    # —— 飞书结构卡: 两区域(短列表+折叠) + 👉建议 ——
     elements = [_md(f"**🚨 风险公告（{len(ann_hits)}）** 监管/财务硬信号")]
-    elements.append(ann.ann_table(ann_hits, ann_verdicts) if ann_hits else _md(no_new))
+    elements += ann.ann_elements(ann_hits, ann_verdicts) if ann_hits else [_md(no_new)]
     elements.append(_md(f"**📉 财务红旗（{len(fin_hits)}）** 年报指标打分"))
-    elements.append(fin.fin_table(fin_hits) if fin_hits else _md(no_new))
-    elements.append(_md("**纯提示, 不影响买卖点。** 监管/财务红旗多为 ST 黑天鹅前兆。"))
-    return text, elements
+    elements += fin.fin_elements(fin_hits) if fin_hits else [_md(no_new)]
+    elements.append(card_kit.advice("纯提示不动买卖点，命中票自查风险"))
+
+    return card_kit.Card(
+        title=f"🦢 黑天鹅预警 · 自选{n}只",
+        elements=elements, fallback=text, family="risk",
+        summary=card_kit.summary_text(
+            f"自选{n}只命中黑天鹅", f"公告{len(ann_hits)}条", f"财务红旗{len(fin_hits)}只"),
+        tags=[("黑天鹅", "orange")])
 
 
 async def scan_blackswan_alerts():
@@ -74,7 +82,7 @@ async def scan_blackswan_alerts():
             logger.warning(f"[blackswan] AI 研判整体失败, 退回无研判卡: {e}")
 
     from backend.services import notifier
-    text, elements = _build_combined(ann_hits, fin_hits, ann_verdicts)
-    ok = await notifier.send_dual_card(text, lark_title="⚠️ 自选股黑天鹅预警", elements=elements)
+    card = _build_card(ann_hits, fin_hits, ann_verdicts)
+    ok = await notifier.send_card(card)
     logger.warning(f"[blackswan] 公告{len(ann_hits)}条(AI研判{len(ann_verdicts)})+财务红旗{len(fin_hits)}只, "
                    f"推送={'成功' if ok else '失败/跳过'}")

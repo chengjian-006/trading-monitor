@@ -56,13 +56,11 @@ async def detect_market_ebb():
         holds = [s for s in (await repository.list_all_stocks()) if s.get("status") == "hold"]
     except Exception:
         holds = []
-    hold_line = ("\n当前持仓: " + "、".join(f"{s['name']}({s['code']})" for s in holds[:12])) if holds else ""
-    text = (
-        f"🌊 大盘退潮·减仓提示\n\n"
-        f"涨停家数骤降：今 **{today_lu}** 家 ← 昨 **{prev_lu}** 家（↓**{drop_pct}%**）\n\n"
-        f"👉 整板在抽血，强势股先走一部分"
-        f"{hold_line}"
-    )
+    hold_line = ("\n当前持仓：" + "、".join(f"{s['name']}({s['code']})" for s in holds[:12])) if holds else ""
+    # 基线 v1.1: ✅式维度行(md), 建议单独传给统一卡的 👉建议区(emit_risk_dimension 合并)
+    text = (f"✅ 涨停家数骤降：今 **{today_lu}** 家 ← 昨 **{prev_lu}** 家"
+            f"（<font color='green'>**↓{drop_pct}%**</font>）{hold_line}")
+    advice = "整板在抽血，强势股先走一部分"
 
     # 先写库(写库失败则不推, 避免重启重推) — 照 plunge_detector 的"先落库再推"模式。
     try:
@@ -82,7 +80,7 @@ async def detect_market_ebb():
     try:
         # v1.7.556 批次D: 退潮不再独推, 并入统一「大盘风控」卡(与溢价转负/当前风险状态合并去重)
         from backend.services import market_risk_controller
-        await market_risk_controller.emit_risk_dimension("退潮", text)
+        await market_risk_controller.emit_risk_dimension("退潮", text, advice)
         logger.warning(f"[market_ebb] 退潮减仓提示已并入大盘风控卡: 涨停 {prev_lu}->{today_lu} (↓{drop_pct}%)")
     except Exception as e:
         logger.warning(f"[market_ebb] 推送失败: {e}")
@@ -127,11 +125,10 @@ async def detect_strength_ebb():
         return
     _strength_alerted_date = today
 
-    text = (
-        f"🌊 强势退潮·赚钱效应消失\n\n"
-        f"昨日涨停股今日平均溢价 **{prem:.2f}%**，打板资金已转亏\n\n"
-        f"👉 别追高，手中高位股谨慎"
-    )
+    # 基线 v1.1: ✅式维度行(md), 建议单独传给统一卡的 👉建议区
+    text = (f"✅ 强势退潮：昨日涨停股今日平均溢价 "
+            f"<font color='green'>**{prem:.2f}%**</font>，打板资金已转亏")
+    advice = "别追高，手中高位股谨慎"
 
     # 先写库(写库失败则不推, 避免重启重推) — 同 detect_market_ebb。
     try:
@@ -151,7 +148,7 @@ async def detect_strength_ebb():
     try:
         # v1.7.556 批次D: 溢价转负不再独推, 并入统一「大盘风控」卡(与退潮/当前风险状态合并去重)
         from backend.services import market_risk_controller
-        await market_risk_controller.emit_risk_dimension("溢价", text)
+        await market_risk_controller.emit_risk_dimension("溢价", text, advice)
         logger.warning(f"[strength_ebb] 退潮提示已并入大盘风控卡: 昨涨停今溢价 {prem:.2f}%")
     except Exception as e:
         logger.warning(f"[strength_ebb] 推送失败: {e}")

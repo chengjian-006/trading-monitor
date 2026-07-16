@@ -111,44 +111,57 @@ def ann_section_text(hits: list[dict], verdicts: dict | None = None) -> str:
 
 
 def ann_table(hits: list[dict], verdicts: dict | None = None) -> dict:
-    """风险公告飞书元素(移动优化): 2列 markdown 表「股票 | 风险类型」+ 表下每股一行明细。
+    """风险公告全短列表(基线 v1.1): 股票 | 类型 | 要点。
 
-    手机端原生 table 长内容会截断需点开, 故改 markdown: 表格只留可扫的短列(股票/风险类型),
-    长自由文本(公告标题、AI研判)下沉到表格下方每股一行文本, 避免挤在窄单元格里被截。
-    verdicts={code:{emoji,severity,text}} 给定时, 明细行尾挂一句 🤖AI研判。
-    返回单个 markdown 元素(表+明细合为一体), 与 table_element 一样可直接进 elements 列表。"""
-    from backend.services import lark_notifier
+    要点列 = AI 严重度(有研判时, 如 🔴高)或公告日期(MM-DD), 全为可牺牲短值;
+    长值(公告标题、AI 研判句)不进表, 由 ann_fold 下沉折叠区。"""
+    from backend.services import card_kit
     verdicts = verdicts or {}
-    columns = [
-        {"name": "stock", "display_name": "股票", "data_type": "text"},
-        {"name": "tag", "display_name": "风险类型", "data_type": "text"},
-    ]
-    rows = [{"stock": f"{h['name']} {h['code']}", "tag": h["tags"]} for h in hits]
-    table_md = lark_notifier.md_table_str(columns, rows)
-    # 长文本(公告标题+AI研判)下沉到表下, 每股一行
-    detail_lines = []
+    rows = []
+    for h in hits:
+        v = verdicts.get(h["code"])
+        brief = f"{v['emoji']}{v['severity']}" if v else ((h["date"] or "")[5:] or h["date"])
+        rows.append((f"{h['name']} {h['code']}", h["tags"], brief))
+    return card_kit.short_table(["股票", "类型", "要点"], rows)
+
+
+def ann_fold(hits: list[dict], verdicts: dict | None = None) -> dict:
+    """公告摘要+AI研判折叠区(长文本下沉): 每股一行 标题（日期）+ 🤖研判句。"""
+    from backend.services import card_kit
+    verdicts = verdicts or {}
+    lines = []
     for h in hits:
         date_short = (h["date"] or "")[5:] or h["date"]
-        title = (h["title"] or "").replace("\n", " ")[:20]
+        title = (h["title"] or "").replace("\n", " ")[:40]
         line = f"• {h['name']} {title}（{date_short}）"
         v = verdicts.get(h["code"])
         if v:
-            line += f" 🤖{v['emoji']}{v['severity']}·{v['text']}"
-        detail_lines.append(line)
-    content = table_md + ("\n\n" + "\n".join(detail_lines) if detail_lines else "")
-    return lark_notifier.md_element(content)
+            line += f"\n　🤖{v['emoji']}{v['severity']}·{v['text']}"
+        lines.append(line)
+    return card_kit.fold("公告摘要与AI研判", "\n".join(lines))
 
 
-def _build_push(hits: list[dict]) -> tuple[str, list]:
-    """构造软提醒: (PushPlus 纯文本兜底, 飞书原生表格元素)。"""
-    text = ("⚠️ 自选股风险公告提醒\n"
-            f"今日新命中 {len(hits)} 条监管/财务风险公告, 请留意持仓与选股风险:\n\n"
-            + ann_section_text(hits))
+def ann_elements(hits: list[dict], verdicts: dict | None = None) -> list:
+    """风险公告区域元素组: 全短列表 + 折叠明细(基线 v1.1 表格铁律)。"""
+    return [ann_table(hits, verdicts), ann_fold(hits, verdicts)]
+
+
+def _build_card(hits: list[dict]):
+    """独立兜底卡(基线 v1.1): 风险家族橙卡 + 🦢 + 全短列表 + 折叠明细 + 👉建议。"""
+    from backend.services import card_kit
+    n = len({h["code"] for h in hits})
+    text = (f"今日新命中 {len(hits)} 条监管/财务风险公告, 请留意持仓与选股风险:\n\n"
+            + ann_section_text(hits)
+            + "\n\n纯提示, 不影响买卖点。监管/财务红旗多为 ST 黑天鹅前兆。")
     elements = [
-        {"tag": "markdown", "content": "**纯提示, 不影响买卖点。** 监管/财务红旗多为 ST 黑天鹅前兆。"},
-        ann_table(hits),
+        *ann_elements(hits),
+        card_kit.advice("纯提示不动买卖点，命中票自查风险"),
     ]
-    return text, elements
+    return card_kit.Card(
+        title=f"🦢 风险公告预警 · 自选{n}只",
+        elements=elements, fallback=text, family="risk",
+        summary=card_kit.summary_text(f"自选{n}只命中风险公告", f"{len(hits)}条", "监管/财务硬信号"),
+        tags=[("风险公告", "orange")])
 
 
 async def collect_risk_ann_hits() -> list[dict]:
@@ -186,6 +199,6 @@ async def scan_risk_announcements():
         return
 
     from backend.services import notifier
-    text, elements = _build_push(hits)
-    ok = await notifier.send_dual_card(text, lark_title="⚠️ 自选股风险公告", elements=elements)
+    card = _build_card(hits)
+    ok = await notifier.send_card(card)
     logger.warning(f"[risk_ann] 新命中风险公告 {len(hits)} 条, 推送={'成功' if ok else '失败/跳过'}")

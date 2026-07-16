@@ -140,44 +140,33 @@ def pick_pool_hits(pool_rows: list[dict], sectors: dict, ind_map: dict[str, str]
     return hits
 
 
-def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]) -> tuple[str, list, str]:
-    """v2 卡片版: md_table + 一句话建议 + 折叠面板(回测依据)。返回 (title, elements, fallback)。"""
-    from backend.services.lark_notifier import md_element, md_table_str, collapsible_element
+def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]):
+    """基线 v1.1 聚合卡形态: 归因行 + 全短列 md_table(股票|跌幅|行业) + 👉建议 + 折叠(回测依据)。
+
+    返回 card_kit.Card(family=risk 橙, 含锁屏摘要/副标题/「板块共振」彩签), 经 notifier.send_card 发送。"""
+    from backend.services import card_kit
+    from backend.services.lark_notifier import md_element
 
     ordered = sorted(sectors.items(), key=lambda kv: kv[1]["ratio"], reverse=True)
-    by_ind: dict[str, list[dict]] = {}
-    for h in hits:
-        by_ind.setdefault(h["industry"], []).append(h)
+    hit_ind_names = {h["industry"] for h in hits}
+    hit_ordered = [(ind, s) for ind, s in ordered if ind in hit_ind_names]
 
-    # Build table rows
-    columns = [
-        {"name": "industry", "display_name": "行业"},
-        {"name": "ratio", "display_name": "大跌占比"},
-        {"name": "stocks", "display_name": "自选命中"},
-    ]
-    rows: list[dict] = []
-    hit_inds = 0
-    for ind, s in ordered:
-        stocks = by_ind.get(ind)
-        if not stocks:
-            continue
-        hit_inds += 1
-        stock_parts = [f"{'💼' if st['held'] else ''}{st['name']} {st['pct']:+.1f}%"
-                       for st in stocks]
-        rows.append({
-            "industry": ind,
-            "ratio": f"{s['ratio']*100:.0f}%({s['down']}/{s['total']})",
-            "stocks": " / ".join(stock_parts),
-        })
+    # 归因行(聚合卡标准形态): 触发行业按大跌占比降序列举
+    cause = "、".join(f"{ind} 大跌 **{s['ratio']*100:.0f}%**（{s['down']}/{s['total']}）"
+                      for ind, s in hit_ordered)
+    cause_md = f"**归因**：{cause}，板块集体杀跌（全市场大跌占比 {panic*100:.1f}%，非恐慌普跌日）"
 
-    title = f"⛔ 板块共振·禁补仓 · {hit_inds}个行业"
+    # 全短列表: 股票 | 跌幅 | 行业(hits 已按跌幅升序, 跌最深在前; 跌幅绿字加粗)
+    rows = [(f"{'💼' if h['held'] else ''}{h['name']}", card_kit.pct_md(h["pct"]), h["industry"])
+            for h in hits]
 
-    # Build v2 card elements
+    title = f"⛔ 板块共振·禁补仓 · 自选{len(hits)}只"
     elements = [
-        md_element(md_table_str(columns, rows)),
-        md_element("👉 行业集体杀跌，等止跌再说，别抄底别补仓"),
-        collapsible_element(
-            "回测依据（点击展开）",
+        md_element(cause_md),
+        card_kit.short_table(["股票", "跌幅", "行业"], rows),
+        card_kit.advice("行业集体杀跌，别抄底别补仓，等企稳"),
+        card_kit.fold(
+            "回测依据与筛选口径",
             "全市场回测(2023~2026): 行业集体大跌时抄底/补仓，持有5~20天期望为负，"
             "日胜率仅33%~47%。\n\n"
             "筛选条件: 仅纳入本身已破位下跌(距峰≤-15% + 收MA20下 + MA20拐头)的票，"
@@ -186,12 +175,22 @@ def build_cocrash_card(panic: float, sectors: dict, hits: list[dict]) -> tuple[s
         ),
     ]
 
-    # Plain text fallback for PushPlus
-    fallback_lines = [f"{r['industry']} {r['ratio']} {r['stocks']}" for r in rows]
-    fallback_lines.append("\n👉 行业集体杀跌，别抄底别补仓")
+    # PushPlus 纯文本兜底(同源信息量)
+    fallback_lines = ["归因：" + "、".join(
+        f"{ind} 大跌{s['ratio']*100:.0f}%({s['down']}/{s['total']})" for ind, s in hit_ordered)]
+    fallback_lines += [f"{'💼' if h['held'] else ''}{h['name']} {h['pct']:+.1f}% {h['industry']}"
+                       for h in hits]
+    fallback_lines.append("\n👉 行业集体杀跌，别抄底别补仓，等企稳")
     fallback = "\n".join(fallback_lines)
 
-    return title, elements, fallback
+    top_ind, top_s = hit_ordered[0] if hit_ordered else ("", {"ratio": 0})
+    return card_kit.Card(
+        title=title, elements=elements, fallback=fallback, family="risk",
+        summary=card_kit.summary_text(
+            f"自选{len(hits)}只板块共振跌",
+            f"{top_ind}{top_s['ratio']*100:.0f}%大跌" if top_ind else "", "禁补仓"),
+        subtitle="盘中增量提示 · 每票当日一次",
+        tags=[("板块共振", "orange")])
 
 
 # ══════════════ 取数 + 编排(定时 14:30) ══════════════
@@ -338,10 +337,10 @@ async def run_sector_cocrash_watch():
         logger.info(f"[sector_cocrash] 触发{len(res['sectors'])}个行业, 自选新命中{len(fresh)}只 "
                     f"但无一处于破位下跌, 不发(强势票跟跌不提示)")
         return
-    title, elements, fallback = build_cocrash_card(res["panic"], res["sectors"], hits)
+    card = build_cocrash_card(res["panic"], res["sectors"], hits)
     try:
-        await notifier.send_dual_card(fallback, lark_title=title, elements=elements, template="orange")
+        await notifier.send_card(card)
         _FIRED_TODAY.update(h["code"] for h in hits)   # 推成功才标记, 每票当天不再重报
-        logger.info(f"[sector_cocrash] 已推送: {title}, 新命中{len(hits)}只")
+        logger.info(f"[sector_cocrash] 已推送: {card.title}, 新命中{len(hits)}只")
     except Exception as e:
         logger.warning(f"[sector_cocrash] 推送失败: {e}")

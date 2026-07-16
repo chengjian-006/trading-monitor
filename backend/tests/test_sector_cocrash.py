@@ -160,16 +160,29 @@ class TestPoolHits:
 
 class TestCard:
     def test_build_card(self):
+        """基线 v1.1 聚合卡形态: 归因行 + 全短列表(股票|跌幅|行业) + 👉建议 + 折叠 + 信封字段。"""
         sectors = {"电池化学品": {"down": 27, "total": 38, "ratio": 0.71}}
         hits = [{"code": "300390", "name": "天华新能", "pct": -15.8,
                  "industry": "电池化学品", "held": True},
                 {"code": "301292", "name": "海科新源", "pct": -7.0,
                  "industry": "电池化学品", "held": False}]
-        title, elements, fallback = build_cocrash_card(0.052, sectors, hits)
-        assert "禁补仓" in title
-        assert "电池化学品" in fallback and "71%" in fallback
-        assert "天华新能" in fallback
-        assert len(elements) >= 2
+        card = build_cocrash_card(0.052, sectors, hits)
+        assert "禁补仓" in card.title and "自选2只" in card.title
+        assert card.template == "orange"                       # 风险家族(谨慎档)橙 header
+        assert card.tags == [("板块共振", "orange")]
+        assert "禁补仓" in card.summary and "电池化学品" in card.summary
+        assert card.subtitle                                    # 副标题(口径说明)非空
+        # 归因行 + 全短列表 + 👉建议 + 折叠
+        assert "**归因**" in card.elements[0]["content"]
+        table_md = card.elements[1]["content"]
+        assert "| 股票 | 跌幅 | 行业 |" in table_md
+        assert "💼天华新能" in table_md                          # 持仓标记
+        assert "<font color='green'>**-15.8%**</font>" in table_md   # 跌幅绿字加粗
+        assert any("👉" in el.get("content", "") for el in card.elements)
+        assert any(el.get("tag") == "collapsible_panel" for el in card.elements)
+        # fallback 同源信息量
+        assert "电池化学品" in card.fallback and "71%" in card.fallback
+        assert "天华新能" in card.fallback and "👉" in card.fallback
 
     def test_sectors_ordered_by_ratio(self):
         sectors = {"电池化学品": {"down": 27, "total": 38, "ratio": 0.71},
@@ -177,8 +190,9 @@ class TestCard:
         hits = [{"code": "002192", "name": "融捷股份", "pct": -10.0, "industry": "锂", "held": False},
                 {"code": "300390", "name": "天华新能", "pct": -15.8,
                  "industry": "电池化学品", "held": False}]
-        _, elements, fallback = build_cocrash_card(0.05, sectors, hits)
-        assert fallback.index("锂") < fallback.index("电池化学品")
+        card = build_cocrash_card(0.05, sectors, hits)
+        # 归因行内行业按大跌占比降序: 锂(100%) 在 电池化学品(71%) 前
+        assert card.fallback.index("锂") < card.fallback.index("电池化学品")
 
 
 class TestWencaiParse:
