@@ -310,7 +310,7 @@ async def _extract_stocks(text: str) -> list[dict]:
 
 
 class OpinionIngestRequest(BaseModel):
-    token: str
+    token: str = ""                 # 已不校验(2026-07-16 用户拍板去掉观点上报鉴权), 留字段兼容旧客户端
     question: str
     answer_text: str = ""
     trace_id: str = ""
@@ -325,11 +325,10 @@ class OpinionIngestRequest(BaseModel):
 async def ingest_opinion(req: OpinionIngestRequest):
     """本地浏览器代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
 
-    共享密钥鉴权(同 ingest)。答案话术在客户端从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
+    不做 token 鉴权(2026-07-16 用户拍板: 个人自用降低配置门槛; 候选榜 ingest 两口仍留密钥)。
+    答案话术在客户端从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
     only_with_stock=True 且没抽出个股时跳过入库(返回 skipped)。
     """
-    if not _ingest_token_ok(req.token):
-        raise HTTPException(status_code=401, detail="ingest token 无效")
     question = (req.question or "").strip()[:255]
     if not question:
         raise HTTPException(status_code=400, detail="question 为空")

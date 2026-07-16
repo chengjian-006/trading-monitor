@@ -1,7 +1,7 @@
 """问财观点上报接口单测 (最小链路).
 
 直调 async 端点 + monkeypatch, 不起 app、不打网、不连库。
-覆盖: ingest token 守门 / 从投顾话术里撞出个股(6位代码 + 全名命中) / 主推排序 / 落库参数。
+覆盖: 无 token 也放行(已去鉴权) / 从投顾话术里撞出个股(6位代码 + 全名命中) / 主推排序 / 落库参数。
 """
 import asyncio
 
@@ -45,11 +45,14 @@ def _req(**kw):
     return wc.OpinionIngestRequest(**base)
 
 
-def test_opinion_token_guard(monkeypatch):
-    _setup(monkeypatch)
-    with pytest.raises(HTTPException) as ei:
-        asyncio.run(wc.ingest_opinion(_req(token="WRONG")))
-    assert ei.value.status_code == 401
+def test_opinion_no_token_required(monkeypatch):
+    """观点上报不做 token 鉴权(2026-07-16 拍板): 空/错 token 都放行。"""
+    cap = _setup(monkeypatch)
+    r = asyncio.run(wc.ingest_opinion(_req(token="")))
+    assert r["ok"] is True
+    r2 = asyncio.run(wc.ingest_opinion(_req(token="WRONG")))
+    assert r2["ok"] is True
+    assert cap["user_id"] == 0
 
 
 def test_opinion_empty_question(monkeypatch):

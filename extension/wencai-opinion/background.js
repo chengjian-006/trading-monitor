@@ -37,7 +37,6 @@ async function runBg(question, opts) {
   const startedAt = Date.now();
   setRunState({ status: 'running', q: question, deep: !!s.deepResearch, startedAt });
   try {
-    if (!s.token) throw new Error('未配置 token（点扩展图标在设置里填）');
     const res = await WOP.runAimeQuery(question, { deep: s.deepResearch, askText: question + WOP.FORMAT_SUFFIX, getV: () => cookieVal('v'), getUserId: () => cookieVal('userid') });
     if (!res.answer.trim()) throw new Error('没抓到答案（可能被风控或非推荐意图）');
     const rawAnswer = res.answer;

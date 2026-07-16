@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.638',
+    date: '2026-07-16',
+    title: '问财观点扩展零配置：观点上报去 token 鉴权 + 服务器地址不再展示',
+    changes: [
+      {
+        text: '问财观点上报接口(/api/wencai/opinion)去掉 token 鉴权（个人自用降低配置门槛，问财候选榜 ingest 两口仍留密钥）；扩展端同步删掉 token 门槛报错、设置页移除「高级设置」（服务器地址内置写死不展示），重装/换目录零配置开箱即用。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.637',
     date: '2026-07-16',
     title: '问财观点扩展弹窗全面重设计：问答/历史/设置三 Tab + 弹窗内直出结论卡',

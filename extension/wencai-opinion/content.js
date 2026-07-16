@@ -163,7 +163,6 @@
     const s = await getSettings();
     setQuestion(question); setStage('准备中'); setReasoning(''); setBodyText('…'); panel().ft.style.display = 'none';
     if (!getCookie('v')) { setStage('未登录', 'red'); setBodyText('没取到问财登录 cookie。'); setFoot('<div class="acts"><a class="btn" href="https://www.iwencai.com/" target="_blank">去登录问财 →</a></div>'); return; }
-    if (!s.token) { setStage('未配置', 'red'); setBodyText('请点浏览器右上角扩展图标，在设置里填入上报密钥 token。'); return; }
 
     setStage('提问中', '', true); setBodyText('正在向问财提交问题…');
     let res;

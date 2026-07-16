@@ -34,7 +34,7 @@ let saving = false; // 防止 load 回填触发保存
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;
-    $('serverUrl').value = s.serverUrl; $('token').value = s.token; $('uploader').value = s.uploader || '';
+    $('uploader').value = s.uploader || '';
     $('presets').value = (s.presets || []).join('\n');
     $('deepResearch').checked = !!s.deepResearch; $('autoUpload').checked = !!s.autoUpload; $('onlyWithStock').checked = !!s.onlyWithStock;
     const sc = s.schedule || DEFAULTS.schedule;
@@ -47,7 +47,7 @@ function loadSettings() {
 
 function collectSettings() {
   return {
-    serverUrl: $('serverUrl').value.trim() || DEFAULTS.serverUrl, token: $('token').value.trim(), uploader: $('uploader').value.trim(),
+    serverUrl: DEFAULTS.serverUrl, uploader: $('uploader').value.trim(),
     presets: linesToArr($('presets').value),
     deepResearch: $('deepResearch').checked, autoUpload: $('autoUpload').checked, onlyWithStock: $('onlyWithStock').checked,
     schedule: {
@@ -73,11 +73,10 @@ const saveDebounced = () => { clearTimeout(saveTimer); saveTimer = setTimeout(sa
     saveSettings();
   });
 });
-['serverUrl', 'token', 'uploader', 'presets', 'schedTimes', 'schedQuestions'].forEach((id) => {
+['uploader', 'presets', 'schedTimes', 'schedQuestions'].forEach((id) => {
   $(id).addEventListener('input', saveDebounced);
   $(id).addEventListener('change', () => { clearTimeout(saveTimer); saveSettings(); });
 });
-$('tokToggle').onclick = () => { const i = $('token'); const on = i.type === 'password'; i.type = on ? 'text' : 'password'; $('tokToggle').textContent = on ? '隐藏' : '显示'; };
 
 // 别的页面（问财页浮层等）改了设置，同步回填深研开关
 chrome.storage.onChanged.addListener((ch, area) => {
