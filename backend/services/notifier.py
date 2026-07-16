@@ -693,31 +693,27 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
 # 市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事, 再挂就重复)。
 _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
 _RISK_TITLE_PREFIX = {"RED": "🚨大盘空仓中🚨 ", "YELLOW": "⚠️大盘谨慎中 "}
-# <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用
+# <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用。
+# {since} = 时间锚点(如「（13:11起）」, 对标状态页 since 模式), 无锚点时为空串。
 _RISK_BANNER = {
-    "RED": "<font color='red'>**🚨🚨🚨 大盘空仓中 —— 停开新仓、别抄底、先保命 🚨🚨🚨**</font>",
-    "YELLOW": "<font color='orange'>**⚠️⚠️ 大盘谨慎中 —— 控制仓位、别追高 ⚠️⚠️**</font>",
+    "RED": "<font color='red'>**🚨🚨🚨 大盘空仓中{since} —— 停开新仓、别抄底、先保命 🚨🚨🚨**</font>",
+    "YELLOW": "<font color='orange'>**⚠️⚠️ 大盘谨慎中{since} —— 控制仓位、别追高 ⚠️⚠️**</font>",
 }
 
 
-async def _risk_state_for(title: str) -> str:
-    """当前用于装饰的风险态('RED'/'YELLOW'); 风险卡自身/GREEN/取态失败返回 ''。"""
+async def _risk_deco(title: str) -> tuple[str, str]:
+    """(带前缀的标题, 正文横幅md)。无风险/风险卡自身/取态失败 → (原标题, '')。"""
     try:
         if any(k in (title or "") for k in _RISK_TITLE_SKIP):
-            return ""
-        from backend.services.market_risk_controller import get_risk_state
-        st = await get_risk_state()   # 2分钟缓存, 不加DB压力
-        return st if st in _RISK_TITLE_PREFIX else ""
+            return title, ""
+        from backend.services.market_risk_controller import get_risk_state_info
+        st, since = await get_risk_state_info()   # 2分钟缓存, 不加DB压力
     except Exception:
-        return ""
-
-
-async def _risk_deco(title: str) -> tuple[str, str]:
-    """(带前缀的标题, 正文横幅md)。无风险/风险卡自身 → (原标题, '')。"""
-    st = await _risk_state_for(title)
-    if not st:
         return title, ""
-    return _RISK_TITLE_PREFIX[st] + title, _RISK_BANNER[st]
+    if st not in _RISK_TITLE_PREFIX:
+        return title, ""
+    banner = _RISK_BANNER[st].format(since=f"（{since}起）" if since else "")
+    return _RISK_TITLE_PREFIX[st] + title, banner
 
 
 async def _with_risk_flag(title: str) -> str:

@@ -50,7 +50,8 @@ YELLOW_EXIT_ADVANCE = 42.0        # 涨跌比 > 42%
 RED_EXIT_BREADTH = 25.0           # 广度 > 25%
 RED_EXIT_ADVANCE = 40.0           # 涨跌比 > 40%
 
-_active_cache: tuple[float, str] = (0.0, GREEN)
+# (monotonic时刻, 状态, 状态行updated_at) — updated_at 给推送横幅的"几点起"时间锚点用
+_active_cache: tuple[float, str, object] = (0.0, GREEN, None)
 _ACTIVE_TTL = 120.0
 
 
@@ -261,39 +262,52 @@ def _run_state_machine(prev_state: str, today: dict, breadth: float | None) -> s
 
 def _invalidate_cache() -> None:
     global _active_cache
-    _active_cache = (0.0, GREEN)
+    _active_cache = (0.0, GREEN, None)
+
+
+async def _refresh_active_cache() -> None:
+    """2分钟缓存刷新: 最新风险行的 state + updated_at(状态时间锚点)。"""
+    global _active_cache
+    now = time.monotonic()
+    if now - _active_cache[0] < _ACTIVE_TTL:
+        return
+    try:
+        rows = await _fetchall(
+            "SELECT state, updated_at FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 1")
+        st = str(rows[0]["state"]) if rows else GREEN
+        up = rows[0].get("updated_at") if rows else None
+    except Exception:
+        st, up = GREEN, None
+    _active_cache = (now, st, up)
 
 
 async def is_risk_active() -> bool:
     """当前是否处于 RED 风险状态 — 买点推送抑制用, 2 分钟缓存."""
-    global _active_cache
-    now = time.monotonic()
-    if now - _active_cache[0] < _ACTIVE_TTL:
-        return _active_cache[1] == RED
-    try:
-        rows = await _fetchall(
-            "SELECT state FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 1")
-        st = str(rows[0]["state"]) if rows else GREEN
-    except Exception:
-        st = GREEN
-    _active_cache = (now, st)
-    return st == RED
+    await _refresh_active_cache()
+    return _active_cache[1] == RED
 
 
 async def get_risk_state() -> str:
     """获取当前风险状态 (GREEN/YELLOW/RED)."""
-    global _active_cache
-    now = time.monotonic()
-    if now - _active_cache[0] < _ACTIVE_TTL:
-        return _active_cache[1]
-    try:
-        rows = await _fetchall(
-            "SELECT state FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 1")
-        st = str(rows[0]["state"]) if rows else GREEN
-    except Exception:
-        st = GREEN
-    _active_cache = (now, st)
-    return st
+    await _refresh_active_cache()
+    return _active_cache[1]
+
+
+async def get_risk_state_info() -> tuple[str, str]:
+    """(状态, 时间锚点标签)。锚点=状态行最后变更时刻: 今日→'13:11', 往日→'7月15日 16:40';
+    GREEN/无锚点返回 ''。给推送横幅的「几点起」用(对标状态页 since 模式)。"""
+    await _refresh_active_cache()
+    st, up = _active_cache[1], _active_cache[2]
+    label = ""
+    if st != GREEN and up is not None:
+        try:
+            if up.date() == datetime.now().date():
+                label = up.strftime("%H:%M")
+            else:
+                label = f"{up.month}月{up.day}日 {up.strftime('%H:%M')}"
+        except Exception:
+            label = ""
+    return st, label
 
 
 # ── 推送 ──

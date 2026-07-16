@@ -7,6 +7,7 @@ import AppHeader from './components/layout/AppHeader.vue'
 import AppSidebar from './components/layout/AppSidebar.vue'
 import AppTabBar from './components/layout/AppTabBar.vue'
 import MarketRiskLight from './components/layout/MarketRiskLight.vue'
+import MarketRiskTopBanner from './components/layout/MarketRiskTopBanner.vue'
 import StockDetailModal from './components/chart/StockDetailModal.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -99,6 +100,7 @@ const themeOverrides: GlobalThemeOverrides = {
     <!-- PC Layout -->
     <div v-if="!isMobile" class="app-layout-pc">
       <AppHeader v-if="!isLoginPage" :connected="connected" />
+      <MarketRiskTopBanner v-if="!isLoginPage" />
       <div :class="isLoginPage ? '' : 'pc-body'">
         <AppSidebar v-if="!isLoginPage" />
         <main :class="isLoginPage ? '' : 'pc-main'">
@@ -122,6 +124,7 @@ const themeOverrides: GlobalThemeOverrides = {
             <span :class="['status-dot', { off: !connected }]" />
           </div>
         </div>
+        <MarketRiskTopBanner />
       </template>
       <main :class="['main-content', { mobile: !isLoginPage }]">
         <router-view v-slot="{ Component }">

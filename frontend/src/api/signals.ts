@@ -45,6 +45,7 @@ export interface MarketRiskRow {
   zha_rate: number | null        // 炸板率%
   state: string                  // GREEN/YELLOW/RED
   source: string                 // eod | intraday
+  updated_at?: string | null     // 状态行最后变更时刻(全局顶栏横幅「几点起」锚点)
 }
 
 export async function fetchMarketRisk(): Promise<{ latest: MarketRiskRow | null; rows: MarketRiskRow[] }> {
