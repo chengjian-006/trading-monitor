@@ -592,7 +592,7 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
     if lark_on and lark_webhook and not mute_lark:
         from backend.services import lark_notifier
         from backend.services import push_pref as _pref_svc
-        lark_title = await _with_risk_flag(
+        lark_title, risk_banner = await _risk_deco(
             f"{DIRECTION_EMOJI.get(direction, '')} {DIRECTION_SHORT.get(direction, '')} · [{signal_name}]")
         lark_template = lark_notifier.DIRECTION_TEMPLATE.get(direction, "blue")
         # 个股信号卡片底部加"查看分时图"按钮, 跳系统分时页 (大盘预警 plunge 不挂个股图)
@@ -613,6 +613,8 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
                                           strategy, pct_change, model_stats, basics, sector, background)
         if quick_md:
             elements = list(elements) + [lark_notifier.md_element(quick_md)]
+        if risk_banner:
+            elements = [lark_notifier.md_element(risk_banner)] + list(elements)
         lark_ok = await lark_notifier.post_lark_card_v2(
             lark_webhook, lark_title, elements, lark_template, link_url=link, link_text="查看分时图")
         if not lark_ok:
@@ -620,6 +622,8 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
                                            strategy, pct_change, model_stats, basics, sector, background)
             if quick_md:
                 lark_body = f"{lark_body}<br>{quick_md}"
+            if risk_banner:
+                lark_body = f"{risk_banner}<br>{lark_body}"
             lark_ok = await lark_notifier.post_lark_card(
                 lark_webhook, lark_title, lark_body, lark_template, link)
 
@@ -630,9 +634,11 @@ async def send_wechat_signal(code: str, name: str, signal_name: str,
     pp_cfg = load_config()
     pp_ok = False
     if pp_cfg.get("pushplus_enabled", True):
-        pp_title = await _with_risk_flag(
+        pp_title, pp_banner = await _risk_deco(
             f"{DIRECTION_EMOJI.get(direction,'')} {DIRECTION_SHORT.get(direction,'')} · [{signal_name}] — {name}")
         pp_html = _build_pushplus_html(code, name, signal_name, direction, price, detail, strategy, pct_change, model_stats, basics, sector, background)
+        if pp_banner:
+            pp_html = f"<div style='font-size:15px;margin-bottom:6px'>{pp_banner}</div>{pp_html}"
         pp_ok = await _post_pushplus(pp_cfg.get("pushplus_token", ""), pp_title, pp_html, "pushplus")
 
     if lark_ok or wx_ok or pp_ok:
@@ -650,10 +656,10 @@ async def send_wechat_markdown(content: str) -> bool:
         logger.info(f"[wechat_md] 非生产环境 IP={ip}，跳过 markdown 推送")
         return False
     cfg = load_config()
-    body = _time_prefix() + content
+    title, banner = await _risk_deco("📊 盘面分析")
+    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
 
     # 飞书走交互卡片, lark_md 渲染 **加粗** (企微 markdown 的加粗语法两边通用)
-    title = await _with_risk_flag("📊 盘面分析")
     lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False), body,
                                  title=title)
     pp_ok = await _fanout_pushplus(title, body)
@@ -670,9 +676,9 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
         logger.info(f"[wechat_text] 非生产环境 IP={ip}，跳过文本推送")
         return False
     cfg = load_config()
-    body = _time_prefix() + content
+    title, banner = await _risk_deco("📊 盘面播报")
+    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
 
-    title = await _with_risk_flag("📊 盘面播报")
     lark_ok = False
     if not mute_lark:
         lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False), body,
@@ -681,25 +687,42 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
     return lark_ok or pp_ok
 
 
-# ── 大盘风险标题标记(v1.7.627) ──
-# 大盘风险(谨慎/空仓)生效期间, 所有推送标题前挂醒目风险标, 用户不看正文也知道当下环境。
+# ── 大盘风险标记(v1.7.628, v1.7.629 加正文横幅) ──
+# 大盘风险(谨慎/空仓)生效期间, 所有推送做双重醒目标记:
+#   1) 标题前缀(手机通知栏第一眼) 2) 正文顶部红色加粗大横幅(点开第一行)。
 # 市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事, 再挂就重复)。
 _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
+_RISK_TITLE_PREFIX = {"RED": "🚨大盘空仓中🚨 ", "YELLOW": "⚠️大盘谨慎中 "}
+# <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用
+_RISK_BANNER = {
+    "RED": "<font color='red'>**🚨🚨🚨 大盘空仓中 —— 停开新仓、别抄底、先保命 🚨🚨🚨**</font>",
+    "YELLOW": "<font color='orange'>**⚠️⚠️ 大盘谨慎中 —— 控制仓位、别追高 ⚠️⚠️**</font>",
+}
+
+
+async def _risk_state_for(title: str) -> str:
+    """当前用于装饰的风险态('RED'/'YELLOW'); 风险卡自身/GREEN/取态失败返回 ''。"""
+    try:
+        if any(k in (title or "") for k in _RISK_TITLE_SKIP):
+            return ""
+        from backend.services.market_risk_controller import get_risk_state
+        st = await get_risk_state()   # 2分钟缓存, 不加DB压力
+        return st if st in _RISK_TITLE_PREFIX else ""
+    except Exception:
+        return ""
+
+
+async def _risk_deco(title: str) -> tuple[str, str]:
+    """(带前缀的标题, 正文横幅md)。无风险/风险卡自身 → (原标题, '')。"""
+    st = await _risk_state_for(title)
+    if not st:
+        return title, ""
+    return _RISK_TITLE_PREFIX[st] + title, _RISK_BANNER[st]
 
 
 async def _with_risk_flag(title: str) -> str:
-    try:
-        if any(k in (title or "") for k in _RISK_TITLE_SKIP):
-            return title
-        from backend.services.market_risk_controller import get_risk_state
-        st = await get_risk_state()   # 2分钟缓存, 不加DB压力
-    except Exception:
-        return title
-    if st == "RED":
-        return f"🚨大盘空仓中🚨 {title}"
-    if st == "YELLOW":
-        return f"⚠️大盘谨慎中 {title}"
-    return title
+    """只要标题的旧接口(兼容既有调用/测试)。"""
+    return (await _risk_deco(title))[0]
 
 
 async def send_dual(content: str, *, lark_title: str = "📊 盘面播报",
@@ -710,8 +733,8 @@ async def send_dual(content: str, *, lark_title: str = "📊 盘面播报",
         logger.info(f"[send_dual] 非生产环境 IP={ip}，跳过推送: {lark_title}")
         return False
     cfg = load_config()
-    lark_title = await _with_risk_flag(lark_title)
-    body = _time_prefix() + content
+    lark_title, banner = await _risk_deco(lark_title)
+    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
     lark_ok = await _fanout_lark(cfg.get("lark_webhook", ""), cfg.get("lark_enabled", False),
                                  body, title=lark_title, template=template)
     pp_ok = await _fanout_pushplus(lark_title, body)
@@ -728,14 +751,16 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
         logger.info(f"[send_dual_card] 非生产环境 IP={ip}，跳过推送: {lark_title}")
         return False
     cfg = load_config()
-    lark_title = await _with_risk_flag(lark_title)
-    body = _time_prefix() + content
+    lark_title, banner = await _risk_deco(lark_title)
+    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
 
     lark_ok = False
     lark_webhook = cfg.get("lark_webhook", "")
     if cfg.get("lark_enabled", False) and lark_webhook:
         if elements:
             from backend.services import lark_notifier
+            if banner:
+                elements = [lark_notifier.md_element(banner)] + list(elements)
             lark_ok = await lark_notifier.post_lark_card_v2(
                 lark_webhook, lark_title, elements, template=template,
                 link_url=link_url, link_text=link_text)
@@ -757,13 +782,15 @@ async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
         ip = await get_outbound_ip()
         logger.info(f"[send_dual_card_to] 非生产环境 IP={ip}，跳过推送: {lark_title}")
         return False
-    lark_title = await _with_risk_flag(lark_title)
-    body = _time_prefix() + content
+    lark_title, banner = await _risk_deco(lark_title)
+    body = _time_prefix() + (banner + "\n\n" if banner else "") + content
 
     lark_ok = False
     if lark_on and lark_webhook:
         if elements:
             from backend.services import lark_notifier
+            if banner:
+                elements = [lark_notifier.md_element(banner)] + list(elements)
             lark_ok = await lark_notifier.post_lark_card_v2(
                 lark_webhook, lark_title, elements, link_url=link_url, link_text=link_text)
             if not lark_ok:
@@ -884,10 +911,12 @@ async def send_market_report(content: str, slot_name: str, context: dict | None 
         return False
     cfg = load_config()
     site_url = cfg.get("site_url", "")
-    title = await _with_risk_flag(f"📊 盘面日报 · {slot_name}")
+    title, banner = await _risk_deco(f"📊 盘面日报 · {slot_name}")
 
     # 企微/兜底纯文本(含买点跟踪文本段)
     text = _build_report_text(slot_name, context)
+    if banner:
+        text = f"{banner}\n\n{text}"
     if extra_sections:
         text += f"\n\n{extra_sections}"
     if site_url:
@@ -908,6 +937,8 @@ async def send_market_report(content: str, slot_name: str, context: dict | None 
             if extra_sections:
                 narrative += f"\n\n{extra_sections}"
             elements = [lark_notifier.md_element(narrative[:3500])] + sig_tables + bt_tables
+            if banner:
+                elements = [lark_notifier.md_element(banner)] + elements
             lark_ok = await lark_notifier.post_lark_card_v2(
                 lark_webhook, title, elements, link_url=site_url, link_text="查看完整报告")
             if not lark_ok:
