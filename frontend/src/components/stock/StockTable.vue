@@ -989,7 +989,10 @@ const allColumns = computed(() => [
   },
 ])
 
-const columns = computed(() => allColumns.value)
+// 机构级 (v1.7.650): 数字列打等宽 mono className, 盘口质感; 中文名/信号列不受影响
+const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'volume_ratio', 'free_cap', 'turnover'])
+const columns = computed(() => allColumns.value.map((c: any) =>
+  NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
 </script>
 
 <template>
@@ -1028,6 +1031,11 @@ const columns = computed(() => allColumns.value)
 </template>
 
 <style>
+/* 机构级 (v1.7.650): 数字列等宽 mono, 盘口对齐质感 */
+.n-data-table-td.col-num {
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
 /* 让表格占满父级剩余高度, 配合 NDataTable flex-height: 仅表体内部滚动、表头吸顶不随页面动 */
 .stock-table-wrap {
   flex: 1;

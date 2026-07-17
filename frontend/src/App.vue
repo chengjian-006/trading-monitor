@@ -71,30 +71,34 @@ const { connected } = useWebSocket((data) => {
   }
 })
 
-// 基线0 (v1.7.646): 对齐 tokens.css —— 圆角6px、警示色 #9A6700、表头灰底+次要色(弃蓝底)
+// 机构级终端 (v1.7.650): 冷技术中性 + 发丝网格表格; 对齐 tokens.css
 const themeOverrides: GlobalThemeOverrides = {
   common: {
-    primaryColor: '#0969DA',
-    primaryColorHover: '#0860C4',
-    primaryColorPressed: '#0757B0',
-    successColor: '#1A7F37',
-    errorColor: '#CF222E',
-    warningColor: '#9A6700',
-    borderColor: '#D1D9E0',
-    borderRadius: '6px',
+    primaryColor: '#1668DC',
+    primaryColorHover: '#1C74EC',
+    primaryColorPressed: '#1259C4',
+    successColor: '#1A8F4E',
+    errorColor: '#D22B2B',
+    warningColor: '#B7791F',
+    borderColor: '#D2D8E1',
+    borderRadius: '5px',
     borderRadiusSmall: '3px',
-    textColorBase: '#1F2328',
-    textColor2: '#656D76',
-    textColor3: '#8B949E',
-    bodyColor: '#F6F8FA',
+    textColorBase: '#14181F',
+    textColor2: '#5A6472',
+    textColor3: '#97A0AE',
+    bodyColor: '#EEF1F5',
     cardColor: '#FFFFFF',
+    fontWeightStrong: '600',
   },
   DataTable: {
-    thColor: '#F6F8FA',
-    thTextColor: '#656D76',
-    thFontWeight: '600',
-    thBorderColor: '#D1D9E0',
-    thPaddingSmall: '10px 12px',
+    thColor: '#F6F8FB',
+    thTextColor: '#97A0AE',
+    thFontWeight: '700',
+    thBorderColor: '#C2C9D4',
+    tdColorHover: '#F1F4F8',
+    borderColor: '#E6EAF0',
+    thPaddingSmall: '7px 12px',
+    tdPaddingSmall: '7px 12px',
   },
 }
 

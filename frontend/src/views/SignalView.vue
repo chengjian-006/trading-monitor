@@ -118,20 +118,21 @@ onMounted(() => {
     <!-- 实时市场概览 (全球/A股/温度), 30s 自动刷新 -->
     <MarketOverviewBar />
 
-    <!-- 短线情绪面板 (温度计/封板率/连板梯队), 紧跟概览条: 开盘先看"今天敢不敢干" -->
-    <EmotionPanel />
-
-    <!-- 市场风险两级预警状态条 (GREEN/YELLOW/RED 三态), 接情绪面板: 环境级"该不该开新仓" -->
+    <!-- 市场风险两级预警状态条 (GREEN/YELLOW/RED 三态): 环境级"该不该开新仓", 全宽母线 -->
     <MarketRiskBanner />
 
-    <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
-    <ThemeHeatPanel />
-
-    <!-- 板块轮动·弱强转换: 盘中题材走强/退潮状态 + 14:30 次日预测 -->
-    <SectorRotationPanel />
-
-    <!-- 临近买点 (自选距四买点的触发/接近), 接情绪之后: "哪些自选已贴近买点" -->
-    <NearBuyPanel />
+    <!-- 机构级驾驶舱栅格 (v1.7.650): 情绪/题材/板块/临近买点 密集排布,
+         够宽自动两栏、窄屏回一栏, 每 panel 保底 440px 防挤压 -->
+    <div class="cockpit-grid">
+      <!-- 短线情绪面板 (温度计/封板率/连板梯队): 开盘先看"今天敢不敢干" -->
+      <EmotionPanel />
+      <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
+      <ThemeHeatPanel />
+      <!-- 板块轮动·弱强转换: 盘中题材走强/退潮状态 + 14:30 次日预测 -->
+      <SectorRotationPanel />
+      <!-- 临近买点 (自选距四买点的触发/接近): "哪些自选已贴近买点" -->
+      <NearBuyPanel />
+    </div>
 
     <!-- AI 市场分析 -->
     <NCard size="small" class="report-card" :bordered="true">
@@ -229,6 +230,19 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+/* 机构级驾驶舱栅格: 够宽自动两栏, 每 panel 保底 440px; 顶端对齐防高度不一拉伸 */
+.cockpit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+.cockpit-grid > * {
+  min-width: 0;   /* 防内部宽表撑破栅格 */
+}
+@media (max-width: 768px) {
+  .cockpit-grid { grid-template-columns: 1fr; }
 }
 .report-card {
   border-radius: 6px;

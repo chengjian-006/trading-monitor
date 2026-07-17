@@ -34,15 +34,17 @@
   justify-content: center;
 }
 
-/* ── 全站 DataTable 列头统一规范（灰底+次要色+600，字号不放大）── */
-.n-data-table-th:not(:last-child) {
-  border-right: 1px solid var(--border-muted);
+/* ── 机构级 DataTable (v1.7.650): 发丝竖网格 + 大写字距列标签 + 等宽数字 ── */
+.n-data-table-th:not(:last-child),
+.n-data-table-td:not(:last-child) {
+  border-right: 1px solid var(--border-muted);   /* 发丝级竖网格线 */
 }
 .n-data-table-th {
   position: relative !important;
   vertical-align: middle !important;
   padding-top: 8px !important;
   padding-bottom: 14px !important;  /* 给底部箭头留位 */
+  text-transform: uppercase;
 }
 .n-data-table-th__title-wrapper {
   display: flex;
@@ -51,10 +53,13 @@
   padding-right: 0 !important;
 }
 .n-data-table-th__title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 10.5px;
+  font-weight: 700;
   line-height: 1.2;
+  letter-spacing: 0.06em;   /* 机构盘面大写微标签 */
 }
+/* 数字/代码单元格走等宽数字, 列列咬合(中文名单元格不受影响) */
+.n-data-table-td { font-variant-numeric: tabular-nums; }
 .n-data-table-th .n-data-table-sorter {
   position: absolute !important;
   right: 4px;

@@ -9,28 +9,30 @@
  *   - 间距只允许 4/8/12/16/24px；圆角 6px(卡) + 3px(表内小件)；字重上限 600
  * ============================================================ */
 :root {
-  /* ── 背景 ── */
-  --bg-default: #F6F8FA;
+  /* ── 背景（机构级冷技术中性 v1.7.650）── */
+  --bg-default: #EEF1F5;
   --bg-surface: #FFFFFF;
-  --bg-sunken: #EEF1F5;   /* 比页面底更沉一档: 表头/hover底/嵌入槽 */
+  --bg-sunken: #F1F4F8;   /* 表头/hover底/嵌入槽 */
+  --bg-head: #F6F8FB;     /* 面板头/表头母线底 */
 
-  /* ── 文字三层灰阶 ── */
-  --fg-default: #1F2328;
-  --fg-muted: #656D76;
-  --fg-subtle: #8B949E;
+  /* ── 文字三层灰阶（冷调墨）── */
+  --fg-default: #14181F;
+  --fg-muted: #5A6472;
+  --fg-subtle: #97A0AE;
 
-  /* ── 边框 ── */
-  --border-default: #D1D9E0;
-  --border-muted: #EAEEF3;
+  /* ── 边框：发丝网格 + 硬边分层 ── */
+  --border-default: #D2D8E1;
+  --border-muted: #E6EAF0;   /* 发丝网格线 */
+  --border-hard: #C2C9D4;    /* 面板外框/母线分隔 */
 
   /* ── 实底配白字：主按钮/徽章等 emphasis 实色块上的前景色。
    *    与 --bg-surface 语义分离(那是卡片面), 深色主题引入时白字应保持白, 不随面反转 ── */
   --on-emphasis: #FFFFFF;
 
-  /* ── 强调/链接 ── */
-  --accent-fg: #0969DA;
-  --accent-emphasis: #0969DA;
-  --accent-bg-muted: rgba(9, 105, 218, 0.09);
+  /* ── 强调/链接（更冷更技术的终端蓝）── */
+  --accent-fg: #1668DC;
+  --accent-emphasis: #1668DC;
+  --accent-bg-muted: rgba(22, 104, 220, 0.10);
 
   /* ── 品牌辅色「潮汐青」(观潮=潮汐)：仅用于品牌/装饰时刻(logo/分隔/空态/加载/hover)，
    *    绝不用于涨跌语义，也不与 accent 主蓝抢主色 ── */
@@ -39,22 +41,22 @@
   --tide-bg-muted: #E0F4F8;
 
   /* ── 行情语义（A股：红涨绿跌灰平）── */
-  --up-fg: #D92B26;
-  --up-emphasis: #D92B26;
-  --up-bg-muted: rgba(217, 43, 38, 0.09);
-  --down-fg: #0F8A5F;
-  --down-emphasis: #0F8A5F;
-  --down-bg-muted: rgba(15, 138, 95, 0.09);
-  --flat-fg: #8B949E;
+  --up-fg: #E0342A;
+  --up-emphasis: #E0342A;
+  --up-bg-muted: rgba(224, 52, 42, 0.10);
+  --down-fg: #12A06B;
+  --down-emphasis: #12A06B;
+  --down-bg-muted: rgba(18, 160, 107, 0.10);
+  --flat-fg: #97A0AE;
 
   /* ── 状态语义（与行情色分离）── */
-  --success-fg: #1A7F37;
-  --success-bg-muted: rgba(26, 127, 55, 0.09);
-  --danger-fg: #CF222E;
-  --danger-emphasis: #CF222E;
-  --danger-bg-muted: rgba(207, 34, 46, 0.09);
-  --warn-fg: #9A6700;
-  --warn-bg-muted: #FFF8C5;
+  --success-fg: #1A8F4E;
+  --success-bg-muted: rgba(26, 143, 78, 0.10);
+  --danger-fg: #D22B2B;
+  --danger-emphasis: #D22B2B;
+  --danger-bg-muted: rgba(210, 43, 43, 0.10);
+  --warn-fg: #B7791F;
+  --warn-bg-muted: #FBF1DC;
 
   /* ── 字号阶梯（去 zoom 1.25 后的真实尺寸）── */
   --text-page-title: 20px;  /* 页面标题 600 */

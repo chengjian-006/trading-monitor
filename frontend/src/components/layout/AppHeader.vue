@@ -58,15 +58,15 @@ function handleLogout() {
 </template>
 
 <style scoped>
-/* 基线0 (v1.7.646): 顶栏统一浅色，深色渐变退役 */
+/* 机构级状态母线 (v1.7.650): 冷调 + mono 状态 + 发丝分隔 */
 .app-navbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--navbar-height);
-  padding: 0 28px;
-  background: var(--bg-surface);
-  border-bottom: 1px solid var(--border-default);
+  height: 52px;
+  padding: 0 20px;
+  background: var(--bg-head);
+  border-bottom: 1px solid var(--border-hard);
   position: sticky;
   top: 0;
   z-index: 200;
@@ -75,53 +75,64 @@ function handleLogout() {
 .navbar-brand {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 11px;
 }
 
 .brand-text {
   display: flex;
   flex-direction: column;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .brand-title {
   color: var(--fg-default);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 1px;
 }
 
 .brand-subtitle {
   color: var(--fg-subtle);
-  font-size: 11px;
-  font-weight: 400;
-  letter-spacing: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: .18em;
+  text-transform: uppercase;
 }
 
+/* 右侧状态母线: 发丝竖线分隔各状态单元 */
 .navbar-right {
   display: flex;
+  align-items: stretch;
+  height: 100%;
+}
+.navbar-right > * {
+  display: flex;
   align-items: center;
-  gap: 16px;
+  padding: 0 14px;
+  border-left: 1px solid var(--border-muted);
 }
 
 .ws-status {
-  display: flex;
-  align-items: center;
   gap: 6px;
+  font-family: var(--font-mono);
 }
 
 .ws-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--success-fg);
+  box-shadow: 0 0 6px var(--success-fg);
 }
 .ws-status.off .ws-dot {
   background: var(--danger-fg);
+  box-shadow: 0 0 6px var(--danger-fg);
 }
 
 .ws-label {
-  font-size: 12px;
+  font-size: 11px;
+  letter-spacing: .05em;
   color: var(--fg-muted);
 }
 .ws-status.off .ws-label {
@@ -129,18 +140,21 @@ function handleLogout() {
 }
 
 .navbar-user {
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: .04em;
   color: var(--fg-muted);
 }
 
 .env-tag {
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   padding: 1px 6px;
   border: 1px solid currentColor;
-  border-radius: 4px;
-  font-weight: 600;
+  border-radius: 3px;
+  font-weight: 700;
   margin-left: 12px;
-  letter-spacing: 1px;
+  letter-spacing: .12em;
 }
 
 </style>
