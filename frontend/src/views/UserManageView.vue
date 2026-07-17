@@ -7,7 +7,7 @@ import {
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { useResponsive } from '../composables/useResponsive'
 import { h } from 'vue'
-import { PersonAddOutline, KeyOutline, TrashOutline, CheckmarkOutline, SearchOutline, CreateOutline } from '@vicons/ionicons5'
+import { PersonAddOutline, KeyOutline, TrashOutline, CheckmarkOutline, SearchOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
 import { listUsers, createUser, deleteUser, resetPassword, updateUser } from '../api/auth'
 import type { User } from '../types'
 
@@ -15,6 +15,24 @@ const message = useGlobalMessage()
 const { isMobile } = useResponsive()
 const users = ref<User[]>([])
 const loading = ref(false)
+
+// 查询区: 客户端过滤已加载用户(用户名关键词 + 角色)
+const filterKeyword = ref('')
+const filterRole = ref<string | null>(null)
+
+const filteredUsers = computed(() => {
+  const kw = filterKeyword.value.trim().toLowerCase()
+  return users.value.filter((u) => {
+    if (kw && !(u.username || '').toLowerCase().includes(kw)) return false
+    if (filterRole.value && u.role !== filterRole.value) return false
+    return true
+  })
+})
+
+function handleResetFilter() {
+  filterKeyword.value = ''
+  filterRole.value = null
+}
 
 const showAddModal = ref(false)
 const newUsername = ref('')
@@ -211,11 +229,46 @@ const columns = computed(() => {
       </NSpace>
     </div>
 
+    <div class="filter-bar">
+      <div class="filter-fields">
+        <div class="filter-item">
+          <label for="user-keyword">关键词</label>
+          <NInput
+            v-model:value="filterKeyword"
+            size="small"
+            clearable
+            placeholder="用户名"
+            :input-props="{ id: 'user-keyword', name: 'userKeyword', type: 'search' }"
+          />
+        </div>
+        <div class="filter-item">
+          <label>角色</label>
+          <NSelect
+            v-model:value="filterRole"
+            size="small"
+            clearable
+            placeholder="全部"
+            :options="[{ label: '管理员', value: 'admin' }, { label: '普通用户', value: 'user' }]"
+          />
+        </div>
+      </div>
+      <div class="filter-actions">
+        <NButton size="small" type="primary" @click="handleResetFilter">
+          <template #icon><NIcon><RefreshOutline /></NIcon></template>
+          重置
+        </NButton>
+        <NButton size="small" type="primary" :loading="loading" @click="loadUsers">
+          <template #icon><NIcon><SearchOutline /></NIcon></template>
+          查询
+        </NButton>
+      </div>
+    </div>
+
     <NSkeleton v-if="loading" :repeat="3" text />
     <Transition v-else name="content-fade" appear>
       <div>
-        <div class="table-summary">共 {{ users.length }} 个用户</div>
-        <NDataTable :columns="columns" :data="users" :bordered="false" size="small" :resizable-columns="true" :row-key="(r: User) => r.id" max-height="calc(100vh - 180px)" />
+        <div class="table-summary">共 {{ filteredUsers.length }} 个用户</div>
+        <NDataTable :columns="columns" :data="filteredUsers" :bordered="false" size="small" :resizable-columns="true" :row-key="(r: User) => r.id" max-height="calc(100vh - 180px)" />
       </div>
     </Transition>
 
@@ -286,6 +339,40 @@ const columns = computed(() => {
   font-size: 15px;
   font-weight: 600;
   color: var(--text1);
+}
+.filter-bar {
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 24px;
+  align-items: end;
+}
+.filter-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.filter-item label {
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 .table-summary {
   text-align: right;

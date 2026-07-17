@@ -12,17 +12,18 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(50)
 const loading = ref(false)
-const filterAction = ref<string | null>('login')
+// 默认: 全部类型 + 近7天 —— 旧默认(登录+仅今天)常匹配不到, 一进页面就是空表看着像坏了(v1.7.658修)
+const filterAction = ref<string | null>(null)
 const filterKeyword = ref('')
 const filterDateRange = ref<[number, number] | null>(null)
 
-function todayRange(): [number, number] {
+function recentRange(days = 7): [number, number] {
   const now = new Date()
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-  const end = start + 86400000 - 1
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() + 86400000 - 1
+  const start = end + 1 - days * 86400000
   return [start, end]
 }
-filterDateRange.value = todayRange()
+filterDateRange.value = recentRange(7)
 
 function formatDate(ts: number): string {
   const d = new Date(ts)
@@ -153,9 +154,9 @@ function handlePageChange(p: number) {
 }
 
 function handleReset() {
-  filterAction.value = 'login'
+  filterAction.value = null
   filterKeyword.value = ''
-  filterDateRange.value = todayRange()
+  filterDateRange.value = recentRange(7)
   page.value = 1
   loadLogs()
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { NButton, NSelect, NIcon, NSkeleton, NTag } from 'naive-ui'
-import { DownloadOutline, RefreshOutline } from '@vicons/ionicons5'
+import { NButton, NSelect, NIcon, NSkeleton, NTag, NInput } from 'naive-ui'
+import { DownloadOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5'
 import client from '../api/client'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { fetchLimitUp, fetchLimitUpDates, limitUpExportUrl, type LimitUpStock, type LimitUpMeta } from '../api/limit-up'
@@ -17,6 +17,19 @@ const activeDate = ref<string | undefined>(undefined)
 const sortKey = ref<keyof LimitUpStock>('height')
 const sortAsc = ref(false)
 const viewMode = ref<'stock' | 'concept'>('stock')
+
+// 「全部涨停」表内查询区(仅按个股视图, 客户端过滤已加载数据)
+const kw = ref('')
+const conceptFilter = ref<string | null>(null)
+const heightFilter = ref<'all' | 'first' | 'multi'>('all')
+const heightOptions = [
+  { label: '全部板数', value: 'all' },
+  { label: '仅首板', value: 'first' },
+  { label: '2板及以上', value: 'multi' },
+]
+function resetFilter() { kw.value = ''; conceptFilter.value = null; heightFilter.value = 'all' }
+const filterActive = computed(() =>
+  !!kw.value.trim() || !!conceptFilter.value || heightFilter.value !== 'all')
 
 // 概念归一(与后端一致)——热点分布计数用
 const MERGE: Record<string, string> = {
@@ -57,18 +70,23 @@ const rankMax = computed(() => conceptRanking.value.length ? conceptRanking.valu
 
 // 按概念维度归组: 拆 reason 的 '+' 多标签, 命中关键词的并入归一组(与热点分布同口径),
 // 未命中的用原始标签自成一组; ≥2只成组展示, 没进任何组的票兜底进「其他」
+// 把一条 reason 拆成归一后的概念标签集(与热点分布/概念分组同口径)
+function conceptTokens(reason: string | null | undefined): string[] {
+  const tokens = String(reason || '').split(/[+＋]/).map(t => t.trim()).filter(Boolean)
+  const names = new Set<string>()
+  for (const t of tokens) {
+    let g: string | null = null
+    for (const key of KEYWORDS) if (t.includes(key)) { g = MERGE[key] || key; break }
+    names.add(g || t)
+  }
+  return [...names]
+}
+
 interface ConceptGroup { name: string; stocks: LimitUpStock[] }
 const conceptGroups = computed<ConceptGroup[]>(() => {
   const map = new Map<string, LimitUpStock[]>()
   for (const b of boards.value) {
-    const tokens = String(b.reason || '').split(/[+＋]/).map(t => t.trim()).filter(Boolean)
-    const names = new Set<string>()
-    for (const t of tokens) {
-      let g: string | null = null
-      for (const kw of KEYWORDS) if (t.includes(kw)) { g = MERGE[kw] || kw; break }
-      names.add(g || t)
-    }
-    for (const n of names) {
+    for (const n of conceptTokens(b.reason)) {
       if (!map.has(n)) map.set(n, [])
       map.get(n)!.push(b)
     }
@@ -85,9 +103,33 @@ const conceptGroups = computed<ConceptGroup[]>(() => {
   return groups
 })
 
+// 概念下拉选项 —— 从当前涨停数据动态汇总(按命中只数降序)
+const conceptOptions = computed(() => {
+  const cnt = new Map<string, number>()
+  for (const b of boards.value)
+    for (const n of conceptTokens(b.reason)) cnt.set(n, (cnt.get(n) || 0) + 1)
+  return [...cnt.entries()]
+    .sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+    .map(([n, c]) => ({ label: `${n}（${c}）`, value: n }))
+})
+
+// 表内过滤: 关键词(代码/名称) + 概念 + 板数, 只作用于「全部涨停」个股表
+const filteredBoards = computed(() => {
+  const q = kw.value.trim().toLowerCase()
+  const c = conceptFilter.value
+  const h = heightFilter.value
+  return boards.value.filter(b => {
+    if (q && !(b.code.toLowerCase().includes(q) || (b.name || '').toLowerCase().includes(q))) return false
+    if (c && !conceptTokens(b.reason).includes(c)) return false
+    if (h === 'first' && (b.height || 1) !== 1) return false
+    if (h === 'multi' && (b.height || 1) < 2) return false
+    return true
+  })
+})
+
 const sortedBoards = computed(() => {
   const k = sortKey.value, asc = sortAsc.value
-  return [...boards.value].sort((a, b) => {
+  return [...filteredBoards.value].sort((a, b) => {
     let x: any = a[k], y: any = b[k]
     if (k === 'reason' || k === 'name' || k === 'code' || k === 'streak_label') {
       x = String(x); y = String(y); return asc ? x.localeCompare(y) : y.localeCompare(x)
@@ -226,7 +268,23 @@ onMounted(async () => {
           </div>
         </div>
 
-        <div v-else class="lu-tablewrap">
+        <template v-else>
+          <div class="lu-filter">
+            <NInput v-model:value="kw" size="small" clearable placeholder="搜代码 / 名称"
+              class="f-kw" :input-props="{ type: 'search' }">
+              <template #prefix><NIcon :component="SearchOutline" /></template>
+            </NInput>
+            <NSelect v-model:value="conceptFilter" :options="conceptOptions" size="small"
+              clearable filterable placeholder="全部概念" class="f-cpt" />
+            <NSelect v-model:value="heightFilter" :options="heightOptions" size="small" class="f-ht" />
+            <NButton size="small" quaternary :disabled="!filterActive" @click="resetFilter">
+              <template #icon><NIcon :component="RefreshOutline" /></template>重置
+            </NButton>
+            <span v-if="filterActive" class="f-n">{{ filteredBoards.length }} / {{ boards.length }} 只</span>
+          </div>
+
+          <div v-if="!filteredBoards.length" class="lu-empty">没有匹配的涨停股，试试放宽筛选条件。</div>
+          <div v-else class="lu-tablewrap">
           <table class="lu-tbl">
             <thead><tr>
               <th @click="setSort('code')">代码</th>
@@ -249,7 +307,8 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
-        </div>
+          </div>
+        </template>
       </template>
       <div v-else class="lu-empty">该日暂无涨停复盘数据。收盘后 15:40 自动存档；首次上线可稍等历史回填完成。</div>
 
@@ -326,6 +385,13 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: var(--fg-subtle); fo
 .lu-cgroup.other .gn { color: var(--fg-subtle); }
 .lu-cgroup.other .gc { color: var(--fg-subtle); }
 
+/* 全部涨停 表内查询区 —— 与顶部控制区同一视觉语言 */
+.lu-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.lu-filter .f-kw { max-width: 200px; }
+.lu-filter .f-cpt { width: 180px; }
+.lu-filter .f-ht { width: 130px; }
+.lu-filter .f-n { font-size: 12.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; margin-left: 2px; }
+
 .lu-tablewrap { overflow-x: auto; border: 1px solid var(--border-default); border-radius: 12px; }
 .lu-tbl { border-collapse: collapse; width: 100%; font-size: 13.5px; min-width: 620px; }
 .lu-tbl thead th { position: sticky; top: 0; background: var(--bg-default); color: var(--fg-muted); font-weight: 700; text-align: left; padding: 9px 12px; font-size: 12px; border-bottom: 1px solid var(--border-muted); cursor: pointer; white-space: nowrap; user-select: none; }
@@ -352,5 +418,6 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: var(--fg-subtle); fo
   .lu-seg { margin-left: 0; width: 100%; }
   .lu-seg button { flex: 1; }
   .lu-cgrid { grid-template-columns: 1fr; }
+  .lu-filter .f-kw, .lu-filter .f-cpt, .lu-filter .f-ht { width: 100%; max-width: none; flex: 1 1 140px; }
 }
 </style>

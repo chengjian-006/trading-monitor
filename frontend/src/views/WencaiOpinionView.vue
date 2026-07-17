@@ -3,8 +3,8 @@
 // 由本地油猴脚本(登录态浏览器发 stream-query SSE)手动问一句、上报整段话术, 服务器撞字典抽出被提及的股票。
 // 明确定位: 这是 LLM 投顾观点, 非回测背书的信号。点股弹K线, 可一键加自选。
 import { ref, onMounted, computed } from 'vue'
-import { NButton, NIcon, NSkeleton, NEmpty, NTag, NPopconfirm, NCollapse, NCollapseItem } from 'naive-ui'
-import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline } from '@vicons/ionicons5'
+import { NButton, NIcon, NSkeleton, NEmpty, NTag, NPopconfirm, NCollapse, NCollapseItem, NInput, NDatePicker, NSelect } from 'naive-ui'
+import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline, SearchOutline } from '@vicons/ionicons5'
 import { listWencaiOpinions, deleteWencaiOpinion, addWencaiToPool, type WencaiOpinion, type WencaiConclusion } from '../api/wencai'
 import { useUiStore } from '../stores/ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -16,6 +16,58 @@ const opinions = ref<WencaiOpinion[]>([])
 const loading = ref(false)
 const loaded = ref(false)
 const addingId = ref<number | null>(null)
+
+// 查询区 (客户端过滤已加载的观点数组) —— 关键词 / 记录时间段 / 模式 / 上报人
+const filterKeyword = ref('')
+const filterDateRange = ref<[number, number] | null>(null)
+const filterMode = ref<string | null>(null)
+const filterUploader = ref<string | null>(null)
+
+function fmtDay(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// 模式/上报人下拉选项从已加载数据动态归纳, 避免空选项
+const modeOptions = computed(() => {
+  const set = new Set(opinions.value.map((o) => o.agent_mode || 'normal'))
+  return [...set].map((m) => ({ label: modeLabel(m), value: m }))
+})
+const uploaderOptions = computed(() => {
+  const set = new Set(opinions.value.map((o) => o.uploader).filter(Boolean))
+  return [...set].map((u) => ({ label: u, value: u }))
+})
+
+const filteredOpinions = computed(() => {
+  const kw = filterKeyword.value.trim().toLowerCase()
+  const range = filterDateRange.value
+  const from = range ? fmtDay(range[0]) : ''
+  const to = range ? fmtDay(range[1]) : ''
+  return opinions.value.filter((op) => {
+    if (filterMode.value && (op.agent_mode || 'normal') !== filterMode.value) return false
+    if (filterUploader.value && op.uploader !== filterUploader.value) return false
+    if (range) {
+      const day = (op.created_at || '').slice(0, 10)
+      if (!day || day < from || day > to) return false
+    }
+    if (kw) {
+      const hay = [
+        op.question,
+        op.conclusion?.stock, op.conclusion?.buy, op.conclusion?.logic, op.conclusion?.risk,
+        ...op.stocks.map((s) => `${s.name} ${s.code}`),
+      ].filter(Boolean).join(' ').toLowerCase()
+      if (!hay.includes(kw)) return false
+    }
+    return true
+  })
+})
+
+function resetFilters() {
+  filterKeyword.value = ''
+  filterDateRange.value = null
+  filterMode.value = null
+  filterUploader.value = null
+}
 
 async function load() {
   loading.value = true
@@ -111,6 +163,63 @@ onMounted(load)
       </div>
     </div>
 
+    <div v-if="loaded && hasData" class="filter-bar">
+      <div class="filter-fields">
+        <div class="filter-item" style="min-width: 200px">
+          <label for="op-keyword">关键词</label>
+          <NInput
+            v-model:value="filterKeyword"
+            size="small"
+            clearable
+            placeholder="问题/个股/关键词"
+            :input-props="{ id: 'op-keyword', name: 'keyword', type: 'search' }"
+          />
+        </div>
+        <div class="filter-item" style="min-width: 220px">
+          <label>时间段</label>
+          <NDatePicker
+            v-model:value="filterDateRange"
+            type="daterange"
+            size="small"
+            clearable
+            format="yyyy-MM-dd"
+            placement="bottom"
+            to="body"
+          />
+        </div>
+        <div v-if="modeOptions.length > 1" class="filter-item">
+          <label>模式</label>
+          <NSelect
+            v-model:value="filterMode"
+            :options="modeOptions"
+            size="small"
+            clearable
+            placeholder="全部"
+          />
+        </div>
+        <div v-if="uploaderOptions.length > 1" class="filter-item">
+          <label>上报人</label>
+          <NSelect
+            v-model:value="filterUploader"
+            :options="uploaderOptions"
+            size="small"
+            clearable
+            placeholder="全部"
+          />
+        </div>
+      </div>
+      <div class="filter-actions">
+        <NButton size="small" secondary @click="resetFilters">
+          <template #icon><NIcon :component="RefreshOutline" /></template>
+          重置
+        </NButton>
+        <NButton size="small" type="primary">
+          <template #icon><NIcon :component="SearchOutline" /></template>
+          查询
+        </NButton>
+      </div>
+    </div>
+
     <div v-if="!loaded" class="cards">
       <NSkeleton v-for="i in 3" :key="i" height="120px" style="margin-bottom:12px;border-radius:10px" />
     </div>
@@ -122,7 +231,8 @@ onMounted(load)
     </NEmpty>
 
     <div v-else class="cards">
-      <div v-for="op in opinions" :key="op.id" class="op-card">
+      <NEmpty v-if="!filteredOpinions.length" description="没有匹配的观点" class="empty" />
+      <div v-for="op in filteredOpinions" :key="op.id" class="op-card">
         <div class="op-top">
           <div class="q">{{ op.question }}</div>
           <div class="meta">
@@ -193,6 +303,24 @@ onMounted(load)
   background: color-mix(in srgb, var(--warn-fg) 8%, transparent); padding: 8px 10px; border-radius: 8px;
 }
 .note b { color: var(--warn-fg); }
+.filter-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 24px;
+  align-items: end;
+}
+.filter-fields { display: flex; gap: 12px; flex-wrap: wrap; }
+.filter-item {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 1; min-width: 120px;
+}
+.filter-item label { font-size: 12px; color: var(--fg-subtle); white-space: nowrap; }
+.filter-actions { display: flex; gap: 8px; align-items: flex-end; justify-content: flex-end; }
 .cards { display: flex; flex-direction: column; gap: 12px; }
 .op-card {
   border: 1px solid var(--border-default); border-radius: 10px;
@@ -222,5 +350,8 @@ onMounted(load)
   .opinion-view { padding: 12px; }
   .op-top { flex-direction: column; gap: 6px; }
   .meta { align-self: flex-end; }
+  .filter-bar { grid-template-columns: 1fr; }
+  .filter-item { min-width: 140px; }
+  .filter-actions { justify-content: flex-start; }
 }
 </style>

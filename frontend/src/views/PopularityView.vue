@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { NButton, NIcon, NSkeleton } from 'naive-ui'
+import { NButton, NIcon, NSkeleton, NInput, NSelect } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { formatYi } from '../utils/formatAmount'
 import { SearchOutline, SparklesOutline, RefreshOutline, FlameOutline } from '@vicons/ionicons5'
@@ -17,6 +17,17 @@ const loading = ref(false)
 const dates = ref<string[]>([])
 const activeDate = ref('')
 const updatedAt = ref('')
+
+// ── 个股查询区 (纯前端过滤已加载数据) ──
+const filterKeyword = ref('')                          // draft: 代码/名称关键词
+const appliedKeyword = ref('')                         // 点「查询」/回车后才生效
+const filterDirection = ref<'up' | 'down' | null>(null) // 当日涨跌方向 (按 pct_change 正负)
+const filterConcept = ref<string | null>(null)          // 题材/概念
+
+const directionOptions = [
+  { label: '上涨', value: 'up' },
+  { label: '下跌', value: 'down' },
+]
 
 function pctClass(pct: number | undefined) {
   if (pct == null) return ''
@@ -176,6 +187,61 @@ const conceptGroups = computed<ConceptGroup[]>(() => {
   return groups
 })
 
+// ── 查询区: 题材下拉选项 (从已加载的热门概念动态汇总) ──
+const conceptOptions = computed(() =>
+  hotConcepts.value.map(c => ({ label: `${c.name} (${c.count})`, value: c.name })),
+)
+
+// 单只股是否命中当前筛选条件
+function matchStock(s: PopularityStock): boolean {
+  const kw = appliedKeyword.value.trim().toLowerCase()
+  if (kw) {
+    const hit = (s.code || '').toLowerCase().includes(kw) || (s.name || '').toLowerCase().includes(kw)
+    if (!hit) return false
+  }
+  if (filterDirection.value) {
+    const pct = s.pct_change
+    if (pct == null) return false
+    if (filterDirection.value === 'up' && pct < 0) return false
+    if (filterDirection.value === 'down' && pct >= 0) return false
+  }
+  if (filterConcept.value) {
+    const target = filterConcept.value
+    const cs = s.concepts || []
+    // 与分组同款模糊匹配: 名字相等或互为子串
+    const hit = cs.some(c => c === target || c.includes(target) || target.includes(c))
+    if (!hit) return false
+  }
+  return true
+}
+
+const hasActiveFilter = computed(() =>
+  !!appliedKeyword.value.trim() || !!filterDirection.value || !!filterConcept.value,
+)
+
+// 过滤后的题材分组: 组内个股按条件过滤, 过滤后为空的组隐藏
+const filteredGroups = computed<ConceptGroup[]>(() => {
+  if (!hasActiveFilter.value) return conceptGroups.value
+  const out: ConceptGroup[] = []
+  for (const g of conceptGroups.value) {
+    const members = g.members.filter(matchStock)
+    if (!members.length) continue
+    out.push({ ...g, members, count: members.length })
+  }
+  return out
+})
+
+function applyFilter() {
+  appliedKeyword.value = filterKeyword.value.trim()
+}
+
+function handleFilterReset() {
+  filterKeyword.value = ''
+  appliedKeyword.value = ''
+  filterDirection.value = null
+  filterConcept.value = null
+}
+
 // 主线强度总览: 只取真正有归入成员的题材(剔除空组), 按家数排
 const overviewBars = computed(() => {
   return conceptGroups.value
@@ -329,6 +395,55 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- 个股查询区 -->
+    <div class="filter-bar">
+      <div class="filter-fields">
+        <div class="filter-item">
+          <label for="pop-keyword">关键词</label>
+          <NInput
+            v-model:value="filterKeyword"
+            size="small"
+            clearable
+            placeholder="代码/名称"
+            :input-props="{ id: 'pop-keyword', name: 'keyword', type: 'search' }"
+            @keyup.enter="applyFilter"
+            @clear="applyFilter"
+          />
+        </div>
+        <div class="filter-item">
+          <label>涨跌方向</label>
+          <NSelect
+            v-model:value="filterDirection"
+            :options="directionOptions"
+            size="small"
+            clearable
+            placeholder="全部"
+          />
+        </div>
+        <div class="filter-item" style="min-width: 160px">
+          <label>题材</label>
+          <NSelect
+            v-model:value="filterConcept"
+            :options="conceptOptions"
+            size="small"
+            clearable
+            filterable
+            placeholder="全部题材"
+          />
+        </div>
+      </div>
+      <div class="filter-actions">
+        <NButton size="small" type="primary" @click="handleFilterReset">
+          <template #icon><NIcon><RefreshOutline /></NIcon></template>
+          重置
+        </NButton>
+        <NButton size="small" type="primary" @click="applyFilter">
+          <template #icon><NIcon><SearchOutline /></NIcon></template>
+          查询
+        </NButton>
+      </div>
+    </div>
+
     <!-- ① 主线强度总览 热力条 -->
     <div v-if="overviewBars.length" class="overview-card">
       <div class="overview-head">
@@ -360,8 +475,11 @@ onMounted(async () => {
     <!-- ② 题材分组区 -->
     <Transition v-else name="content-fade" appear>
       <div class="groups-wrap">
+        <div v-if="hasActiveFilter && !filteredGroups.length" class="filter-empty">
+          没有符合筛选条件的个股
+        </div>
         <section
-          v-for="g in conceptGroups"
+          v-for="g in filteredGroups"
           :id="'grp-' + g.key"
           :key="g.key"
           class="grp"
@@ -475,6 +593,47 @@ onMounted(async () => {
 <style scoped>
 .pop-view {
   --pop-line: rgba(31, 35, 40, 0.08);
+}
+
+/* ── 个股查询区 (复用 LogView.filter-bar 视觉) ── */
+.filter-bar {
+  background: var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 24px;
+  align-items: end;
+}
+.filter-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.filter-item label {
+  font-size: 12px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+.filter-empty {
+  text-align: center;
+  padding: 40px;
+  color: var(--text2);
 }
 
 /* 页面顶部 */
@@ -913,6 +1072,13 @@ onMounted(async () => {
     width: 100%;
     justify-content: space-between;
   }
+
+  /* 查询区: 单列堆叠, 操作按钮另起一行靠右 */
+  .filter-bar {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .filter-item { min-width: 100%; }
   .date-tabs {
     flex: 1;
     overflow-x: auto;

@@ -2,10 +2,10 @@
 import { ref, computed, h } from 'vue'
 import {
   NCard, NTabs, NTabPane, NInput, NButton, NUpload, NUploadDragger,
-  NDataTable, NIcon, NStatistic, NSpin, NTag, NSpace, NInputNumber, NDatePicker,
+  NDataTable, NIcon, NStatistic, NSpin, NTag, NSpace, NInputNumber, NDatePicker, NSelect,
   type DataTableColumns,
 } from 'naive-ui'
-import { CloudUploadOutline, RefreshOutline } from '@vicons/ionicons5'
+import { CloudUploadOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5'
 import {
   importText, importHistory, importExcel, compareToModel,
   type AnalysisResult, type CompareResult, type PairedTrade,
@@ -81,6 +81,51 @@ function onImported(res: AnalysisResult) {
 // ── KPI 计算（前端从 trades 算盈亏比/期望/最大回撤）──
 const trades = computed<PairedTrade[]>(() => result.value?.trades || [])
 const records = computed(() => result.value?.records || [])
+
+// ── 成交流水查询区（客户端过滤已加载记录）──
+const recKeyword = ref('')
+const recDirection = ref<'buy' | 'sell' | null>(null)
+const recDateRange = ref<[number, number] | null>(null)
+// 待应用的草稿态：改控件不立即过滤，点「查询」才落地（与日志页一致）
+const appliedRecFilter = ref<{ keyword: string; direction: 'buy' | 'sell' | null; range: [number, number] | null }>({
+  keyword: '', direction: null, range: null,
+})
+const recDirectionOptions = [
+  { label: '买入', value: 'buy' },
+  { label: '卖出', value: 'sell' },
+]
+function tsToDay(ts: number): string {
+  const d = new Date(ts)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const filteredRecords = computed(() => {
+  const { keyword, direction, range } = appliedRecFilter.value
+  const kw = keyword.trim().toLowerCase()
+  const from = range ? tsToDay(range[0]) : null
+  const to = range ? tsToDay(range[1]) : null
+  return records.value.filter((r: any) => {
+    if (kw) {
+      const code = String(r.code ?? '').toLowerCase()
+      const name = String(r.name ?? '').toLowerCase()
+      if (!code.includes(kw) && !name.includes(kw)) return false
+    }
+    if (direction && r.direction !== direction) return false
+    if (from && to) {
+      const day = String(r.trade_date ?? '')
+      if (day < from || day > to) return false
+    }
+    return true
+  })
+})
+function applyRecFilter() {
+  appliedRecFilter.value = { keyword: recKeyword.value, direction: recDirection.value, range: recDateRange.value }
+}
+function resetRecFilter() {
+  recKeyword.value = ''
+  recDirection.value = null
+  recDateRange.value = null
+  appliedRecFilter.value = { keyword: '', direction: null, range: null }
+}
 
 const winsArr = computed(() => trades.value.filter(t => t.profit > 0))
 const lossArr = computed(() => trades.value.filter(t => t.profit <= 0))
@@ -376,7 +421,53 @@ const summary = computed(() => result.value?.summary)
             <!-- 成交流水（核对导入）+ 交易回合 -->
             <NTabPane name="records" tab="成交流水">
               <p class="tab-hint">原始成交记录，<b>按时间倒序</b>（最新在最上）——用于核对最新导入的交割单是否正确、有无漏单/错单。</p>
-              <NDataTable :columns="recordColumnsM" :data="records" :bordered="false" size="small" :pagination="{ pageSize: 30 }" max-height="520" />
+              <div class="filter-bar">
+                <div class="filter-fields">
+                  <div class="filter-item">
+                    <label>关键词</label>
+                    <NInput
+                      v-model:value="recKeyword"
+                      size="small"
+                      clearable
+                      placeholder="代码/名称"
+                      @keyup.enter="applyRecFilter"
+                    />
+                  </div>
+                  <div class="filter-item">
+                    <label>方向</label>
+                    <NSelect
+                      v-model:value="recDirection"
+                      :options="recDirectionOptions"
+                      size="small"
+                      clearable
+                      placeholder="全部"
+                    />
+                  </div>
+                  <div class="filter-item" style="min-width: 220px">
+                    <label>日期段</label>
+                    <NDatePicker
+                      v-model:value="recDateRange"
+                      type="daterange"
+                      size="small"
+                      clearable
+                      format="yyyy-MM-dd"
+                      placement="bottom"
+                      to="body"
+                    />
+                  </div>
+                </div>
+                <div class="filter-actions">
+                  <NButton size="small" type="primary" @click="resetRecFilter">
+                    <template #icon><NIcon><RefreshOutline /></NIcon></template>
+                    重置
+                  </NButton>
+                  <NButton size="small" type="primary" @click="applyRecFilter">
+                    <template #icon><NIcon><SearchOutline /></NIcon></template>
+                    查询
+                  </NButton>
+                </div>
+              </div>
+              <NDataTable :columns="recordColumnsM" :data="filteredRecords" :bordered="false" size="small" :pagination="{ pageSize: 30 }" max-height="520" />
               <div class="sub-title">配对交易（买入→卖出回合）</div>
               <NDataTable :columns="tradeColumnsM" :data="trades" :bordered="false" size="small" :pagination="{ pageSize: 20 }" max-height="440" />
             </NTabPane>
@@ -486,6 +577,42 @@ const summary = computed(() => result.value?.summary)
 .contrast-title { font-weight: 600; margin-bottom: 12px; }
 .contrast-row { display: flex; gap: 24px; }
 
+/* 成交流水查询区（与日志页 .filter-bar 视觉一致）*/
+.filter-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px 24px;
+  align-items: end;
+}
+.filter-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 120px;
+}
+.filter-item label {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.filter-actions {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
 .history-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .history-label { font-size: 13px; color: var(--fg-default); }
 .history-hint { font-size: 12px; color: var(--fg-subtle); }
@@ -495,5 +622,7 @@ const summary = computed(() => result.value?.summary)
   .kpi-hero { grid-template-columns: repeat(2, 1fr); }
   .chart-grid { grid-template-columns: 1fr; }
   .contrast-grid { grid-template-columns: 1fr; }
+  .filter-bar { grid-template-columns: 1fr; }
+  .filter-actions { justify-content: flex-start; }
 }
 </style>
