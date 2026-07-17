@@ -67,3 +67,6 @@ docs/*.xlsx
 # 一次性备份(脏数据/迁移快照), 留本地不入库
 backend/scripts/_backup_*.json
 docs/signalid_migration_backup_*.json
+
+# 博主诊断凭证(会话令牌, 绝不入库)
+backend/scripts/blogger_creds.json
