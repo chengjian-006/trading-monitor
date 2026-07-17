@@ -306,7 +306,7 @@ onUnmounted(() => {
   transition: background 0.15s;
 }
 .idx-tab:hover { background: rgba(0,0,0,0.03); }
-.idx-tab.active { background: rgba(9,105,218,0.06); border-bottom-color: var(--primary, #0969da); }
+.idx-tab.active { background: var(--accent-bg-muted); border-bottom-color: var(--accent-fg); }
 .t-name { font-size: 13px; font-weight: 600; color: var(--text1, #1f2328); }
 .t-pct { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
@@ -325,7 +325,7 @@ onUnmounted(() => {
 .rail-label { font-size: 12px; color: var(--text2, #656d76); margin-bottom: 4px; }
 .rail-big { font-size: 22px; font-weight: 800; color: var(--text1, #1f2328); font-family: monospace; }
 .rail-sub { font-size: 12px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
-.rail-sub.muted { font-weight: 400; color: #999; }
+.rail-sub.muted { font-weight: 400; color: var(--fg-subtle); }
 .rail-mini { margin-top: auto; display: flex; flex-direction: column; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border, #efeff5); }
 .m-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; color: var(--text2, #656d76); }
 .m-v b { font-family: monospace; font-weight: 700; }
@@ -347,7 +347,7 @@ onUnmounted(() => {
   min-width: 16px;
   padding: 0 5px;
   border-radius: 8px;
-  background: rgba(9,105,218,0.1);
+  background: var(--accent-bg-muted);
   font-size: 11px;
   text-align: center;
 }

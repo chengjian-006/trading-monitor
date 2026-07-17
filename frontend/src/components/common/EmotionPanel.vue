@@ -217,9 +217,10 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
   border-radius: 6px;
   padding: 8px 12px;
 }
-.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
-.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
+/* 机构模块头 (v1.7.650): 发丝底线 + 加粗收紧标题 + mono 计数 */
+.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-muted); }
+.title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg-default); }
+.title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 .head-right { display: flex; align-items: center; gap: 10px; }
 .style-tabs { display: inline-flex; background: var(--bg-sunken); border-radius: 7px; padding: 2px; }
 .style-tab { border: none; background: transparent; padding: 4px 12px; font-size: 12px; border-radius: 5px; cursor: pointer; touch-action: manipulation; color: var(--fg-muted); transition: all 0.15s; }

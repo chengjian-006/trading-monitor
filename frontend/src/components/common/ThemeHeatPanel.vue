@@ -362,9 +362,10 @@ useVisiblePolling(load, 180_000)   // 切走标签页暂停, 切回立即补刷
 /* 配色统一对齐全站(EmotionPanel/SectorRotationPanel): 涨红跌绿 + 中性灰, 用 var(--x, 回退) 写法。
    强调色(可点/选中)统一蓝 var(--accent-fg); 红只留给"热力/风险", 不再用蓝紫绿橙四色彩虹分组。 */
 .theme-heat { background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: 6px; padding: 8px 12px; }
-.head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
-.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
+/* 机构模块头 (v1.7.650): 发丝底线 + 加粗收紧标题 + mono 计数 */
+.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-muted); }
+.title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg-default); }
+.title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 .empty { margin-top: 12px; text-align: center; color: var(--fg-subtle); font-size: 12px; line-height: 1.7; padding: 14px; }
 
 /* A 当前主线榜 */

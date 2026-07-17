@@ -190,9 +190,10 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 /* 配色沿用全站纪律(同 ThemeHeatPanel/EmotionPanel): 转强=涨=红(--up-fg) / 转弱=退潮=绿(--down-fg) / 中性灰(--fg-*)。
    无彩虹 emoji, 方向只用 ↑↓ 箭头 + 红绿; 选中/强调单一蓝 --accent-fg。 */
 .rotation-panel { background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: 6px; padding: 10px 12px; }
-.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
-.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
+/* 机构模块头 (v1.7.650): 发丝底线 + 加粗收紧标题 + mono 计数 */
+.head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-muted); }
+.title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg-default); }
+.title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 .title .meta i { font-style: normal; font-variant-numeric: tabular-nums; margin: 0 1px; }
 .up { color: var(--up-fg); }
 .down { color: var(--down-fg); }
