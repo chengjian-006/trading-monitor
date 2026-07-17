@@ -218,6 +218,7 @@ async def rally_reminder_eod():
     except Exception:
         quotes = {}
 
+    missing = []   # 拿不到价的持仓: 不能静默跳过(0713 行情冻结致止损整轮漏检, v1.7.647)
     for t in tracks:
         code = t["code"]
         m = _model_of(t.get("signal_id"))
@@ -230,6 +231,7 @@ async def rally_reminder_eod():
         q = quotes.get(code)
         price = float(q["price"]) if q and q.get("price") else None
         if price is None:
+            missing.append(f"{t['name']}({code})")
             continue
         entry = t["entry_price"]
 
@@ -253,6 +255,17 @@ async def rally_reminder_eod():
         if days >= CAP_DAYS:
             await _push_close(t, m, price, "时间止损",
                               f"持有满{CAP_DAYS}交易日仍未离场，收盘清仓", notify)
+
+    if missing:
+        # 主源+备源都拿不到价 → 今日止损/时停对这些票没查成, 明日EOD自动补查; 但必须告警别静默
+        msg = ("⚠️ 尾盘止损检查失败：" + "、".join(missing) +
+               " 实时行情不可用(主源+备源均失败)，今日 -6%止损/T+10时停 未检查，"
+               "明日尾盘自动补查。若持有请人工核对收盘价！")
+        logger.error(f"[rally_reminder] {msg}")
+        try:
+            await notifier.send_wechat_text(msg)
+        except Exception as e:
+            logger.warning(f"[rally_reminder] 止损检查失败告警推送失败: {e}")
 
 
 async def _push_close(track: dict, model: dict, price: float, action: str, msg: str, notify: bool = True):

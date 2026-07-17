@@ -73,6 +73,9 @@ def _classify_usage(url: str) -> str:
     # 腾讯: 行业板块榜备源 (proxy.finance.qq.com 的 getRank)
     if "getRank" in url:
         return "sector_ranking"
+    # 腾讯: 实时行情备源 (qt.gtimg.cn, sina 失败/空时切换, v1.7.647)
+    if "qt.gtimg.cn" in url:
+        return "realtime_quote"
     return "misc"
 
 
