@@ -108,6 +108,40 @@ ACTION_HINT = {
 }
 
 
+def _price_slot_pcts(signal_name: str):
+    """买点卡「参考买入/止损/目标」三价的止损·目标幅度(相对触发价), 按模型分流。
+    返回 (stop_pct, target_pct) 或 None(=非买点模型, 不出价格槽)。幅度取自各模型生产出场口径:
+      名册族(回踩MA10/20/60·缩量突破·平台突破): -6%止损/+7%卖半(见 rally_reminder.RALLY_MODELS)
+      弱势极限: -12%止损(左侧硬止损, 见 SELL_WEAK_STOP), 无固定+%目标(靠T+15时停)
+      强势起点/竞价弱转强: 模型无产品化标准止损(靠通用卖点), 只显参考买入价(方案A, 0717用户拍板)
+    百分比口径=相对触发价固定值(非距实时现价动态距离, 0717用户拍板)。"""
+    nm = signal_name or ""
+    if "弱势极限" in nm:
+        return (-0.12, None)
+    if (("回踩" in nm and ("MA10" in nm or "MA20" in nm or "MA60" in nm))
+            or ("缩量" in nm and "突破" in nm) or ("平台突破" in nm)):
+        return (-0.06, 0.07)
+    if "强势起点" in nm or "竞价" in nm:
+        return (None, None)     # 方案A: 只显参考买入价
+    return None                 # 手工/其他非模型买点: 无价格槽
+
+
+def _price_slot_md(signal_name: str, entry: float, *, bold: bool = True) -> str:
+    """按触发价 entry 换算价格槽 markdown(两行: 参考买入 / 止损·目标); 无则返回空串。"""
+    pcts = _price_slot_pcts(signal_name)
+    if pcts is None or not entry or entry <= 0:
+        return ""
+    stop_pct, target_pct = pcts
+    b = "**" if bold else ""
+    line1 = f"🎯 参考买入 {b}¥{entry:.2f}{b}"
+    row2 = []
+    if stop_pct is not None:
+        row2.append(f"🛑 止损 {b}¥{entry * (1 + stop_pct):.2f}{b}（{stop_pct * 100:+.0f}%）")
+    if target_pct is not None:
+        row2.append(f"🎯 目标 {b}¥{entry * (1 + target_pct):.2f}{b}（{target_pct * 100:+.0f}%）")
+    return line1 + ("\n" + "　".join(row2) if row2 else "")
+
+
 # 全市场回测战绩(近3月/近6月) — ms 形如 {model_name, win_rate_3m, net_3m, n_3m, win_rate_6m, net_6m, n_6m}
 def _has_model_stats(ms: dict | None) -> bool:
     """有近6月样本才展示(近3月可能因近端2周触发未走完出场而偏少甚至空)。"""
@@ -330,6 +364,12 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
     # 触发模型全名重点突出(基线第二批批注: header彩签只有12字短名, 全名必须在结论区加粗可见)
     if signal_name:
         els.append(lark_notifier.md_element(f"⚡ 触发模型　**{signal_name}**"))
+    # 🎯 价格槽(基线第二批批注②): 买点卡按触发价换算 参考买入/止损/目标 三价,
+    #   止损价带相对触发价固定幅度(-6%/-12%); 移动端压两行(买入独占一行, 止损·目标一行)
+    if direction == "buy":
+        _ps = _price_slot_md(signal_name, price, bold=True)
+        if _ps:
+            els.append(lark_notifier.md_element(_ps))
     _bl = _basics_line(basics, bold=True)
     if _bl:
         els.append(lark_notifier.md_element(_bl))

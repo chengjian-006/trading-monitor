@@ -115,6 +115,34 @@ def test_signal_card_uses_real_builder_output():
     assert "🔕 静到再突破" in md_all                                # 快捷动作行 demo
     assert "今日免打扰" not in md_all and "静音此股" not in md_all   # 已拆除入口不得回归
     assert card["header"]["template"] == "red"
+    # 价格槽(批注②): 触发价49.47 → 名册族止损-6%/目标+7%, 相对触发价固定幅度
+    assert "🎯 参考买入 **¥49.47**" in md_all
+    assert "🛑 止损 **¥46.50**（-6%）" in md_all
+    assert "🎯 目标 **¥52.93**（+7%）" in md_all
+
+
+def test_price_slot_pcts_by_model():
+    """价格槽止损/目标幅度按模型分流: 名册族-6%/+7%, 弱势极限-12%无目标, 强势起点/竞价只显买入价。"""
+    from backend.services.notifier import _price_slot_pcts, _price_slot_md
+    # 名册族(5个)全部 -6%/+7%
+    for nm in ("回踩10MA缩量后突破昨高", "回踩20MA缩量后突破昨高", "回踩60MA缩量后突破昨高",
+               "缩量后放量突破（右侧）", "中继平台突破"):
+        assert _price_slot_pcts(nm) == (-0.06, 0.07), nm
+    # 弱势极限: -12% 止损, 无目标
+    assert _price_slot_pcts("弱势极限（左侧）") == (-0.12, None)
+    # 方案A: 强势起点/竞价弱转强 只显买入价(无止损/目标)
+    assert _price_slot_pcts("强势起点") == (None, None)
+    assert _price_slot_pcts("竞价弱转强") == (None, None)
+    # 手工/非模型: 无价格槽
+    assert _price_slot_pcts("手工加入") is None
+    # 弱势极限 md: 只有 参考买入 + 止损, 没有目标行
+    md = _price_slot_md("弱势极限（左侧）", 42.25, bold=False)
+    assert "🎯 参考买入 ¥42.25" in md and "🛑 止损 ¥37.18（-12%）" in md and "目标" not in md
+    # 方案A md: 只有 参考买入 一行
+    md_a = _price_slot_md("强势起点", 52.30, bold=False)
+    assert md_a == "🎯 参考买入 ¥52.30"
+    # 非模型: 空串
+    assert _price_slot_md("手工加入", 10.0) == ""
 
 
 def test_sell_card_has_sold_action():
