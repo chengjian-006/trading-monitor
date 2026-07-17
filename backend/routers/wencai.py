@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
@@ -309,6 +309,44 @@ async def _extract_stocks(text: str) -> list[dict]:
             for i, s in enumerate(ranked[:_OPINION_MAX_STOCKS])]
 
 
+# ── H4 安全整改 (v1.7.653): /opinion 无鉴权(用户拍板)靠 IP 限流兜底防匿名刷库/DoS ──
+# 阈值远超油猴正常量(每天几次), 只挡洪水; 进程内滑窗·单 worker 足够。
+_OPINION_RL_WINDOW = 60          # 分钟滑窗(秒)
+_OPINION_RL_MAX = 30             # 每 IP 每分钟上限
+_OPINION_RL_DAY_MAX = 500        # 每 IP 每日上限(挡持续刷库)
+_opinion_hits: dict[str, list[float]] = {}
+_opinion_day: dict[str, tuple[str, int]] = {}
+
+
+def _opinion_client_ip(request: Request) -> str:
+    """生产走 nginx 反代, 优先 X-Forwarded-For 首段(与登录限流同口径)。"""
+    if not request.client:
+        return "unknown"
+    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+
+
+def _opinion_rate_limit(request: Request) -> None:
+    """超每分钟或每日上限 → 429; 进程内惰性清理防字典膨胀。"""
+    ip = _opinion_client_ip(request)
+    now = time.time()
+    hits = [t for t in _opinion_hits.get(ip, []) if t > now - _OPINION_RL_WINDOW]
+    if len(hits) >= _OPINION_RL_MAX:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                            detail="上报过于频繁，请稍后再试", headers={"Retry-After": "60"})
+    hits.append(now)
+    _opinion_hits[ip] = hits
+    day = datetime.now().strftime("%Y%m%d")
+    d, c = _opinion_day.get(ip, (day, 0))
+    if d != day:
+        d, c = day, 0
+    if c >= _OPINION_RL_DAY_MAX:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="今日上报已达上限")
+    _opinion_day[ip] = (d, c + 1)
+    if len(_opinion_hits) > 5000:      # 惰性清理
+        for k in [k for k, v in _opinion_hits.items() if not v or v[-1] <= now - _OPINION_RL_WINDOW]:
+            _opinion_hits.pop(k, None)
+
+
 class OpinionIngestRequest(BaseModel):
     token: str = ""                 # 已不校验(2026-07-16 用户拍板去掉观点上报鉴权), 留字段兼容旧客户端
     question: str
@@ -322,13 +360,14 @@ class OpinionIngestRequest(BaseModel):
 
 
 @router.post("/opinion")
-async def ingest_opinion(req: OpinionIngestRequest):
+async def ingest_opinion(req: OpinionIngestRequest, request: Request):
     """本地浏览器代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
 
     不做 token 鉴权(2026-07-16 用户拍板: 个人自用降低配置门槛; 候选榜 ingest 两口仍留密钥)。
     答案话术在客户端从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
     only_with_stock=True 且没抽出个股时跳过入库(返回 skipped)。
     """
+    _opinion_rate_limit(request)   # H4: 无鉴权靠限流兜底
     question = (req.question or "").strip()[:255]
     if not question:
         raise HTTPException(status_code=400, detail="question 为空")

@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.653',
+    date: '2026-07-17',
+    title: '安全整改批一：裸奔接口挂鉴权 + 观点上报限流 + 推送改 HTTPS',
+    changes: [
+      {
+        text: '对外开放前安全加固（docs/security-baseline.md H2/H3/H4/H6）：K线5个匿名接口（分时/批量分时/大单/日K/周K）与股票搜索接口统一挂登录鉴权——全站前端本走带 token 的 axios，不影响使用，杜绝匿名爬全库。',
+        tag: 'fix',
+      },
+      {
+        text: '问财观点上报接口（无鉴权·用户拍板降门槛）加 IP 限流兜底：每 IP 30次/分 + 500次/天（远超油猴正常量，只挡匿名刷库/DoS）；PushPlus 微信推送由明文 HTTP 改 HTTPS（防持仓成本等推送内容被中间人窃听）。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.652',
     date: '2026-07-17',
     title: '大盘风险标记改小标签：不再盖卡片标题',

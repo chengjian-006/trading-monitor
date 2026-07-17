@@ -32,7 +32,7 @@ async def _post_pushplus(token: str, title: str, content: str, tag: str) -> bool
         return False
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post("http://www.pushplus.plus/send", json={
+            resp = await client.post("https://www.pushplus.plus/send", json={
                 "token": token, "title": title[:100], "content": content[:8000],
                 "template": "html",
             })

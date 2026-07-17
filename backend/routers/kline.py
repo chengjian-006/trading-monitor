@@ -37,7 +37,7 @@ def _isnan(v) -> bool:
 
 
 @router.get("/batch-intraday")
-async def get_batch_intraday(codes: str = ""):
+async def get_batch_intraday(user: Annotated[dict, Depends(get_current_user)], codes: str = ""):
     """批量获取分时走势数据（用于股票池迷你走势图）。
 
     存盘 + 回退: 实时取到的非空走势写盘; 实时取空(非交易时段/盘后)的用上一交易日存盘兜底,
@@ -106,7 +106,7 @@ def _sparkline_to_points(trends: list[dict]) -> list[dict]:
 
 
 @router.get("/{code}/intraday")
-async def get_intraday(code: str, date: str = "", source: str = ""):
+async def get_intraday(code: str, user: Annotated[dict, Depends(get_current_user)], date: str = "", source: str = ""):
     """获取个股分时数据 + 昨收。date 为空或当天 → 实时; 历史交易日 → 取归档快照(供回放)。
 
     source=snapshot: 当日走 DB 优先 —— 读迷你走势快照(prefetch 每 25s 焐热, 仅自选池)秒返,
@@ -183,7 +183,7 @@ async def get_signal_markers_daily(
 
 
 @router.get("/{code}/big-orders")
-async def get_big_orders(code: str, threshold: float = 15_000_000):
+async def get_big_orders(code: str, user: Annotated[dict, Depends(get_current_user)], threshold: float = 15_000_000):
     """获取个股当日大单逐笔 (主动买/卖, 金额 ≥ threshold 元)。空返回 {}。"""
     data = await data_fetcher.get_big_orders_today(code, threshold)
     return data or {}
@@ -396,7 +396,7 @@ async def _patch_today_bar(df: pd.DataFrame, code: str) -> pd.DataFrame:
 
 
 @router.get("/{code}")
-async def get_kline(code: str, days: int = 120):
+async def get_kline(code: str, user: Annotated[dict, Depends(get_current_user)], days: int = 120):
     # DB 优先(全市场 kline_cache 已回填, 秒返; 缓存不足才回退联网), 再用实时行情补当日最后一根。
     df = await data_fetcher.get_daily_kline(code, days, prefer_cache=True)
     if df.empty:
@@ -421,7 +421,7 @@ async def get_kline(code: str, days: int = 120):
 
 
 @router.get("/{code}/week")
-async def get_kline_week(code: str, weeks: int = 80):
+async def get_kline_week(code: str, user: Annotated[dict, Depends(get_current_user)], weeks: int = 80):
     """周K: 从日K聚合, 以周一为周起始。返回近N周 OHLCV。"""
     df = await data_fetcher.get_daily_kline(code, max(weeks * 7 + 10, 250), prefer_cache=True)
     if df.empty:
