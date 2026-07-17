@@ -17,8 +17,8 @@ function mobCols(cols: DataTableColumns, keep: string[]): DataTableColumns {
   return isMobile.value ? cols.filter((c: any) => keep.includes(c.key)) : cols
 }
 
-const RED = '#d4380d'
-const GREEN = '#389e0d'
+const RED = 'var(--up-fg)'
+const GREEN = 'var(--down-fg)'
 
 const loading = ref(false)
 const pasteText = ref('')
@@ -204,7 +204,7 @@ async function runCompare() {
   finally { comparing.value = false }
 }
 
-function pctColor(v: number | null) { return v == null ? '#999' : (v >= 0 ? RED : GREEN) }
+function pctColor(v: number | null) { return v == null ? 'var(--fg-subtle)' : (v >= 0 ? RED : GREEN) }
 function renderPct(v: number | null) { return v == null ? '-' : h('span', { style: { color: pctColor(v) } }, v.toFixed(2) + '%') }
 
 const VERDICT_TYPE: Record<string, any> = { 符合模型: 'success', 偏离模型: 'warning', 无法评估: 'default', 卖太晚: 'warning', 卖太早: 'info' }
@@ -290,7 +290,7 @@ const summary = computed(() => result.value?.summary)
             <NUploadDragger>
               <div style="padding: 20px 0;">
                 <NIcon :size="36" :depth="3"><CloudUploadOutline /></NIcon>
-                <p style="margin: 8px 0 0; color: #666;">点击或拖拽上传 Excel 文件（.xlsx）</p>
+                <p style="margin: 8px 0 0; color: var(--fg-muted);">点击或拖拽上传 Excel 文件（.xlsx）</p>
               </div>
             </NUploadDragger>
           </NUpload>
@@ -339,8 +339,8 @@ const summary = computed(() => result.value?.summary)
                 <div class="chart-box wide">
                   <div class="chart-title">累计盈亏曲线<span class="ct-note">按卖出日，毛盈亏</span></div>
                   <svg v-if="curveGeom.has" :viewBox="`0 0 ${CW} ${CH}`" class="curve-svg" preserveAspectRatio="none">
-                    <line :x1="0" :x2="CW" :y1="curveGeom.zeroY" :y2="curveGeom.zeroY" stroke="#ddd" stroke-width="1" stroke-dasharray="4 3" />
-                    <path :d="curveGeom.path" fill="none" :stroke="curve.final >= 0 ? RED : GREEN" stroke-width="2" />
+                    <line :x1="0" :x2="CW" :y1="curveGeom.zeroY" :y2="curveGeom.zeroY" style="stroke: var(--border-default)" stroke-width="1" stroke-dasharray="4 3" />
+                    <path :d="curveGeom.path" fill="none" :style="{ stroke: curve.final >= 0 ? RED : GREEN }" stroke-width="2" />
                   </svg>
                   <div v-else class="chart-empty">交易笔数不足</div>
                 </div>
@@ -359,7 +359,7 @@ const summary = computed(() => result.value?.summary)
                   <div class="bar-rows">
                     <div v-for="b in holdBuckets" :key="b.label" class="bar-row">
                       <span class="bar-label">{{ b.label }}</span>
-                      <span class="bar-track"><span class="bar-fill" :style="{ width: b.winRate + '%', background: '#2e9eff' }"></span></span>
+                      <span class="bar-track"><span class="bar-fill" :style="{ width: b.winRate + '%', background: 'var(--accent-fg)' }"></span></span>
                       <span class="bar-num">{{ b.count ? b.winRate.toFixed(0) + '%' : '-' }}</span>
                       <span class="bar-avg" :style="{ color: b.avg >= 0 ? RED : GREEN }">{{ b.count ? (b.avg >= 0 ? '+' : '') + b.avg.toFixed(1) + '%' : '' }}</span>
                     </div>
@@ -386,7 +386,7 @@ const summary = computed(() => result.value?.summary)
               <NSpace align="center" style="margin-bottom: 4px;">
                 <span>信号有效期窗口</span>
                 <NInputNumber v-model:value="signalWindow" :min="1" :max="15" size="small" style="width: 120px;" />
-                <span style="color: #999;">交易日</span>
+                <span style="color: var(--fg-subtle);">交易日</span>
                 <NButton size="small" type="primary" :loading="comparing" @click="runCompare">重新对比</NButton>
               </NSpace>
               <p class="tab-hint">导入后已自动运行。用现役买卖点检测器（弱势极限 / 强势起点 / 回踩20MA缩量后突破昨高 + 模型卖出规则）在历史K线上重跑，判定每笔是否符合模型；买入往前看 {{ signalWindow }} 个交易日内有信号即算「符合」。</p>
@@ -441,55 +441,55 @@ const summary = computed(() => result.value?.summary)
 .trade-analysis { padding: 16px; max-width: 1200px; }
 
 .import-collapsed { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ic-text { font-size: 13px; color: var(--text1, #333); }
-.ic-text b { color: #2e9eff; }
+.ic-text { font-size: 13px; color: var(--fg-default); }
+.ic-text b { color: var(--accent-fg); }
 
 /* KPI 英雄区 */
 .kpi-hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
-.kpi-card { background: #fff; border: 1px solid #f0f0f0; border-radius: 10px; padding: 14px 16px; }
-.kpi-card.primary { background: linear-gradient(135deg, #fff 60%, #fff4f0); border-color: #ffd6c9; }
-.kpi-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+.kpi-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px; padding: 14px 16px; }
+.kpi-card.primary { background: linear-gradient(135deg, var(--bg-surface) 60%, color-mix(in srgb, var(--up-fg) 7%, transparent)); border-color: color-mix(in srgb, var(--up-fg) 25%, transparent); }
+.kpi-label { font-size: 12px; color: var(--fg-muted); margin-bottom: 4px; }
 .kpi-val { font-size: 26px; font-weight: 700; font-family: 'DIN', monospace; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .kpi-unit { font-size: 14px; font-weight: 500; margin-left: 2px; }
-.kpi-sub { font-size: 11px; color: #aaa; margin-top: 3px; }
-.kpi-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; padding: 8px 14px; background: #fafafa; border-radius: 8px; font-size: 12.5px; color: #777; font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 11px; color: var(--fg-subtle); margin-top: 3px; }
+.kpi-strip { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; padding: 8px 14px; background: var(--bg-default); border-radius: 8px; font-size: 12.5px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 .kpi-strip b { font-weight: 600; }
 
 .tab-card { margin-top: 14px; }
-.tab-hint { font-size: 12px; color: #999; margin: 0 0 10px; line-height: 1.5; }
-.tab-hint b { color: #555; }
-.sub-title { font-size: 13px; font-weight: 600; color: #555; margin: 18px 0 8px; }
-.st-meta { font-weight: 400; color: #888; font-size: 12px; margin-left: 8px; }
+.tab-hint { font-size: 12px; color: var(--fg-subtle); margin: 0 0 10px; line-height: 1.5; }
+.tab-hint b { color: var(--fg-muted); }
+.sub-title { font-size: 13px; font-weight: 600; color: var(--fg-muted); margin: 18px 0 8px; }
+.st-meta { font-weight: 400; color: var(--fg-muted); font-size: 12px; margin-left: 8px; }
 
 /* 图表 */
 .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.chart-box { border: 1px solid #f0f0f0; border-radius: 8px; padding: 12px; background: #fff; }
+.chart-box { border: 1px solid var(--border-default); border-radius: 8px; padding: 12px; background: var(--bg-surface); }
 .chart-box.wide { grid-column: 1 / -1; }
-.chart-title { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 10px; }
-.ct-note { font-weight: 400; color: #aaa; font-size: 11px; margin-left: 6px; }
+.chart-title { font-size: 13px; font-weight: 600; color: var(--fg-muted); margin-bottom: 10px; }
+.ct-note { font-weight: 400; color: var(--fg-subtle); font-size: 11px; margin-left: 6px; }
 .curve-svg { width: 100%; height: 200px; display: block; }
-.chart-empty { color: #aaa; font-size: 12px; text-align: center; padding: 40px 0; }
+.chart-empty { color: var(--fg-subtle); font-size: 12px; text-align: center; padding: 40px 0; }
 
 .bar-rows { display: flex; flex-direction: column; gap: 7px; }
 .bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.bar-label { width: 56px; color: #777; flex-shrink: 0; text-align: right; }
-.bar-track { flex: 1; height: 14px; background: #f3f4f6; border-radius: 4px; overflow: hidden; }
+.bar-label { width: 56px; color: var(--fg-muted); flex-shrink: 0; text-align: right; }
+.bar-track { flex: 1; height: 14px; background: var(--bg-default); border-radius: 4px; overflow: hidden; }
 .bar-fill { display: block; height: 100%; border-radius: 4px; transition: width .3s; }
-.bar-num { width: 42px; text-align: right; color: #555; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.bar-num { width: 42px; text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .bar-avg { width: 52px; text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
 /* 模型对比对照卡 */
 .contrast-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-.contrast-card { border-radius: 8px; padding: 16px; border: 1px solid #f0f0f0; }
-.contrast-card.aligned { background: #f6ffed; border-color: #b7eb8f; }
-.contrast-card.deviated { background: #fff7e6; border-color: #ffd591; }
+.contrast-card { border-radius: 8px; padding: 16px; border: 1px solid var(--border-default); }
+.contrast-card.aligned { background: color-mix(in srgb, var(--success-fg) 8%, transparent); border-color: color-mix(in srgb, var(--success-fg) 32%, transparent); }
+.contrast-card.deviated { background: color-mix(in srgb, var(--warn-fg) 9%, transparent); border-color: color-mix(in srgb, var(--warn-fg) 32%, transparent); }
 .contrast-title { font-weight: 600; margin-bottom: 12px; }
 .contrast-row { display: flex; gap: 24px; }
 
 .history-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.history-label { font-size: 13px; color: #333; }
-.history-hint { font-size: 12px; color: #999; }
-.history-note { margin-top: 8px; font-size: 12px; color: #999; }
+.history-label { font-size: 13px; color: var(--fg-default); }
+.history-hint { font-size: 12px; color: var(--fg-subtle); }
+.history-note { margin-top: 8px; font-size: 12px; color: var(--fg-subtle); }
 
 @media (max-width: 768px) {
   .kpi-hero { grid-template-columns: repeat(2, 1fr); }

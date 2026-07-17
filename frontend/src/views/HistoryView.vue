@@ -374,14 +374,14 @@ function renderPerfCell(row: Signal) {
   // 最佳行: 沿用旧色阶 (≥5 红 / 0~5 绿 / <0 灰), 表达"信号能不能给到值得的涨幅"
   const fmtMax = (v: number | null) => {
     if (v == null) return null
-    const color = v >= 5 ? '#dc2626' : v >= 0 ? '#16a34a' : '#737373'
+    const color = v >= 5 ? 'var(--up-fg)' : v >= 0 ? 'var(--down-fg)' : 'var(--flat-fg)'
     const text = `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
     return h('span', { style: { color, fontWeight: 600, fontSize: '11px' } }, text)
   }
   // 收盘/至今: 严格按"实际盈亏" A股配色 (红涨绿跌)
   const fmtReal = (v: number | null) => {
     if (v == null) return null
-    const color = v > 0 ? '#dc2626' : v < 0 ? '#16a34a' : '#737373'
+    const color = v > 0 ? 'var(--up-fg)' : v < 0 ? 'var(--down-fg)' : 'var(--flat-fg)'
     const text = `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
     return h('span', { style: { color, fontWeight: 600, fontSize: '11px' } }, text)
   }
@@ -850,8 +850,8 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
 .stats-row-wins .stats-sep {
   color: var(--text3);
 }
-.stats-card .up { color: #dc2626; font-weight: 600; }
-.stats-card .down { color: #16a34a; font-weight: 600; }
+.stats-card .up { color: var(--up-fg); font-weight: 600; }
+.stats-card .down { color: var(--down-fg); font-weight: 600; }
 .stats-row-outcome {
   color: var(--text2);
   font-size: 10px;
@@ -869,12 +869,12 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
   margin-right: 2px;
 }
 .row-tag-real {
-  background: rgba(220, 38, 38, 0.08);
-  color: #b91c1c;
+  background: var(--up-bg-muted);
+  color: var(--up-fg);
 }
-.stats-row-outcome .hi { color: #b91c1c; font-weight: 700; }
+.stats-row-outcome .hi { color: var(--up-fg); font-weight: 700; }
 .stats-row-outcome .ratio { color: var(--text3); font-size: 9px; margin-left: 2px; }
-.stats-row-outcome .pending { color: #a16207; background: #fef3c7; padding: 0 4px; border-radius: 3px; }
+.stats-row-outcome .pending { color: var(--warn-fg); background: var(--warn-bg-muted); padding: 0 4px; border-radius: 3px; }
 
 /* ── 移动端信号卡片(内容填入 ResponsiveTable 的 #card 插槽, 卡片外框由 .rt-card 提供) ── */
 .hc-top {
@@ -976,12 +976,12 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
 .overview-card:hover {
   background: rgba(0, 0, 0, 0.05);
 }
-.overview-card.ov-buy { border-left-color: #16a34a; }
-.overview-card.ov-add { border-left-color: #16a34a; }
-.overview-card.ov-sell { border-left-color: #dc2626; }
-.overview-card.ov-reduce { border-left-color: #d97706; }
+.overview-card.ov-buy { border-left-color: var(--down-fg); }
+.overview-card.ov-add { border-left-color: var(--down-fg); }
+.overview-card.ov-sell { border-left-color: var(--up-fg); }
+.overview-card.ov-reduce { border-left-color: var(--warn-fg); }
 .overview-card.selected {
-  background: rgba(24, 118, 210, 0.08);
+  background: var(--accent-bg-muted);
   box-shadow: 0 0 0 1px var(--primary) inset;
 }
 .ov-head {

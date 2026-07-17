@@ -604,9 +604,9 @@ async function handleTestLark() {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  border: 1px solid var(--border, #eee);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  background: var(--surface, #fff);
+  background: var(--bg-surface);
 }
 .pref-item--phone {
   flex-direction: column;

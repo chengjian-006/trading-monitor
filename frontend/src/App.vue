@@ -71,6 +71,7 @@ const { connected } = useWebSocket((data) => {
   }
 })
 
+// 基线0 (v1.7.646): 对齐 tokens.css —— 圆角6px、警示色 #9A6700、表头灰底+次要色(弃蓝底)
 const themeOverrides: GlobalThemeOverrides = {
   common: {
     primaryColor: '#0969DA',
@@ -78,17 +79,21 @@ const themeOverrides: GlobalThemeOverrides = {
     primaryColorPressed: '#0757B0',
     successColor: '#1A7F37',
     errorColor: '#CF222E',
-    warningColor: '#BF8700',
+    warningColor: '#9A6700',
     borderColor: '#D1D9E0',
+    borderRadius: '6px',
+    borderRadiusSmall: '3px',
     textColorBase: '#1F2328',
+    textColor2: '#656D76',
+    textColor3: '#8B949E',
     bodyColor: '#F6F8FA',
     cardColor: '#FFFFFF',
   },
   DataTable: {
-    thColor: 'rgba(9, 105, 218, 0.12)',
-    thTextColor: '#1F2328',
+    thColor: '#F6F8FA',
+    thTextColor: '#656D76',
     thFontWeight: '600',
-    thBorderColor: 'rgba(9, 105, 218, 0.25)',
+    thBorderColor: '#D1D9E0',
     thPaddingSmall: '10px 12px',
   },
 }

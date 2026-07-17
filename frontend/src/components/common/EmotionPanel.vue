@@ -17,14 +17,17 @@ const snap = ref<EmotionSnapshot | null>(null)
 const loading = ref(false)
 const style = ref<Style>('dabanchao')
 
+// 情绪温度色阶(沸腾→冰点)按涨跌语义走 --up-fg/--down-fg, 中间档用 color-mix 保留层次:
+//   高潮=纯红(--up-fg) → 启动=暖(--warn-fg) → 修复=强调蓝(--accent-fg) → 中性=灰(--fg-muted)
+//   → 退潮=纯绿(--down-fg) → 冰点=浅绿(down-fg 提亮, 与退潮区分层次); 底色统一 color-mix 透明档
 const PHASE_META: Record<string, { color: string; bg: string; desc: string }> = {
-  高潮: { color: '#d03050', bg: 'rgba(208,48,80,0.10)', desc: '高连板+高封板率+涨停家数高位，情绪最热，警惕见顶' },
-  启动: { color: '#f0884a', bg: 'rgba(240,136,74,0.12)', desc: '连板抬升、封板率稳，赚钱效应回升，可进攻' },
-  修复: { color: '#2e9eff', bg: 'rgba(46,158,255,0.10)', desc: '昨涨停溢价转正，情绪修复中，试错仓位' },
-  中性: { color: '#888', bg: 'rgba(0,0,0,0.05)', desc: '无明显方向，轻仓观望' },
-  退潮: { color: '#18a058', bg: 'rgba(24,160,88,0.10)', desc: '封板率偏弱(<50%)且 昨涨停溢价转负 或 封板率较前一档骤降，赚钱效应转差，减仓避险' },
-  冰点: { color: '#36ad6a', bg: 'rgba(54,173,106,0.12)', desc: '最高连板≤3且昨涨停溢价不正，情绪冰点，空仓或潜伏' },
-  数据降级: { color: '#999', bg: 'rgba(0,0,0,0.04)', desc: '涨停池数据源不可用，仅有涨跌停家数，部分指标不可判' },
+  高潮: { color: 'var(--up-fg)', bg: 'color-mix(in srgb, var(--up-fg) 10%, transparent)', desc: '高连板+高封板率+涨停家数高位，情绪最热，警惕见顶' },
+  启动: { color: 'var(--warn-fg)', bg: 'color-mix(in srgb, var(--warn-fg) 12%, transparent)', desc: '连板抬升、封板率稳，赚钱效应回升，可进攻' },
+  修复: { color: 'var(--accent-fg)', bg: 'color-mix(in srgb, var(--accent-fg) 10%, transparent)', desc: '昨涨停溢价转正，情绪修复中，试错仓位' },
+  中性: { color: 'var(--fg-muted)', bg: 'color-mix(in srgb, var(--fg-default) 5%, transparent)', desc: '无明显方向，轻仓观望' },
+  退潮: { color: 'var(--down-fg)', bg: 'color-mix(in srgb, var(--down-fg) 10%, transparent)', desc: '封板率偏弱(<50%)且 昨涨停溢价转负 或 封板率较前一档骤降，赚钱效应转差，减仓避险' },
+  冰点: { color: 'color-mix(in srgb, var(--down-fg) 72%, white)', bg: 'color-mix(in srgb, var(--down-fg) 12%, transparent)', desc: '最高连板≤3且昨涨停溢价不正，情绪冰点，空仓或潜伏' },
+  数据降级: { color: 'var(--fg-subtle)', bg: 'color-mix(in srgb, var(--fg-default) 4%, transparent)', desc: '涨停池数据源不可用，仅有涨跌停家数，部分指标不可判' },
 }
 
 const phaseMeta = computed(() => PHASE_META[snap.value?.emotion_phase ?? ''] || PHASE_META['中性'])
@@ -209,61 +212,61 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 
 <style scoped>
 .emotion-panel {
-  background: #fff;
-  border: 1px solid var(--border, #efeff5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 8px 12px;
 }
 .head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: rgba(0,0,0,0.85); }
-.title .meta { font-size: 11px; font-weight: 400; color: #999; margin-left: 4px; }
+.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
+.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
 .head-right { display: flex; align-items: center; gap: 10px; }
-.style-tabs { display: inline-flex; background: rgba(0,0,0,0.05); border-radius: 7px; padding: 2px; }
-.style-tab { border: none; background: transparent; padding: 4px 12px; font-size: 12px; border-radius: 5px; cursor: pointer; touch-action: manipulation; color: #666; transition: all 0.15s; }
-.style-tab.active { background: #fff; color: #2e9eff; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.style-tabs { display: inline-flex; background: var(--bg-sunken); border-radius: 7px; padding: 2px; }
+.style-tab { border: none; background: transparent; padding: 4px 12px; font-size: 12px; border-radius: 5px; cursor: pointer; touch-action: manipulation; color: var(--fg-muted); transition: all 0.15s; }
+.style-tab.active { background: var(--bg-surface); color: var(--accent-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 
-.degrade-banner { margin-top: 8px; padding: 5px 10px; background: rgba(240,136,74,0.12); color: #c0670f; border-radius: 6px; font-size: 12px; }
+.degrade-banner { margin-top: 8px; padding: 5px 10px; background: var(--warn-bg-muted); color: var(--warn-fg); border-radius: 6px; font-size: 12px; }
 
 .phase-card { margin-top: 8px; display: flex; align-items: center; gap: 12px; border-radius: 8px; padding: 7px 12px; }
 .phase-main { display: flex; align-items: center; gap: 8px; }
 .phase-text { font-size: 20px; font-weight: 800; letter-spacing: 1px; }
-.phase-desc { font-size: 11.5px; color: #666; line-height: 1.45; }
+.phase-desc { font-size: 11.5px; color: var(--fg-muted); line-height: 1.45; }
 
 .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 8px; }
-.metric { background: #fafafa; border-radius: 6px; padding: 6px 5px; text-align: center; }
-.metric.highlight { background: rgba(46,158,255,0.05); }
-.m-label { font-size: 11px; color: #999; margin-bottom: 2px; }
-.m-value { font-size: 17px; font-weight: 700; color: rgba(0,0,0,0.85); font-variant-numeric: tabular-nums; }
+.metric { background: var(--bg-default); border-radius: 6px; padding: 6px 5px; text-align: center; }
+.metric.highlight { background: var(--accent-bg-muted); }
+.m-label { font-size: 11px; color: var(--fg-subtle); margin-bottom: 2px; }
+.m-value { font-size: 17px; font-weight: 700; color: var(--fg-default); font-variant-numeric: tabular-nums; }
 
 .ladder-box { margin-top: 8px; }
-.card-title { font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.7); margin-bottom: 6px; display: flex; align-items: baseline; flex-wrap: wrap; }
-.lt-meta { font-weight: 400; color: #999; margin-left: 6px; }
-.lt-legend { font-weight: 400; color: #bbb; font-size: 10.5px; margin-left: auto; }
+.card-title { font-size: 12px; font-weight: 600; color: var(--fg-default); margin-bottom: 6px; display: flex; align-items: baseline; flex-wrap: wrap; }
+.lt-meta { font-weight: 400; color: var(--fg-subtle); margin-left: 6px; }
+.lt-legend { font-weight: 400; color: var(--fg-subtle); font-size: 10.5px; margin-left: auto; }
 
 /* 阶梯标签: 每档一行, 高板在上, 个股做可点标签 */
 .ladder2 { display: flex; flex-direction: column; gap: 5px; }
 .lt-row { display: flex; align-items: flex-start; gap: 8px; }
-.lt-h { flex-shrink: 0; width: 46px; text-align: right; font-size: 12px; font-weight: 700; color: #d03050; padding-top: 3px; }
+.lt-h { flex-shrink: 0; width: 46px; text-align: right; font-size: 12px; font-weight: 700; color: var(--up-fg); padding-top: 3px; }
 .lt-chips { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 4px; }
-.lt-chip { display: flex; align-items: baseline; gap: 4px; background: #fff5f0; border: 1px solid #f3d9cc; border-radius: 6px; padding: 2px 7px; cursor: pointer; touch-action: manipulation; line-height: 1.4; transition: all 0.12s; min-width: 0; }
-.lt-chip:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.12); border-color: #f0884a; }
-.lt-chip.in-pool { background: rgba(46,158,255,0.1); border-color: #2e9eff; }
-.lt-chip.broke { border-style: dashed; border-color: #f0a020; }
-.lc-name { flex-shrink: 0; font-size: 12px; font-weight: 600; color: rgba(0,0,0,0.85); white-space: nowrap; }
-.lc-pct { flex-shrink: 0; font-size: 11px; font-weight: 600; color: #d03050; font-variant-numeric: tabular-nums; }
-.lc-streak { flex-shrink: 0; font-size: 10px; color: #f0884a; background: rgba(240,136,74,0.12); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
-.lc-reason { flex: 1; min-width: 0; font-size: 10.5px; color: #999; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lt-first { margin-top: 6px; font-size: 11.5px; color: #999; }
-.empty-mini { color: #aaa; font-size: 12px; }
+.lt-chip { display: flex; align-items: baseline; gap: 4px; background: var(--up-bg-muted); border: 1px solid var(--border-muted); border-radius: 6px; padding: 2px 7px; cursor: pointer; touch-action: manipulation; line-height: 1.4; transition: all 0.12s; min-width: 0; }
+.lt-chip:hover { box-shadow: 0 2px 6px rgba(0,0,0,0.12); border-color: var(--warn-fg); }
+.lt-chip.in-pool { background: var(--accent-bg-muted); border-color: var(--accent-fg); }
+.lt-chip.broke { border-style: dashed; border-color: var(--warn-fg); }
+.lc-name { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--fg-default); white-space: nowrap; }
+.lc-pct { flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--up-fg); font-variant-numeric: tabular-nums; }
+.lc-streak { flex-shrink: 0; font-size: 10px; color: var(--warn-fg); background: var(--warn-bg-muted); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+.lc-reason { flex: 1; min-width: 0; font-size: 10.5px; color: var(--fg-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-first { margin-top: 6px; font-size: 11.5px; color: var(--fg-subtle); }
+.empty-mini { color: var(--fg-subtle); font-size: 12px; }
 
-.style-hint { margin-top: 8px; font-size: 11.5px; color: #777; line-height: 1.5; background: rgba(0,0,0,0.02); padding: 6px 10px; border-radius: 6px; }
-.style-hint b { color: #d03050; }
+.style-hint { margin-top: 8px; font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; background: var(--bg-sunken); padding: 6px 10px; border-radius: 6px; }
+.style-hint b { color: var(--up-fg); }
 
-.empty { margin-top: 16px; text-align: center; color: #999; font-size: 13px; padding: 16px; }
+.empty { margin-top: 16px; text-align: center; color: var(--fg-subtle); font-size: 13px; padding: 16px; }
 
 /* A股: 涨红跌绿 */
-.up { color: #d03050; }
-.down { color: #18a058; }
+.up { color: var(--up-fg); }
+.down { color: var(--down-fg); }
 
 @media (max-width: 768px) {
   .emotion-panel { padding: 8px 10px; }

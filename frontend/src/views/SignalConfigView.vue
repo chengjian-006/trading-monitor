@@ -498,7 +498,7 @@ onMounted(() => loadConfig())
   padding: 6px 22px;
   border-radius: 6px;
   border: 1.5px solid var(--border);
-  background: #f5f5f5;
+  background: var(--bg-sunken);
   font-size: 13px;
   font-weight: 600;
   color: var(--text2);
@@ -511,8 +511,8 @@ onMounted(() => loadConfig())
 .strategy-tabs :deep(.n-tabs-tab.n-tabs-tab--active) {
   background: var(--primary);
   border-color: var(--primary);
-  color: #fff;
-  box-shadow: 0 2px 8px rgba(46, 128, 255, 0.25);
+  color: var(--on-emphasis);
+  box-shadow: 0 2px 8px rgba(9, 105, 218, 0.25);
 }
 .strategy-tabs :deep(.n-tabs-tab-pad),
 .strategy-tabs :deep(.n-tabs-scroll-padding) {
@@ -630,7 +630,7 @@ onMounted(() => loadConfig())
 }
 .p-rec {
   font-size: 10px;
-  color: #e6a23c;
+  color: var(--warn-fg);
   white-space: nowrap;
 }
 

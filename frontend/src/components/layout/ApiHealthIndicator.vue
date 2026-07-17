@@ -207,7 +207,10 @@ const detailExpanded = ref(false)
   gap: 8px;
   padding: 2px 8px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-default);
+  border: 1px solid var(--border-muted);
+  font-size: 12px;
+  color: var(--fg-muted);
   cursor: pointer;
   touch-action: manipulation;
 }

@@ -272,8 +272,8 @@ const sectorRawCount = computed(() =>
 
 <style scoped>
 .signal-summary-bar {
-  background: #fffaf5;
-  border: 1px solid rgba(255, 120, 0, 0.18);
+  background: var(--warn-bg-muted);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 8px;
@@ -289,11 +289,11 @@ const sectorRawCount = computed(() =>
 .summary-title {
   font-size: 13px;
   font-weight: 600;
-  color: #ff6b00;
+  color: var(--warn-fg);
 }
 .summary-toggle {
   font-size: 11px;
-  color: #999;
+  color: var(--fg-subtle);
 }
 .summary-body {
   display: flex;
@@ -318,12 +318,12 @@ const sectorRawCount = computed(() =>
   margin-top: 3px;
 }
 .row-label-stock {
-  background: rgba(217, 119, 6, 0.15);
-  color: #b45309;
+  background: var(--warn-bg-muted);
+  color: var(--warn-fg);
 }
 .row-label-sector {
-  background: rgba(46, 128, 255, 0.12);
-  color: #1d4ed8;
+  background: var(--accent-bg-muted);
+  color: var(--accent-fg);
 }
 
 /* ── 个股行 ── */
@@ -342,12 +342,12 @@ const sectorRawCount = computed(() =>
   font-size: 12px;
   padding: 2px 8px 2px 6px;
   border-radius: 4px;
-  background: #ffffff;
-  border: 1px solid #fde0c4;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
 }
 .stock-name {
   font-weight: 600;
-  color: #b45309;
+  color: var(--warn-fg);
   margin-right: 2px;
   min-width: 0;
 }
@@ -360,23 +360,23 @@ const sectorRawCount = computed(() =>
 .sig-time {
   font-family: monospace;
   font-size: 10px;
-  color: #888;
+  color: var(--fg-subtle);
   font-variant-numeric: tabular-nums;
 }
 .sig-tag {
-  color: white;
+  color: var(--on-emphasis);
   padding: 0 6px;
   border-radius: 3px;
   font-size: 10px;
   white-space: nowrap;
 }
-.sig-tag.tag-buy { background: #ff6b00; }
-.sig-tag.tag-sell { background: #16a34a; }
-.sig-tag.tag-sev-1 { background: #65a30d; }
-.sig-tag.tag-sev-2 { background: #ea580c; }
-.sig-tag.tag-sev-3 { background: #dc2626; }
-.sig-tag.tag-sev-info { background: #2563eb; }
-.sig-tag.tag-reduce { background: #eab308; color: #422006; }
+.sig-tag.tag-buy { background: var(--up-fg); }
+.sig-tag.tag-sell { background: var(--down-fg); }
+.sig-tag.tag-sev-1 { background: var(--down-fg); }
+.sig-tag.tag-sev-2 { background: var(--warn-fg); }
+.sig-tag.tag-sev-3 { background: var(--danger-fg); }
+.sig-tag.tag-sev-info { background: var(--accent-fg); }
+.sig-tag.tag-reduce { background: var(--warn-bg-muted); color: var(--warn-fg); }
 
 /* ── 板块卡片网格 ── */
 .sector-grid {
@@ -386,25 +386,25 @@ const sectorRawCount = computed(() =>
   gap: 6px;
 }
 .sector-card {
-  background: #fff;
+  background: var(--bg-surface);
   border-radius: 4px;
   padding: 5px 9px;
   font-size: 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  border-left: 3px solid #94a3b8;
-  border-top: 1px solid #e5e7eb;
-  border-right: 1px solid #e5e7eb;
-  border-bottom: 1px solid #e5e7eb;
+  border-left: 3px solid var(--fg-subtle);
+  border-top: 1px solid var(--border-muted);
+  border-right: 1px solid var(--border-muted);
+  border-bottom: 1px solid var(--border-muted);
   transition: box-shadow 0.15s;
 }
 .sector-card:hover {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
-.sector-card.card-strong { border-left-color: #dc2626; background: linear-gradient(90deg, #fef2f2 0%, #fff 30%); }
-.sector-card.card-mid    { border-left-color: #f59e0b; background: linear-gradient(90deg, #fffbeb 0%, #fff 30%); }
-.sector-card.card-soft   { border-left-color: #94a3b8; }
+.sector-card.card-strong { border-left-color: var(--up-fg); background: linear-gradient(90deg, var(--up-bg-muted) 0%, var(--bg-surface) 30%); }
+.sector-card.card-mid    { border-left-color: var(--warn-fg); background: linear-gradient(90deg, var(--warn-bg-muted) 0%, var(--bg-surface) 30%); }
+.sector-card.card-soft   { border-left-color: var(--fg-subtle); }
 .sc-head {
   display: flex;
   align-items: center;
@@ -413,7 +413,7 @@ const sectorRawCount = computed(() =>
 }
 .sc-names {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--fg-default);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -423,7 +423,7 @@ const sectorRawCount = computed(() =>
 .sc-time {
   font-family: monospace;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--fg-subtle);
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
@@ -434,7 +434,7 @@ const sectorRawCount = computed(() =>
   font-size: 11px;
 }
 .sc-leader {
-  color: #6b7280;
+  color: var(--fg-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -444,23 +444,23 @@ const sectorRawCount = computed(() =>
 .sc-pct {
   font-family: monospace;
   font-weight: 700;
-  color: #dc2626;
+  color: var(--up-fg);
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
 .sc-no-leader {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--fg-subtle);
   font-style: italic;
 }
 
 .sector-more {
   align-self: stretch;
-  background: rgba(46, 128, 255, 0.06);
-  border: 1px dashed rgba(46, 128, 255, 0.4);
+  background: var(--accent-bg-muted);
+  border: 1px dashed var(--accent-fg);
   border-radius: 4px;
   font-size: 11px;
-  color: #1d4ed8;
+  color: var(--accent-fg);
   cursor: pointer;
   font-weight: 500;
   letter-spacing: 0.5px;
@@ -471,7 +471,7 @@ const sectorRawCount = computed(() =>
   touch-action: manipulation;
 }
 .sector-more:hover {
-  background: rgba(46, 128, 255, 0.12);
+  background: var(--accent-bg-muted);
 }
 .sector-more.sector-collapse {
   grid-column: 1 / -1;

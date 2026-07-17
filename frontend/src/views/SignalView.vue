@@ -253,7 +253,7 @@ onMounted(() => {
   font-size: 11px;
   font-weight: 500;
   color: var(--text2);
-  background: #f0f0f0;
+  background: var(--bg-sunken);
   padding: 1px 8px;
   border-radius: 10px;
   font-variant-numeric: tabular-nums;
@@ -306,11 +306,11 @@ onMounted(() => {
 .report-content :deep(th),
 .report-content :deep(td) {
   padding: 4px 6px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-muted);
   text-align: left;
 }
 .report-content :deep(th) {
-  background: #f0f7ff;
+  background: var(--accent-bg-muted);
   font-weight: 600;
 }
 .report-content :deep(p) {
@@ -333,12 +333,12 @@ onMounted(() => {
   font-size: 13px;
 }
 .report-empty-icon {
-  color: #d0d0d0;
+  color: var(--fg-subtle);
   margin-bottom: 8px;
 }
 .report-empty-hint {
   font-size: 11px;
-  color: #aaa;
+  color: var(--fg-subtle);
   margin-top: 4px;
 }
 

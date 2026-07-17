@@ -535,7 +535,7 @@ onMounted(async () => {
 .date-tab:hover { background: rgba(0, 0, 0, 0.04); }
 .date-tab.active {
   background: var(--primary);
-  color: #fff;
+  color: var(--bg-surface);
   font-weight: 600;
 }
 
@@ -678,7 +678,7 @@ onMounted(async () => {
 .grp-count {
   font-size: 12px;
   font-weight: 700;
-  color: #fff;
+  color: var(--bg-surface);
   background: var(--red);
   padding: 1px 7px;
   border-radius: 10px;

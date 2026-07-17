@@ -885,7 +885,7 @@ async function handleThsImport(groupId: string) {
   padding: 0 6px;
   border-radius: 10px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-emphasis);
   font-size: 12px;
   font-weight: 600;
 }
@@ -916,7 +916,7 @@ async function handleThsImport(groupId: string) {
   background: var(--bg);
 }
 .ocr-stock-item.checked {
-  background: #f0f7ff;
+  background: var(--accent-bg-muted);
 }
 .ocr-checkbox {
   width: 16px;
@@ -979,7 +979,7 @@ async function handleThsImport(groupId: string) {
   padding: 5px 14px;
   border-radius: 6px;
   background: var(--primary);
-  color: #fff;
+  color: var(--on-emphasis);
   font-size: 13px;
   cursor: pointer;
   white-space: nowrap;
@@ -1071,7 +1071,7 @@ async function handleThsImport(groupId: string) {
   background: var(--bg);
 }
 .cmp-item.checked {
-  background: #f0f7ff;
+  background: var(--accent-bg-muted);
 }
 .cmp-checkbox {
   width: 16px;

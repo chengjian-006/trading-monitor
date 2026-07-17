@@ -187,79 +187,79 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 </template>
 
 <style scoped>
-/* 配色沿用全站纪律(同 ThemeHeatPanel/EmotionPanel): 转强红 / 转弱绿 / 中性灰, var(--x, 回退) 写法。
-   无彩虹 emoji, 方向只用 ↑↓ 箭头 + 红绿; 选中/强调单一蓝 #2e9eff。 */
-.rotation-panel { background: #fff; border: 1px solid var(--border, #efeff5); border-radius: 6px; padding: 10px 12px; }
+/* 配色沿用全站纪律(同 ThemeHeatPanel/EmotionPanel): 转强=涨=红(--up-fg) / 转弱=退潮=绿(--down-fg) / 中性灰(--fg-*)。
+   无彩虹 emoji, 方向只用 ↑↓ 箭头 + 红绿; 选中/强调单一蓝 --accent-fg。 */
+.rotation-panel { background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: 6px; padding: 10px 12px; }
 .head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); }
-.title .meta { font-size: 11px; font-weight: 400; color: var(--text2, #999); margin-left: 4px; }
+.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
+.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
 .title .meta i { font-style: normal; font-variant-numeric: tabular-nums; margin: 0 1px; }
-.up { color: var(--red, #cf222e); }
-.down { color: var(--green, #18a058); }
+.up { color: var(--up-fg); }
+.down { color: var(--down-fg); }
 
-.empty { margin-top: 16px; text-align: center; color: var(--text2, #999); font-size: 13px; padding: 16px; line-height: 1.7; }
+.empty { margin-top: 16px; text-align: center; color: var(--fg-subtle); font-size: 13px; padding: 16px; line-height: 1.7; }
 
 .block { margin-top: 10px; }
-.block-title { font-size: 12px; font-weight: 700; color: var(--text2, #555); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
-.block-title .bt-meta { font-size: 10.5px; font-weight: 400; color: var(--text2, #aaa); }
+.block-title { font-size: 12px; font-weight: 700; color: var(--fg-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
+.block-title .bt-meta { font-size: 10.5px; font-weight: 400; color: var(--fg-subtle); }
 
 /* ── ① 今日转换流水 ── */
 .flow { display: flex; flex-direction: column; gap: 3px; }
 .flow-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; padding: 4px 8px; border-radius: 6px; font-size: 12px; border-left: 3px solid transparent; }
-.flow-row.w2s { background: rgba(207,34,46,0.045); border-left-color: var(--red, #cf222e); }
-.flow-row.s2w { background: rgba(24,160,88,0.05); border-left-color: var(--green, #18a058); }
+.flow-row.w2s { background: var(--up-bg-muted); border-left-color: var(--up-fg); }
+.flow-row.s2w { background: var(--down-bg-muted); border-left-color: var(--down-fg); }
 /* 时间+方向定宽 → 题材名各行左对齐成列, 保留 feed 感同时收齐左栏 */
-.fl-time { font-size: 11px; color: var(--text2, #999); font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 30px; }
+.fl-time { font-size: 11px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; flex-shrink: 0; min-width: 30px; }
 .fl-dir { font-size: 11px; font-weight: 700; flex-shrink: 0; min-width: 38px; }
-.flow-row.w2s .fl-dir { color: var(--red, #cf222e); }
-.flow-row.s2w .fl-dir { color: var(--green, #18a058); }
-.fl-theme { font-size: 12.5px; font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); flex-shrink: 0; }
-.fl-stat { font-size: 11.5px; color: var(--text2, #666); font-variant-numeric: tabular-nums; flex-shrink: 0; }
-.fl-samples { font-size: 11px; color: var(--text2, #999); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.flow-more { margin-top: 4px; font-size: 11px; color: #2e9eff; cursor: pointer; touch-action: manipulation; user-select: none; padding: 2px 0 2px 8px; }
+.flow-row.w2s .fl-dir { color: var(--up-fg); }
+.flow-row.s2w .fl-dir { color: var(--down-fg); }
+.fl-theme { font-size: 12.5px; font-weight: 600; color: var(--fg-default); flex-shrink: 0; }
+.fl-stat { font-size: 11.5px; color: var(--fg-muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.fl-samples { font-size: 11px; color: var(--fg-subtle); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-more { margin-top: 4px; font-size: 11px; color: var(--accent-fg); cursor: pointer; touch-action: manipulation; user-select: none; padding: 2px 0 2px 8px; }
 .flow-more:hover { text-decoration: underline; }
-.flow-empty { font-size: 12px; color: var(--text2, #999); line-height: 1.6; background: rgba(0,0,0,0.02); padding: 8px 10px; border-radius: 6px; }
+.flow-empty { font-size: 12px; color: var(--fg-subtle); line-height: 1.6; background: var(--bg-sunken); padding: 8px 10px; border-radius: 6px; }
 
 /* ── ② 当前强弱格局: 红绿点流式 chips ── */
 .dots { display: flex; flex-wrap: wrap; gap: 5px; }
-.dot-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: 11px; font-size: 11.5px; color: var(--text1, rgba(0,0,0,0.82)); border: 1px solid var(--border, #efeff5); white-space: nowrap; cursor: default; }
+.dot-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: 11px; font-size: 11.5px; color: var(--fg-default); border: 1px solid var(--border-muted); white-space: nowrap; cursor: default; }
 .dot-chip .dot { align-self: center; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.dot-chip.strong { background: rgba(207,34,46,0.05); border-color: rgba(207,34,46,0.2); }
-.dot-chip.strong .dot { background: var(--red, #cf222e); }
-.dot-chip.ebb { background: rgba(24,160,88,0.05); border-color: rgba(24,160,88,0.22); }
-.dot-chip.ebb .dot { background: var(--green, #18a058); }
-.dc-lu { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text2, #777); }
-.dot-chip.strong .dc-lu { color: var(--red, #cf222e); }
-.dot-chip.ebb .dc-lu { color: var(--green, #18a058); }
+.dot-chip.strong { background: var(--up-bg-muted); border-color: color-mix(in srgb, var(--up-fg) 20%, transparent); }
+.dot-chip.strong .dot { background: var(--up-fg); }
+.dot-chip.ebb { background: var(--down-bg-muted); border-color: color-mix(in srgb, var(--down-fg) 22%, transparent); }
+.dot-chip.ebb .dot { background: var(--down-fg); }
+.dc-lu { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--fg-muted); }
+.dot-chip.strong .dc-lu { color: var(--up-fg); }
+.dot-chip.ebb .dc-lu { color: var(--down-fg); }
 
 /* 冷区 */
 .cold-zone { margin-top: 6px; }
-.cold-toggle { font-size: 11px; font-weight: 600; color: var(--text2, #999); cursor: pointer; touch-action: manipulation; user-select: none; }
-.cold-toggle:hover { color: var(--text2, #555); }
+.cold-toggle { font-size: 11px; font-weight: 600; color: var(--fg-subtle); cursor: pointer; touch-action: manipulation; user-select: none; }
+.cold-toggle:hover { color: var(--fg-muted); }
 .cold-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
-.cold-chip { font-size: 11px; color: var(--text2, #999); background: rgba(0,0,0,0.03); padding: 1px 8px; border-radius: 9px; }
-.cold-chip .cc-lu { margin-left: 4px; color: var(--text2, #bbb); font-variant-numeric: tabular-nums; }
+.cold-chip { font-size: 11px; color: var(--fg-subtle); background: var(--bg-sunken); padding: 1px 8px; border-radius: 9px; }
+.cold-chip .cc-lu { margin-left: 4px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
 
 /* ── ③ 次日预测 ── */
-.predict-block { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border, #eee); }
+.predict-block { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-muted); }
 .predict-head { cursor: pointer; touch-action: manipulation; user-select: none; align-items: center; }
-.predict-head .pd-toggle { margin-left: auto; font-size: 11px; font-weight: 600; color: #2e9eff; }
-.disclaimer { margin: 0 0 8px; font-size: 11px; color: var(--text2, #b45309); background: rgba(240,160,32,0.08); padding: 4px 8px; border-radius: 5px; line-height: 1.5; }
+.predict-head .pd-toggle { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--accent-fg); }
+.disclaimer { margin: 0 0 8px; font-size: 11px; color: var(--warn-fg); background: var(--warn-bg-muted); padding: 4px 8px; border-radius: 5px; line-height: 1.5; }
 .predict-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .predict-grid.phone { grid-template-columns: 1fr; }
-.pg { border: 1px solid var(--border, #efeff5); border-radius: 7px; padding: 6px 9px; }
+.pg { border: 1px solid var(--border-muted); border-radius: 7px; padding: 6px 9px; }
 .pg-head { font-size: 11.5px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: baseline; gap: 5px; }
-.pg-head .pg-cnt { font-size: 10px; font-weight: 400; color: var(--text2, #aaa); }
-.pg.p-w2s .pg-head { color: var(--red, #cf222e); }   /* 弱转强=机会, 但 A股红=涨, 故转强统一红 */
-.pg.p-s2w .pg-head { color: var(--green, #18a058); }  /* 强转弱=退潮, 绿 */
-.pg.p-cont .pg-head { color: var(--red, #cf222e); }   /* 强势延续=强, 红 */
-.pg.p-end .pg-head { color: var(--text2, #888); }     /* 疑似终结=沉寂, 中性灰 */
+.pg-head .pg-cnt { font-size: 10px; font-weight: 400; color: var(--fg-subtle); }
+.pg.p-w2s .pg-head { color: var(--up-fg); }   /* 弱转强=机会, 但 A股红=涨, 故转强统一红 */
+.pg.p-s2w .pg-head { color: var(--down-fg); }  /* 强转弱=退潮, 绿 */
+.pg.p-cont .pg-head { color: var(--up-fg); }   /* 强势延续=强, 红 */
+.pg.p-end .pg-head { color: var(--fg-muted); }     /* 疑似终结=沉寂, 中性灰 */
 .pg-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; padding: 2px 0; font-size: 12px; line-height: 1.5; }
-.pg-theme { font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); flex-shrink: 0; }
-.pg-traj { font-size: 11px; color: var(--text2, #666); font-variant-numeric: tabular-nums; background: rgba(0,0,0,0.04); padding: 0 6px; border-radius: 8px; white-space: nowrap; }
-.pg-reason { font-size: 11px; color: var(--text2, #999); flex: 1; min-width: 0; }
+.pg-theme { font-weight: 600; color: var(--fg-default); flex-shrink: 0; }
+.pg-traj { font-size: 11px; color: var(--fg-muted); font-variant-numeric: tabular-nums; background: var(--bg-sunken); padding: 0 6px; border-radius: 8px; white-space: nowrap; }
+.pg-reason { font-size: 11px; color: var(--fg-subtle); flex: 1; min-width: 0; }
 
-.foot-hint { margin-top: 10px; font-size: 11px; color: var(--text2, #999); line-height: 1.6; background: rgba(0,0,0,0.02); padding: 7px 10px; border-radius: 6px; }
+.foot-hint { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); line-height: 1.6; background: var(--bg-sunken); padding: 7px 10px; border-radius: 6px; }
 
 @media (max-width: 768px) {
   .rotation-panel { padding: 8px 10px; }

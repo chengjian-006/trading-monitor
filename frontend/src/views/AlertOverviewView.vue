@@ -334,11 +334,11 @@ const drawerColumns: DataTableColumns<Signal> = [
   { title: '结果', key: 'outcome', width: 64,
     render: (row) => {
       const o = row.outcome
-      if (!o) return h('span', { style: { fontSize: '11px', color: '#d97706' } }, '待评估')
+      if (!o) return h('span', { style: { fontSize: '11px', color: 'var(--warn-fg)' } }, '待评估')
       const cfg: Record<string, [string, string]> = {
-        success: ['成功', '#dc2626'], fail: ['失败', '#16a34a'], neutral: ['中性', '#888'],
+        success: ['成功', 'var(--up-fg)'], fail: ['失败', 'var(--down-fg)'], neutral: ['中性', 'var(--fg-muted)'],
       }
-      const [label, color] = cfg[o] || ['—', '#888']
+      const [label, color] = cfg[o] || ['—', 'var(--fg-muted)']
       return h('span', { style: { color, fontWeight: 700, fontSize: '12px' } }, label)
     } },
   { title: '指标摘要', key: 'detail', minWidth: 200,
@@ -362,7 +362,7 @@ function rateBadge(sid: string) {
   if (!s || s.evaluated === 0) return { text: '—', color: 'var(--text3)' }
   const rate = s.success_rate
   // A股习惯: 成功率高=红(成功), 低=绿(失败), 中间(45~55%)橙
-  const color = rate >= 55 ? '#dc2626' : rate >= 45 ? '#d97706' : '#16a34a'
+  const color = rate >= 55 ? 'var(--up-fg)' : rate >= 45 ? 'var(--warn-fg)' : 'var(--down-fg)'
   return { text: `${rate}%`, color, sub: `${s.success}/${s.evaluated}` }
 }
 </script>
@@ -590,10 +590,10 @@ function rateBadge(sid: string) {
 .sum-item b { color: var(--text1); font-weight: 700; }
 .sum-item .num { color: var(--primary); font-size: 15px; }
 .sum-divider { color: var(--text3); margin: 0 2px; }
-.delta-up { color: #dc2626; }
-.delta-down { color: #16a34a; }
+.delta-up { color: var(--up-fg); }
+.delta-down { color: var(--down-fg); }
 
-.matrix-wrap { background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
+.matrix-wrap { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 6px; padding: 4px; }
 .matrix-scroll { overflow-x: auto; }
 .matrix {
   border-collapse: separate; border-spacing: 0;
@@ -601,25 +601,25 @@ function rateBadge(sid: string) {
   font-variant-numeric: tabular-nums;
 }
 .matrix th, .matrix td {
-  padding: 6px 8px; text-align: center; border-bottom: 1px solid #f1f5f9;
+  padding: 6px 8px; text-align: center; border-bottom: 1px solid var(--border-muted);
 }
 .matrix thead th {
-  position: sticky; top: 0; z-index: 2; background: #f8fafc;
-  font-weight: 600; color: var(--text2); border-bottom: 2px solid #e2e8f0;
+  position: sticky; top: 0; z-index: 2; background: var(--bg-sunken);
+  font-weight: 600; color: var(--text2); border-bottom: 2px solid var(--border-default);
   white-space: nowrap;
 }
 .col-signal { width: 220px; text-align: left !important; padding-left: 12px !important; }
 .col-dir { width: 50px; }
 .col-pri { width: 36px; }
 .col-date { width: 48px; font-family: monospace; }
-.col-date.today { color: var(--primary); background: #eff6ff !important; }
+.col-date.today { color: var(--primary); background: var(--accent-bg-muted) !important; }
 .col-total { width: 56px; font-weight: 600; }
 .col-rate { width: 84px; }
 
 .group-row td {
-  padding: 8px 12px !important; background: #f8fafc;
+  padding: 8px 12px !important; background: var(--bg-sunken);
   text-align: left !important;
-  border-top: 2px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;
+  border-top: 2px solid var(--border-default); border-bottom: 1px solid var(--border-default);
 }
 .group-name { font-size: 12px; font-weight: 700; color: var(--text1); }
 .group-count { font-size: 11px; color: var(--text3); margin-left: 2px; }
@@ -636,9 +636,9 @@ function rateBadge(sid: string) {
   display: inline-block; padding: 1px 6px; border-radius: 8px;
   font-size: 10px; font-weight: 700; line-height: 1.4;
 }
-.pri-strong { background: #fee2e2; color: #dc2626; }
-.pri-middle { background: #fef3c7; color: #d97706; }
-.pri-weak { background: #f3f4f6; color: #6b7280; }
+.pri-strong { background: var(--danger-bg-muted); color: var(--danger-fg); }
+.pri-middle { background: var(--warn-bg-muted); color: var(--warn-fg); }
+.pri-weak { background: var(--bg-sunken); color: var(--fg-muted); }
 
 .cell-heat {
   font-family: monospace; font-weight: 600; font-size: 12px;
@@ -663,7 +663,7 @@ function rateBadge(sid: string) {
 .legend {
   display: flex; gap: 6px; align-items: center;
   padding: 10px 14px; font-size: 11.5px; color: var(--text2);
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--border-muted);
 }
 .chip {
   display: inline-block; min-width: 32px; padding: 2px 8px;
@@ -680,8 +680,8 @@ function rateBadge(sid: string) {
 .m-group-title .m-gc { color: var(--text3); font-weight: 400; }
 .m-sig {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 9px 10px; border: 1px solid var(--border, #eee); border-radius: 8px;
-  margin-bottom: 6px; background: var(--surface, #fff);
+  padding: 9px 10px; border: 1px solid var(--border-default); border-radius: 8px;
+  margin-bottom: 6px; background: var(--bg-surface);
 }
 .m-sig.silent { opacity: 0.5; }
 .m-sig-l { display: flex; align-items: center; gap: 6px; min-width: 0; }

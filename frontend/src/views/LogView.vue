@@ -347,7 +347,7 @@ onMounted(() => {
   font-size: 13px;
 }
 .diff-table th {
-  background: #f5f5f5;
+  background: var(--bg-sunken);
   padding: 8px 12px;
   text-align: left;
   font-weight: 600;
@@ -364,17 +364,17 @@ onMounted(() => {
   white-space: nowrap;
 }
 .diff-changed {
-  background: rgba(255, 200, 0, 0.08);
+  background: color-mix(in srgb, var(--warn-fg) 10%, transparent);
 }
 .diff-old {
-  color: #d03050;
-  background: rgba(208, 48, 80, 0.08);
+  color: var(--danger-fg);
+  background: var(--danger-bg-muted);
   text-decoration: line-through;
   font-weight: 600;
 }
 .diff-new {
-  color: #18a058;
-  background: rgba(24, 160, 88, 0.1);
+  color: var(--success-fg);
+  background: var(--success-bg-muted);
   font-weight: 600;
 }
 </style>

@@ -10,6 +10,7 @@ import { formatYi, formatYiFromYi, formatYiDelta } from '../../utils/formatAmoun
 import { fetchIndexTrends, fetchIndexDaily, fetchMarketOverview, fetchRegime, fetchTurnover, fetchVolumeSurge,
          type IndexTrendData, type IndexDailyData, type MarketOverview, type RegimeData, type TurnoverData, type VolumeSurgeItem } from '../../api/market-report'
 import IndexChartCard from './IndexChartCard.vue'
+import BreadthBar from './BreadthBar.vue'
 import { estimateFullDayAmount } from '../../utils/intradayEstimator'
 
 const router = useRouter()
@@ -237,6 +238,9 @@ onUnmounted(() => {
             <span class="m-k">涨 / 跌家数</span>
             <span class="m-v"><b class="up">{{ stats.up_count }}</b> / <b class="down">{{ stats.down_count }}</b></span>
           </div>
+          <div class="m-row breadth-row">
+            <BreadthBar :up="stats.up_count" :down="stats.down_count" :width="150" />
+          </div>
           <div class="m-row">
             <span class="m-k">涨停 / 跌停</span>
             <span class="m-v"><b class="up">{{ stats.limit_up }}</b> / <b class="down">{{ stats.limit_down }}</b></span>
@@ -364,8 +368,10 @@ onUnmounted(() => {
 .sr-amt { font-size: 12px; color: var(--text2, #656d76); font-family: monospace; min-width: 64px; text-align: right; }
 .sr-pct { font-size: 12px; font-weight: 700; min-width: 56px; text-align: right; font-variant-numeric: tabular-nums; }
 
-.up { color: #e53e3e; }
-.down { color: #16a34a; }
+.breadth-row { justify-content: flex-start; margin-top: -2px; }
+
+.up { color: var(--up-fg, #D92B26); }
+.down { color: var(--down-fg, #0F8A5F); }
 
 @media (max-width: 768px) {
   .index-overview { flex-direction: column; gap: 10px; padding: 8px 10px; }

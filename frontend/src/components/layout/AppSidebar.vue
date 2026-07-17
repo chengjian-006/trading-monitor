@@ -124,10 +124,11 @@ const activeKey = computed(() => (route.name as string) || 'signals')
 </template>
 
 <style scoped>
+/* 基线0 (v1.7.646): 平面浅色 + 右描边，渐变与投影退役 */
 .sidebar {
   width: var(--sidebar-width);
   background: var(--sidebar-bg);
-  box-shadow: var(--sidebar-shadow);
+  border-right: 1px solid var(--border-default);
   flex-shrink: 0;
   overflow-y: auto;
   padding: 12px 0;
@@ -155,7 +156,7 @@ const activeKey = computed(() => (route.name as string) || 'signals')
   transition: background 0.15s;
 }
 .group-header:hover {
-  background: rgba(46, 158, 255, 0.06);
+  background: rgba(9, 105, 218, 0.06);
 }
 
 .group-arrow {
@@ -211,8 +212,8 @@ const activeKey = computed(() => (route.name as string) || 'signals')
   flex-shrink: 0;
 }
 .menu-item:hover {
-  background: rgba(46, 158, 255, 0.06);
-  color: rgba(0, 0, 0, 0.85);
+  background: rgba(9, 105, 218, 0.06);
+  color: var(--fg-default);
 }
 .menu-item.active {
   background: var(--sidebar-active-bg);

@@ -4,11 +4,6 @@
  * ==================================================================== */
 
 @media (max-width: 768px) {
-  /* 关键: 关掉全站 zoom: 1.25 —— 它把已经紧的内容再放大 1.25, 是挤爆的根因 */
-  html {
-    zoom: 1 !important;
-  }
-
   /* 主内容区 padding 收紧 */
   .main-content,
   .main-content.mobile {

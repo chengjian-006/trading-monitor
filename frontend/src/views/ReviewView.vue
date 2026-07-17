@@ -23,9 +23,9 @@ const daysOptions = [
 
 function rateColor(rate: number | null): string {
   if (rate == null) return 'var(--text2)'
-  if (rate >= 55) return '#cf222e'
-  if (rate >= 45) return '#f59e0b'
-  return '#1a7f37'
+  if (rate >= 55) return 'var(--up-fg)'
+  if (rate >= 45) return 'var(--warn-fg)'
+  return 'var(--down-fg)'
 }
 function fmtPct(v: number | null): string {
   return v == null ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
@@ -159,16 +159,16 @@ onMounted(loadAll)
 .cmp-rate { font-size: 38px; font-weight: 700; font-family: monospace; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .cmp-rate .pct { font-size: 18px; margin-left: 2px; }
 .cmp-sub { font-size: 12px; color: var(--text2); margin: 4px 0 8px; }
-.cmp-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: #eee; }
+.cmp-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border-muted); }
 .cmp-bar .seg { height: 100%; }
-.cmp-bar .seg.s { background: #cf222e; }
-.cmp-bar .seg.n { background: #d0d7de; }
-.cmp-bar .seg.f { background: #1a7f37; }
+.cmp-bar .seg.s { background: var(--up-fg); }
+.cmp-bar .seg.n { background: var(--flat-fg); }
+.cmp-bar .seg.f { background: var(--down-fg); }
 .cmp-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text2); margin-top: 6px; }
 .cmp-legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px; }
-.cmp-legend .dot.s { background: #cf222e; }
-.cmp-legend .dot.n { background: #d0d7de; }
-.cmp-legend .dot.f { background: #1a7f37; }
+.cmp-legend .dot.s { background: var(--up-fg); }
+.cmp-legend .dot.n { background: var(--flat-fg); }
+.cmp-legend .dot.f { background: var(--down-fg); }
 .cmp-avg { font-size: 12px; color: var(--text2); margin-top: 10px; font-family: monospace; font-variant-numeric: tabular-nums; }
 .cmp-empty { color: var(--text2); font-size: 12px; padding: 18px 0; text-align: center; }
 
@@ -176,14 +176,14 @@ onMounted(loadAll)
 .trend-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .trend-scroll.phone .trend-table { min-width: 420px; }
 .trend-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-.trend-table th { text-align: left; color: var(--text2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border, #eee); }
-.trend-table td { padding: 5px 6px; border-bottom: 1px dashed var(--border, #f0f0f0); }
+.trend-table th { text-align: left; color: var(--text2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border-default); }
+.trend-table td { padding: 5px 6px; border-bottom: 1px dashed var(--border-default); }
 .trend-table .wk { font-family: monospace; color: var(--text2); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .tr-cell { display: flex; align-items: center; gap: 8px; }
-.tr-bar { flex: 1; height: 7px; background: #eee; border-radius: 4px; overflow: hidden; min-width: 60px; }
+.tr-bar { flex: 1; height: 7px; background: var(--border-muted); border-radius: 4px; overflow: hidden; min-width: 60px; }
 .tr-fill { display: block; height: 100%; }
-.tr-fill.buy { background: #cf222e; }
-.tr-fill.sell { background: #1a7f37; }
+.tr-fill.buy { background: var(--up-fg); }
+.tr-fill.sell { background: var(--down-fg); }
 .tr-num { font-family: monospace; font-weight: 600; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
 .tr-n { font-family: monospace; color: var(--text2); width: 48px; font-variant-numeric: tabular-nums; }
 .note { font-size: 11px; color: var(--text2); margin-top: 10px; line-height: 1.5; }

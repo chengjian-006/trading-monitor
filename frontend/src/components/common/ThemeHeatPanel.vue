@@ -54,12 +54,12 @@ function cellStyle(c: number | undefined, theme?: string) {
   if (!c) return {}
   // 「其他」是长尾杂烩, 数值天然偏大, 不参与主线热度对比 → 走淡色中性档, 避免抢眼
   if (theme === '其他') {
-    return { background: 'hsl(4, 30%, 96%)', color: '#9a6a6a' }
+    return { background: 'color-mix(in srgb, var(--up-fg) 6%, transparent)', color: 'var(--fg-muted)' }
   }
   const mag = Math.min(c / 15, 1)
-  const light = 92 - mag * 46
-  const sat = 74 + mag * 12
-  return { background: `hsl(4, ${sat}%, ${light}%)`, color: mag > 0.55 ? '#fff' : '#7a1f1f' }
+  // 热度渐变: 以 --up-fg 打底, 用 color-mix 透明度分档(浅14%→实底100%), 保留浅红→深红的涨停强度层次
+  const pct = 14 + mag * 86
+  return { background: `color-mix(in srgb, var(--up-fg) ${pct}%, transparent)`, color: mag > 0.55 ? 'var(--on-emphasis)' : 'var(--up-fg)' }
 }
 function cellTitle(d: string, theme: string) {
   const x = cell(d, theme)
@@ -153,8 +153,8 @@ function opMoreLabel(key: string, total: number): string {
 function toggleOp(key: string) { opExpanded.value[key] = !opExpanded.value[key] }
 
 const trendArrow = (t: string) => (t === 'up' ? '↑' : t === 'down' ? '↓' : '→')
-// 涨红跌绿: 全站统一红 #cf222e / 绿 #18a058 / 中性 #999 (用 var 以便将来主题接管)
-const trendColor = (t: string) => (t === 'up' ? 'var(--red, #cf222e)' : t === 'down' ? 'var(--green, #18a058)' : 'var(--text2, #999)')
+// 涨红跌绿: 走设计 Token —— 涨/热=var(--up-fg) / 跌/退潮=var(--down-fg) / 中性=var(--fg-subtle)
+const trendColor = (t: string) => (t === 'up' ? 'var(--up-fg)' : t === 'down' ? 'var(--down-fg)' : 'var(--fg-subtle)')
 
 // 联动: 点题材高亮矩阵列
 function pickTheme(name: string) {
@@ -360,22 +360,22 @@ useVisiblePolling(load, 180_000)   // 切走标签页暂停, 切回立即补刷
 
 <style scoped>
 /* 配色统一对齐全站(EmotionPanel/SectorRotationPanel): 涨红跌绿 + 中性灰, 用 var(--x, 回退) 写法。
-   强调色(可点/选中)统一蓝 #2e9eff; 红只留给"热力/风险", 不再用蓝紫绿橙四色彩虹分组。 */
-.theme-heat { background: #fff; border: 1px solid var(--border, #efeff5); border-radius: 6px; padding: 8px 12px; }
+   强调色(可点/选中)统一蓝 var(--accent-fg); 红只留给"热力/风险", 不再用蓝紫绿橙四色彩虹分组。 */
+.theme-heat { background: var(--bg-surface); border: 1px solid var(--border-muted); border-radius: 6px; padding: 8px 12px; }
 .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); }
-.title .meta { font-size: 11px; font-weight: 400; color: var(--text2, #999); margin-left: 4px; }
-.empty { margin-top: 12px; text-align: center; color: var(--text2, #999); font-size: 12px; line-height: 1.7; padding: 14px; }
+.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
+.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
+.empty { margin-top: 12px; text-align: center; color: var(--fg-subtle); font-size: 12px; line-height: 1.7; padding: 14px; }
 
 /* A 当前主线榜 */
 .mainline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 4px; }
-.ml-tag { font-size: 11px; font-weight: 700; color: #fff; background: var(--red, #cf222e); border-radius: 4px; padding: 2px 7px; }
-.ml-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: 12px; background: #fff5f0; border: 1px solid #f3d9cc; font-size: 12px; cursor: pointer; touch-action: manipulation; transition: border-color .12s; }
-.ml-chip:hover { border-color: var(--red, #cf222e); }
-.ml-chip.active { background: var(--red, #cf222e); border-color: var(--red, #cf222e); }
-.ml-chip.active .ml-name, .ml-chip.active .ml-trend { color: #fff !important; }
-.ml-chip.ebb { background: rgba(24,160,88,0.06); border-color: rgba(24,160,88,0.28); }
-.ml-name { font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); }
+.ml-tag { font-size: 11px; font-weight: 700; color: var(--on-emphasis); background: var(--up-fg); border-radius: 4px; padding: 2px 7px; }
+.ml-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 2px 8px; border-radius: 12px; background: color-mix(in srgb, var(--up-fg) 6%, transparent); border: 1px solid color-mix(in srgb, var(--up-fg) 22%, transparent); font-size: 12px; cursor: pointer; touch-action: manipulation; transition: border-color .12s; }
+.ml-chip:hover { border-color: var(--up-fg); }
+.ml-chip.active { background: var(--up-fg); border-color: var(--up-fg); }
+.ml-chip.active .ml-name, .ml-chip.active .ml-trend { color: var(--on-emphasis) !important; }
+.ml-chip.ebb { background: color-mix(in srgb, var(--down-fg) 6%, transparent); border-color: color-mix(in srgb, var(--down-fg) 28%, transparent); }
+.ml-name { font-weight: 600; color: var(--fg-default); }
 .ml-trend { font-size: 11px; font-variant-numeric: tabular-nums; }
 
 .body { display: flex; gap: 16px; align-items: flex-start; margin-top: 6px; }
@@ -383,87 +383,87 @@ useVisiblePolling(load, 180_000)   // 切走标签页暂停, 切回立即补刷
 .matrix-wrap { overflow-x: auto; }
 .matrix { border-collapse: separate; border-spacing: 2px; font-size: 11px; }
 .matrix th, .matrix td { text-align: center; }
-.th-date { position: sticky; left: 0; background: #fff; z-index: 1; }
+.th-date { position: sticky; left: 0; background: var(--bg-surface); z-index: 1; }
 .th-theme { min-width: 52px; padding: 2px 4px; cursor: pointer; touch-action: manipulation; }
-.th-name { font-size: 11px; font-weight: 600; color: var(--text1, rgba(0,0,0,0.85)); white-space: nowrap; }
-.th-total { font-size: 10px; color: var(--text2, #aaa); font-weight: 400; font-variant-numeric: tabular-nums; }
-.td-date { position: sticky; left: 0; background: #fff; z-index: 1; font-size: 11px; color: var(--text2, #555); padding-right: 6px; white-space: nowrap; text-align: right; }
-.cell { min-width: 48px; height: 24px; border-radius: 3px; font-weight: 700; color: #c8ccd2; font-variant-numeric: tabular-nums; cursor: default; }
+.th-name { font-size: 11px; font-weight: 600; color: var(--fg-default); white-space: nowrap; }
+.th-total { font-size: 10px; color: var(--fg-subtle); font-weight: 400; font-variant-numeric: tabular-nums; }
+.td-date { position: sticky; left: 0; background: var(--bg-surface); z-index: 1; font-size: 11px; color: var(--fg-muted); padding-right: 6px; white-space: nowrap; text-align: right; }
+.cell { min-width: 48px; height: 24px; border-radius: 3px; font-weight: 700; color: var(--fg-subtle); font-variant-numeric: tabular-nums; cursor: default; }
 .cell.clickable { cursor: pointer; touch-action: manipulation; }
 /* 选中态统一为单一强调色(蓝): 列高亮=浅蓝软描边, 单元格下钻=实蓝+轻投影区分层级; 红留给热力本身 */
-.col-hl { outline: 2px solid rgba(46,158,255,0.5); outline-offset: -2px; }
-.cell-active { outline: 2px solid #2e9eff; outline-offset: -2px; box-shadow: 0 0 0 2px rgba(46,158,255,0.18); }
+.col-hl { outline: 2px solid color-mix(in srgb, var(--accent-fg) 50%, transparent); outline-offset: -2px; }
+.cell-active { outline: 2px solid var(--accent-fg); outline-offset: -2px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-fg) 18%, transparent); }
 /* 涨停总数列: 合计列, 中性底色与热力格区分, 左侧分隔线 */
-.th-total-col { border-left: 2px solid #d9d9e0; cursor: default; }
-.total-cell { background: #f3f4f6; color: var(--text1, #1f2328); font-weight: 800; border-left: 2px solid #d9d9e0; font-variant-numeric: tabular-nums; }
+.th-total-col { border-left: 2px solid var(--border-default); cursor: default; }
+.total-cell { background: var(--bg-sunken); color: var(--fg-default); font-weight: 800; border-left: 2px solid var(--border-default); font-variant-numeric: tabular-nums; }
 
 /* 更多/收起 展开按钮 */
 .more-row { margin-top: 6px; text-align: center; }
-.more-btn { display: inline-block; font-size: 11px; color: #2e9eff; cursor: pointer; padding: 2px 10px; border-radius: 10px; background: #f5f9ff; border: 1px solid #e0ecff; }
-.more-btn:hover { background: #e8f3ff; border-color: #cfe2ff; }
+.more-btn { display: inline-block; font-size: 11px; color: var(--accent-fg); cursor: pointer; padding: 2px 10px; border-radius: 10px; background: color-mix(in srgb, var(--accent-fg) 5%, transparent); border: 1px solid color-mix(in srgb, var(--accent-fg) 13%, transparent); }
+.more-btn:hover { background: color-mix(in srgb, var(--accent-fg) 9%, transparent); border-color: color-mix(in srgb, var(--accent-fg) 20%, transparent); }
 
 /* 单元格下钻详情条 */
-.cell-detail { margin-top: 8px; padding: 6px 8px; background: #fafafa; border: 1px solid var(--border, #eee); border-radius: 4px; font-size: 12px; line-height: 1.8; }
-.cd-title { font-weight: 600; color: var(--text1, rgba(0,0,0,0.75)); margin-bottom: 4px; }
-.cd-sub { padding: 2px 0; border-top: 1px dashed #efefef; }
+.cell-detail { margin-top: 8px; padding: 6px 8px; background: var(--bg-default); border: 1px solid var(--border-muted); border-radius: 4px; font-size: 12px; line-height: 1.8; }
+.cd-title { font-weight: 600; color: var(--fg-default); margin-bottom: 4px; }
+.cd-sub { padding: 2px 0; border-top: 1px dashed var(--border-muted); }
 .cd-sub:first-of-type { border-top: none; }
-.cd-sub-name { font-weight: 600; color: var(--red, #cf222e); margin-right: 6px; }
-.cd-sub-cnt { color: var(--text2, #999); font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
-.cd-stock { margin-right: 8px; color: var(--text2, #555); }
-.cd-stock.linked { color: #2e9eff; cursor: pointer; touch-action: manipulation; }
+.cd-sub-name { font-weight: 600; color: var(--up-fg); margin-right: 6px; }
+.cd-sub-cnt { color: var(--fg-subtle); font-size: 11px; margin-right: 8px; font-variant-numeric: tabular-nums; }
+.cd-stock { margin-right: 8px; color: var(--fg-muted); }
+.cd-stock.linked { color: var(--accent-fg); cursor: pointer; touch-action: manipulation; }
 .cd-stock.linked:hover { text-decoration: underline; }
-.cd-close { float: right; color: #bbb; cursor: pointer; font-size: 14px; padding: 0 2px; }
-.cd-close:hover { color: var(--red, #cf222e); }
+.cd-close { float: right; color: var(--fg-subtle); cursor: pointer; font-size: 14px; padding: 0 2px; }
+.cd-close:hover { color: var(--danger-fg); }
 
 /* B 强势/热点板块榜 (矩阵右侧栏) */
-.rank { width: 340px; flex-shrink: 0; border-left: 1px dashed var(--border, #eee); padding-left: 12px; }
-.rank-title { font-size: 12px; font-weight: 600; color: var(--text1, rgba(0,0,0,0.7)); margin-bottom: 6px; }
-.rk-meta { font-weight: 400; color: var(--text2, #aaa); font-size: 10.5px; margin-left: 6px; }
+.rank { width: 340px; flex-shrink: 0; border-left: 1px dashed var(--border-muted); padding-left: 12px; }
+.rank-title { font-size: 12px; font-weight: 600; color: var(--fg-default); margin-bottom: 6px; }
+.rk-meta { font-weight: 400; color: var(--fg-subtle); font-size: 10.5px; margin-left: 6px; }
 .rk-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 3px 0; font-size: 12px; }
-.rk-no { width: 16px; text-align: center; color: #bbb; font-weight: 700; }
+.rk-no { width: 16px; text-align: center; color: var(--fg-subtle); font-weight: 700; }
 .rk-label { font-size: 11px; }
-.rk-name { font-weight: 600; color: var(--red, #cf222e); cursor: pointer; }
+.rk-name { font-weight: 600; color: var(--up-fg); cursor: pointer; }
 .rk-name:hover { text-decoration: underline; }
-.rk-stat { color: var(--text2, #777); font-variant-numeric: tabular-nums; }
-.rk-rep { color: var(--text2, #999); font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rk-pool { color: var(--text2, #555); font-size: 11px; }
-.rk-stock { color: #2e9eff; cursor: pointer; margin-left: 4px; }
+.rk-stat { color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.rk-rep { color: var(--fg-subtle); font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-pool { color: var(--fg-muted); font-size: 11px; }
+.rk-stock { color: var(--accent-fg); cursor: pointer; margin-left: 4px; }
 .rk-stock:hover { text-decoration: underline; }
 
 /* 给我的操作 分组 — 三色语义纪律: 红(风险/该减) · 中性(持有/低吸/补票) · 弱化灰(退潮别追)。
    去掉🔴🟢🔵⚪⚠️彩色 emoji, 改全站邻居那套"纯色文字表头"; 头部左侧色条用 currentColor 自动同色。 */
-.op-empty { color: var(--text2, #aaa); font-size: 12px; padding: 14px 4px; text-align: center; }
+.op-empty { color: var(--fg-subtle); font-size: 12px; padding: 14px 4px; text-align: center; }
 .op-group { margin-bottom: 8px; }
 .op-head { font-size: 11.5px; font-weight: 700; padding: 2px 0 3px; display: flex; align-items: baseline; gap: 6px; }
 .op-head::before { content: ''; align-self: center; flex-shrink: 0; width: 3px; height: 11px; border-radius: 2px; background: currentColor; opacity: 0.65; }
-.op-head .op-sub { font-size: 10px; font-weight: 400; color: var(--text2, #aaa); }
-.op-head.reduce { color: var(--red, #cf222e); }          /* 风险: 持仓+退潮, 该减/止盈 */
-.op-head.buy { color: var(--text2, #555); }               /* 中性: 升温机会, 低吸/关注 */
-.op-head.hold { color: var(--text2, #555); }              /* 中性: 持续, 持有 */
-.op-head.refill { color: var(--text2, #888); }            /* 中性偏淡: 候选 */
-.op-head.avoid { color: var(--text2, #aaa); }             /* 弱化灰: 退潮别追 */
+.op-head .op-sub { font-size: 10px; font-weight: 400; color: var(--fg-subtle); }
+.op-head.reduce { color: var(--danger-fg); }          /* 风险: 持仓+退潮, 该减/止盈 */
+.op-head.buy { color: var(--fg-muted); }               /* 中性: 升温机会, 低吸/关注 */
+.op-head.hold { color: var(--fg-muted); }              /* 中性: 持续, 持有 */
+.op-head.refill { color: var(--fg-subtle); }            /* 中性偏淡: 候选 */
+.op-head.avoid { color: var(--fg-subtle); }             /* 弱化灰: 退潮别追 */
 .op-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 2px 0 2px 6px; font-size: 12px; }
 .op-row.muted { opacity: 0.62; }
-.op-theme { color: var(--text2, #555); cursor: pointer; font-size: 11px; }
-.op-theme:hover { color: var(--red, #cf222e); }
-.op-stock { font-weight: 600; color: #2e9eff; cursor: pointer; touch-action: manipulation; }
+.op-theme { color: var(--fg-muted); cursor: pointer; font-size: 11px; }
+.op-theme:hover { color: var(--up-fg); }
+.op-stock { font-weight: 600; color: var(--accent-fg); cursor: pointer; touch-action: manipulation; }
 .op-stock:hover { text-decoration: underline; }
 .op-pct { font-variant-numeric: tabular-nums; font-size: 11px; }
-.op-pct.up { color: var(--red, #cf222e); }
-.op-pct.down { color: var(--green, #18a058); }
+.op-pct.up { color: var(--up-fg); }
+.op-pct.down { color: var(--down-fg); }
 .op-action { margin-left: auto; font-weight: 600; font-size: 11px; }
-.op-action.reduce { color: var(--red, #cf222e); }         /* 风险动作=红 */
-.op-action.buy { color: var(--text2, #555); }             /* 机会/持有动作=中性, 不用绿(A股绿=跌) */
-.op-action.hold { color: var(--text2, #555); }
-.op-rep { color: var(--text2, #999); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.op-more { font-size: 11px; color: #2e9eff; cursor: pointer; padding: 3px 0 3px 6px; user-select: none; }
+.op-action.reduce { color: var(--danger-fg); }         /* 风险动作=红 */
+.op-action.buy { color: var(--fg-muted); }             /* 机会/持有动作=中性, 不用绿(A股绿=跌) */
+.op-action.hold { color: var(--fg-muted); }
+.op-rep { color: var(--fg-subtle); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-more { font-size: 11px; color: var(--accent-fg); cursor: pointer; padding: 3px 0 3px 6px; user-select: none; }
 .op-more:hover { text-decoration: underline; }
 
 /* 中窄屏(平板及以下): 两栏堆叠回上下, rank 右栏改全宽, 矩阵与榜单都不被挤压 */
 @media (max-width: 1024px) {
   .body { flex-direction: column; }
   .left { width: 100%; }
-  .rank { width: auto; border-left: none; padding-left: 0; border-top: 1px dashed var(--border, #eee); margin-top: 12px; padding-top: 8px; }
+  .rank { width: auto; border-left: none; padding-left: 0; border-top: 1px dashed var(--border-muted); margin-top: 12px; padding-top: 8px; }
 }
 /* 手机端(768): 收紧内距/字号, 矩阵保持横向滚动(宽表不硬挤), 主线 chips 与操作行可换行 */
 @media (max-width: 768px) {

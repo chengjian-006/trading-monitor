@@ -96,7 +96,7 @@ function renderDecisionCard(row: Stock, buySignals: Signal[]) {
     h('div', { style: { display: 'flex', flexDirection: 'column', gap: '1px' } },
       verdict.reasons.map(r => {
         const prefix = r.sign === 'pos' ? '✓ ' : r.sign === 'neg' ? '✗ ' : '· '
-        const color = r.sign === 'pos' ? '#16a34a' : r.sign === 'neg' ? '#dc2626' : 'var(--text2)'
+        const color = r.sign === 'pos' ? 'var(--success-fg)' : r.sign === 'neg' ? 'var(--danger-fg)' : 'var(--text2)'
         return h('div', { style: { fontSize: '11px', color, lineHeight: '1.4' } },
           [h('span', { style: { fontWeight: 700, marginRight: '4px' } }, prefix), r.text])
       })
@@ -137,7 +137,7 @@ function renderExpand(row: Stock) {
     if (ind.pct_change != null) items.push(`涨幅 ${ind.pct_change >= 0 ? '+' : ''}${ind.pct_change.toFixed(2)}%`)
     if (items.length) {
       cards.push(h('div', {
-        style: { padding: '5px 10px', marginBottom: '8px', background: '#f8fafc', borderRadius: '6px', border: '1px solid #e8ecf0' },
+        style: { padding: '5px 10px', marginBottom: '8px', background: 'var(--bg-sunken)', borderRadius: '6px', border: '1px solid var(--border-muted)' },
       }, [
         h('div', { style: { fontSize: '11px', fontWeight: 700, color: 'var(--text2)', marginBottom: '3px' } }, '📊 个股现状'),
         h('div', { style: { fontSize: '12px', color: 'var(--text1)', fontFamily: 'monospace', lineHeight: '1.5', display: 'flex', flexWrap: 'wrap', gap: '4px 14px' } },
@@ -152,7 +152,7 @@ function renderExpand(row: Stock) {
     const isBuy = sig.direction === 'buy' || sig.direction === 'add'
     const dirColor = isBuy ? 'var(--red)' : 'var(--green)'
     const dirIcon = isBuy ? '▲' : '▼'
-    const borderColor = isBuy ? '#ff3b00' : '#16a34a'
+    const borderColor = isBuy ? 'var(--up-fg)' : 'var(--down-fg)'
     const parts: any[] = []
 
     // 头部：方向+信号名+时间
@@ -163,21 +163,21 @@ function renderExpand(row: Stock) {
 
     // 详情（模型规则描述）
     if (sig.detail) {
-      parts.push(h('div', { style: { fontSize: '12px', color: '#555', marginBottom: '2px', lineHeight: '1.35' } }, sig.detail))
+      parts.push(h('div', { style: { fontSize: '12px', color: 'var(--fg-muted)', marginBottom: '2px', lineHeight: '1.35' } }, sig.detail))
     }
 
     // 建议
     const advice = SIGNAL_ADVICE[sig.direction]
     if (advice) {
-      parts.push(h('div', { style: { fontSize: '11px', color: dirColor, fontWeight: 500, borderTop: '1px dashed #e0e0e0', paddingTop: '3px', marginTop: '2px', lineHeight: '1.3' } }, `💡 ${advice}`))
+      parts.push(h('div', { style: { fontSize: '11px', color: dirColor, fontWeight: 500, borderTop: '1px dashed var(--border-muted)', paddingTop: '3px', marginTop: '2px', lineHeight: '1.3' } }, `💡 ${advice}`))
     }
 
     const isReduce = sig.direction === 'reduce'
     return h('div', {
       style: {
         padding: '5px 10px', marginBottom: '4px',
-        borderLeft: `3px solid ${isReduce ? '#eab308' : borderColor}`,
-        background: isReduce ? 'rgba(250, 204, 21, 0.14)' : (isBuy ? 'rgba(255, 59, 0, 0.04)' : 'rgba(22, 163, 74, 0.04)'),
+        borderLeft: `3px solid ${isReduce ? 'var(--warn-fg)' : borderColor}`,
+        background: isReduce ? 'var(--warn-bg-muted)' : (isBuy ? 'var(--up-bg-muted)' : 'var(--down-bg-muted)'),
         borderRadius: '4px',
       },
     }, parts)
@@ -379,11 +379,11 @@ function boardPos(row: Stock): number {
 }
 function boardTier(pos: number): { color: string; tag: string } {
   if (pos <= 1 / 3) return { color: 'var(--red)', tag: '强' }
-  if (pos <= 2 / 3) return { color: '#f59e0b', tag: '中' }
+  if (pos <= 2 / 3) return { color: 'var(--warn-fg)', tag: '中' }
   return { color: 'var(--green)', tag: '弱' }
 }
 function renderBoardStrength(row: Stock) {
-  if (row.status !== 'hold') return h('span', { style: { color: '#ddd' } }, '')
+  if (row.status !== 'hold') return h('span', { style: { color: 'var(--fg-subtle)' } }, '')
   const rank = row.board_rank, total = row.board_total
   if (rank == null || !total) return h('span', { style: { color: 'var(--text2)', fontSize: '11px' } }, '-')
   const pos = boardPos(row)
@@ -395,13 +395,13 @@ function renderBoardStrength(row: Stock) {
   const bar = h('div', {
     style: {
       position: 'relative', width: '54px', height: '4px', borderRadius: '2px',
-      background: 'linear-gradient(90deg, var(--red), #f59e0b, var(--green))', margin: '2px auto 0',
+      background: 'linear-gradient(90deg, var(--red), var(--warn-fg), var(--green))', margin: '2px auto 0',
     },
   }, h('span', {
     style: {
       position: 'absolute', top: '-2px', left: `calc(${(pos * 100).toFixed(0)}% - 2px)`,
-      width: '4px', height: '8px', borderRadius: '1px', background: '#1f2937',
-      boxShadow: '0 0 0 1px #fff',
+      width: '4px', height: '8px', borderRadius: '1px', background: 'var(--fg-default)',
+      boxShadow: '0 0 0 1px var(--bg-surface)',
     },
   }))
   return h('div', { title: tip, style: { cursor: 'help', lineHeight: '1.2' } }, [
@@ -478,7 +478,7 @@ const allColumns = computed(() => [
         draggable: canDrag,
         style: {
           cursor: canDrag ? 'grab' : 'not-allowed',
-          color: canDrag ? '#bbb' : '#e5e5e5',
+          color: canDrag ? 'var(--fg-subtle)' : 'var(--border-default)',
           display: 'inline-flex',
         },
         title: canDrag ? '拖动调整顺序' : '点了列排序时不能拖, 先「重置排序」回到自定义顺序',
@@ -504,7 +504,7 @@ const allColumns = computed(() => [
     render: (row: Stock) => {
       const isFocused = !!row.focused
       const isHold = row.status === 'hold'
-      const color = isHold ? '#4096ff' : isFocused ? '#e63946' : '#333'
+      const color = isHold ? 'var(--accent-fg)' : isFocused ? 'var(--up-fg)' : 'var(--fg-default)'
       const fontWeight = isHold ? 700 : 'normal'
       const signals = signalsByCode.value.get(row.code)
       const codeSpan = h('span', {
@@ -526,15 +526,15 @@ const allColumns = computed(() => [
           style: {
             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             width: '16px', height: '16px', borderRadius: '50%',
-            background: bg, color: 'white', fontSize: '10px', fontWeight: '700',
+            background: bg, color: 'var(--on-emphasis)', fontSize: '10px', fontWeight: '700',
             cursor: 'pointer', flex: '0 0 auto',
           }
         }, String(n))
-        if (buyCount > 0) badges.push(mkBadge(buyCount, '#ff3b00', `${buyCount} 个买入信号`))
-        if (sellCount > 0) badges.push(mkBadge(sellCount, '#16a34a', `${sellCount} 个卖出/减仓信号`))
+        if (buyCount > 0) badges.push(mkBadge(buyCount, 'var(--up-fg)', `${buyCount} 个买入信号`))
+        if (sellCount > 0) badges.push(mkBadge(sellCount, 'var(--down-fg)', `${sellCount} 个卖出/减仓信号`))
         // 兜底: 既无买也无卖, 但有"-"中性信号 (如 PLUNGE_*, SECTOR_CAPITAL_INFLOW), 灰气泡显总数
         if (badges.length === 0) {
-          badges.push(mkBadge(signals.length, '#94a3b8', `${signals.length} 个提示信号`))
+          badges.push(mkBadge(signals.length, 'var(--fg-subtle)', `${signals.length} 个提示信号`))
         }
       }
       return h('div', {
@@ -552,7 +552,7 @@ const allColumns = computed(() => [
       const isHold = row.status === 'hold'
       const isTrade = isHold && row.hold_source === 'trade'
       const hasSignal = signalsByCode.value.has(row.code)
-      const color = isHold ? '#4096ff' : isFocused ? '#e63946' : hasSignal ? '#d35400' : 'inherit'
+      const color = isHold ? 'var(--accent-fg)' : isFocused ? 'var(--up-fg)' : hasSignal ? 'var(--warn-fg)' : 'inherit'
       const fontWeight = isHold ? 700 : 'normal'
       const prefix = (isFocused && !isHold) ? '*' : ''
       const clickStyle = { cursor: 'pointer' }
@@ -566,7 +566,7 @@ const allColumns = computed(() => [
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
       if (resoLevel) {
-        const bg = resoLevel === '超强' ? '#cf222e' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
+        const bg = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
         children.push(h('span', {
           title: `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`,
           style: {
@@ -583,7 +583,7 @@ const allColumns = computed(() => [
           title: `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`,
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: 'var(--red)', color: '#fff', borderRadius: '2px',
+            background: 'var(--red)', color: 'var(--on-emphasis)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
             boxShadow: '0 1px 2px rgba(207,34,46,0.35)',
           },
@@ -593,7 +593,7 @@ const allColumns = computed(() => [
           title: `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`,
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: 'var(--green)', color: '#fff', borderRadius: '2px',
+            background: 'var(--green)', color: 'var(--on-emphasis)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
             boxShadow: '0 1px 2px rgba(26,127,55,0.35)',
           },
@@ -607,10 +607,10 @@ const allColumns = computed(() => [
           title: n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)',
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: n >= 2 ? 'linear-gradient(135deg, #ff6b00, #ff2d00)' : '#fff1f0',
-            color: n >= 2 ? '#fff' : '#cf1322', borderRadius: '2px',
+            background: n >= 2 ? 'linear-gradient(135deg, #ff6b00, #ff2d00)' : 'var(--up-bg-muted)',
+            color: n >= 2 ? 'var(--on-emphasis)' : 'var(--up-fg)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-            border: n >= 2 ? 'none' : '1px solid #ffa39e',
+            border: n >= 2 ? 'none' : '1px solid color-mix(in srgb, var(--up-fg) 30%, transparent)',
           },
         }, label))
       }
@@ -623,7 +623,7 @@ const allColumns = computed(() => [
           title: tip,
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: '#fef3c7', color: '#b45309', borderRadius: '2px',
+            background: 'var(--warn-bg-muted)', color: 'var(--warn-fg)', borderRadius: '2px',
             fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
           },
         }, '小额'))
@@ -634,7 +634,7 @@ const allColumns = computed(() => [
           title: `换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`,
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: '#fee2e2', color: '#b91c1c', borderRadius: '2px',
+            background: 'var(--danger-bg-muted)', color: 'var(--danger-fg)', borderRadius: '2px',
             fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
           },
         }, '高换'))
@@ -645,7 +645,7 @@ const allColumns = computed(() => [
           title: `量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`,
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: '#dbeafe', color: '#1d4ed8', borderRadius: '2px',
+            background: 'var(--accent-bg-muted)', color: 'var(--accent-fg)', borderRadius: '2px',
             fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
           },
         }, '异动'))
@@ -689,7 +689,7 @@ const allColumns = computed(() => [
       const rank = row.popularity_rank
       if (rank == null) return '-'
       if (rank > 100) return h('span', { style: { color: 'var(--text3)', fontSize: '12px', whiteSpace: 'nowrap' } }, '100名外')
-      const color = rank <= 20 ? 'var(--red)' : rank <= 50 ? '#f59e0b' : 'var(--text2)'
+      const color = rank <= 20 ? 'var(--red)' : rank <= 50 ? 'var(--warn-fg)' : 'var(--text2)'
       const fontWeight = rank <= 20 ? 700 : 'normal'
       return h('span', { style: { color, fontWeight } }, `${rank}`)
     },
@@ -703,10 +703,10 @@ const allColumns = computed(() => [
     render: (row: Stock) => {
       const r = amountRankMap.value[row.code]
       if (r && r <= 100) {
-        const color = r <= 20 ? '#cf222e' : r <= 50 ? '#d9820a' : '#555'
+        const color = r <= 20 ? 'var(--up-fg)' : r <= 50 ? 'var(--warn-fg)' : 'var(--fg-muted)'
         return h('b', { style: { color, fontVariantNumeric: 'tabular-nums' }, title: '全市场成交额第 ' + r + ' 名' }, String(r))
       }
-      return h('span', { style: { color: '#bbb', fontSize: '11px' } }, '100名外')
+      return h('span', { style: { color: 'var(--fg-subtle)', fontSize: '11px' } }, '100名外')
     },
   },
   {
@@ -735,7 +735,7 @@ const allColumns = computed(() => [
       return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '3px' } }, [
         main,
         h('span', {
-          style: { fontSize: '9px', color: '#f0a020', border: '1px solid #f0a020', borderRadius: '3px', padding: '0 2px', lineHeight: '1.35' },
+          style: { fontSize: '9px', color: 'var(--warn-fg)', border: '1px solid var(--warn-fg)', borderRadius: '3px', padding: '0 2px', lineHeight: '1.35' },
           title: `行情滞后约 ${Math.round(quoteStaleMin(row) || 0)} 分钟，显示值可能不是最新`,
         }, '滞后'),
       ])
@@ -831,7 +831,7 @@ const allColumns = computed(() => [
             lineHeight: '14px',
             borderRadius: '2px',
             background: 'linear-gradient(135deg, #ff6b00, #ff3b00)',
-            color: 'white',
+            color: 'var(--on-emphasis)',
             verticalAlign: 'middle',
           },
         }, '最强'))
@@ -849,8 +849,8 @@ const allColumns = computed(() => [
       const chips = list.slice(0, 2).map(c => h('span', {
         style: {
           fontSize: '10px', padding: '0 4px', marginRight: '3px',
-          background: '#f0f5ff', color: '#2f54eb', borderRadius: '2px',
-          lineHeight: '16px', border: '1px solid #adc6ff', whiteSpace: 'nowrap',
+          background: 'var(--accent-bg-muted)', color: 'var(--accent-fg)', borderRadius: '2px',
+          lineHeight: '16px', border: '1px solid color-mix(in srgb, var(--accent-fg) 30%, transparent)', whiteSpace: 'nowrap',
         },
       }, c))
       if (list.length > 2) {
@@ -1067,10 +1067,10 @@ const columns = computed(() => allColumns.value)
   }
 }
 .row-hold {
-  background: rgba(32, 128, 240, 0.08);
+  background: var(--accent-bg-muted);
 }
 .row-hold td {
-  color: #4096ff !important;
+  color: var(--accent-fg) !important;
   font-weight: 700 !important;
 }
 @keyframes signal-breathing {
@@ -1111,7 +1111,7 @@ const columns = computed(() => allColumns.value)
 /* 大单异动面板 */
 .big-orders {
   margin-top: 14px;
-  border-top: 1px solid var(--border, #eee);
+  border-top: 1px solid var(--border-default);
   padding-top: 10px;
 }
 .big-orders .bo-title {
@@ -1132,7 +1132,7 @@ const columns = computed(() => allColumns.value)
   margin-bottom: 10px;
 }
 .big-orders .bo-cell {
-  background: var(--card2, #f7f8fa);
+  background: var(--bg-sunken);
   border-radius: 6px;
   padding: 6px 10px;
   text-align: center;
@@ -1159,7 +1159,7 @@ const columns = computed(() => allColumns.value)
   font-size: 12px;
   font-family: monospace;
   padding: 3px 0;
-  border-bottom: 1px dashed var(--border, #f0f0f0);
+  border-bottom: 1px dashed var(--border-muted);
 }
 .big-orders .bo-time {
   color: var(--text2);
@@ -1178,16 +1178,16 @@ const columns = computed(() => allColumns.value)
   font-weight: 600;
 }
 .big-orders .up {
-  color: #cf222e;
+  color: var(--up-fg);
 }
 .big-orders .down {
-  color: #1a7f37;
+  color: var(--down-fg);
 }
 .big-orders .bo-tag.up {
-  background: rgba(207, 34, 46, 0.1);
+  background: var(--up-bg-muted);
 }
 .big-orders .bo-tag.down {
-  background: rgba(26, 127, 55, 0.1);
+  background: var(--down-bg-muted);
 }
 .big-orders .bo-empty {
   text-align: center;

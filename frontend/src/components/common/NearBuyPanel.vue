@@ -144,64 +144,64 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 
 <style scoped>
 .nearbuy-panel {
-  background: #fff;
-  border: 1px solid var(--border, #efeff5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-muted);
   border-radius: 6px;
   padding: 10px 12px;
 }
 .head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
-.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: rgba(0,0,0,0.85); }
-.title .meta { font-size: 11px; font-weight: 400; color: #999; margin-left: 4px; }
+.title { display: flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; color: var(--fg-default); }
+.title .meta { font-size: 11px; font-weight: 400; color: var(--fg-subtle); margin-left: 4px; }
 
-.legend { margin-top: 10px; font-size: 11px; color: #999; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.lg { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; color: #fff; margin-left: 6px; }
-.lg.trig { background: #d03050; }
-.lg.near { background: #f0a020; }
+.legend { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lg { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; color: var(--on-emphasis); margin-left: 6px; }
+.lg.trig { background: var(--up-fg); }
+.lg.near { background: var(--warn-fg); }
 
 /* PC 多列网格用上横向空间; 窄屏自动回落单列。grid-auto-rows:1fr 让所有行等高, 卡片大小统一 */
 .list { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: 1fr; gap: 6px; }
-.row { border: 1px solid #efeff5; border-radius: 7px; padding: 6px 9px; cursor: pointer; touch-action: manipulation; transition: all 0.15s; height: 100%; display: flex; flex-direction: column; }
-.row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: #ddd; }
-.row.is-trig { background: rgba(208,48,80,0.04); border-color: rgba(208,48,80,0.25); }
-.row.is-near { background: rgba(240,160,32,0.04); }
+.row { border: 1px solid var(--border-muted); border-radius: 7px; padding: 6px 9px; cursor: pointer; touch-action: manipulation; transition: all 0.15s; height: 100%; display: flex; flex-direction: column; }
+.row:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-color: var(--border-default); }
+.row.is-trig { background: var(--up-bg-muted); border-color: var(--up-fg); }
+.row.is-near { background: var(--warn-bg-muted); }
 
 .row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
 .stock { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-.name { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.code { font-size: 11px; color: #999; flex-shrink: 0; font-variant-numeric: tabular-nums; }
-.status { font-size: 10px; color: #2e9eff; background: rgba(46,158,255,0.1); padding: 0 5px; border-radius: 4px; flex-shrink: 0; }
+.name { font-size: 13px; font-weight: 600; color: var(--fg-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code { font-size: 11px; color: var(--fg-subtle); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.status { font-size: 10px; color: var(--accent-fg); background: var(--accent-bg-muted); padding: 0 5px; border-radius: 4px; flex-shrink: 0; }
 .quote { display: flex; align-items: baseline; gap: 6px; flex-shrink: 0; }
-.price { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.8); font-variant-numeric: tabular-nums; }
+.price { font-size: 13px; font-weight: 600; color: var(--fg-default); font-variant-numeric: tabular-nums; }
 .pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* 多买点: 顶部一行 chips 列全部命中, 下面只展开主点(优先触发)一行说明 */
 .hits { margin-top: 5px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip { font-size: 10.5px; font-weight: 600; color: #fff; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
-.chip.c-trig { background: #d03050; }
-.chip.c-near { background: #f0a020; }
+.chip { font-size: 10.5px; font-weight: 600; color: var(--on-emphasis); padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.chip.c-trig { background: var(--up-fg); }
+.chip.c-near { background: var(--warn-fg); }
 /* 差距可视化: 贴线度进度条 + 条件圆点(v1.7.536), 一眼看出多接近/差几项, 文字退到 hover */
 /* margin-top:auto 把贴线/条件两行顶到卡片底部, 同一行各卡这两行横向对齐(v1.7.537) */
 .gap-viz { display: flex; flex-direction: column; gap: 3px; margin-top: auto; padding-top: 4px; }
 .viz-row { display: flex; align-items: center; gap: 6px; font-size: 11px; min-width: 0; }
-.viz-tag { color: #999; flex-shrink: 0; width: 24px; }
-.bar-track { position: relative; flex: 1; height: 7px; min-width: 40px; background: #eef0f3; border-radius: 4px; overflow: hidden; }
+.viz-tag { color: var(--fg-subtle); flex-shrink: 0; width: 24px; }
+.bar-track { position: relative; flex: 1; height: 7px; min-width: 40px; background: var(--bg-sunken); border-radius: 4px; overflow: hidden; }
 .bar-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; transition: width 0.3s; }
-.bar-fill.f-near { background: linear-gradient(90deg, #f7c873, #f0a020); }
-.bar-fill.f-trig { background: linear-gradient(90deg, #f0708d, #d03050); }
-.viz-val { flex-shrink: 0; color: #888; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.viz-val.miss-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: #f0884a; font-weight: 600; }
+.bar-fill.f-near { background: linear-gradient(90deg, #f7c873, var(--warn-fg)); }
+.bar-fill.f-trig { background: linear-gradient(90deg, #f0708d, var(--up-fg)); }
+.viz-val { flex-shrink: 0; color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.viz-val.miss-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--warn-fg); font-weight: 600; }
 .dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
-.dot.on { background: #18a058; }
-.dot.off { background: #d6d9de; }
+.dot.on { background: var(--success-fg); }
+.dot.off { background: var(--border-default); }
 
-.foot-hint { margin-top: 10px; font-size: 11px; color: #999; line-height: 1.6; background: rgba(0,0,0,0.02); padding: 7px 10px; border-radius: 6px; }
-.empty { margin-top: 16px; text-align: center; color: #999; font-size: 13px; padding: 16px; line-height: 1.6; }
+.foot-hint { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); line-height: 1.6; background: rgba(0,0,0,0.02); padding: 7px 10px; border-radius: 6px; }
+.empty { margin-top: 16px; text-align: center; color: var(--fg-subtle); font-size: 13px; padding: 16px; line-height: 1.6; }
 
 /* A股: 涨红跌绿 */
-.up { color: #d03050; }
-.down { color: #18a058; }
+.up { color: var(--up-fg); }
+.down { color: var(--down-fg); }
 
 @media (max-width: 768px) {
   .nearbuy-panel { padding: 8px 10px; }

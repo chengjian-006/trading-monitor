@@ -63,9 +63,9 @@ const REGIME_LABEL: Record<string, string> = {
   hostile: '危险',
 }
 const REGIME_STYLE: Record<string, { bg: string; color: string; ring: string }> = {
-  friendly: { bg: '#dcfce7', color: '#15803d', ring: '#86efac' },
-  neutral:  { bg: '#fef3c7', color: '#b45309', ring: '#fcd34d' },
-  hostile:  { bg: '#fee2e2', color: '#b91c1c', ring: '#fca5a5' },
+  friendly: { bg: 'var(--success-bg-muted)', color: 'var(--success-fg)', ring: 'var(--success-fg)' },
+  neutral:  { bg: 'var(--warn-bg-muted)', color: 'var(--warn-fg)', ring: 'var(--warn-fg)' },
+  hostile:  { bg: 'var(--danger-bg-muted)', color: 'var(--danger-fg)', ring: 'var(--danger-fg)' },
 }
 const regimeHint = computed(() => {
   const r = regime.value?.regime
@@ -112,9 +112,9 @@ const globalByRegion = computed(() => {
 })
 
 function pctColor(p: number) {
-  if (p > 0) return '#e53e3e'
-  if (p < 0) return '#16a34a'
-  return '#666'
+  if (p > 0) return 'var(--up-fg)'
+  if (p < 0) return 'var(--down-fg)'
+  return 'var(--fg-muted)'
 }
 function pctText(p: number) {
   return (p >= 0 ? '+' : '') + p.toFixed(2) + '%'
@@ -201,8 +201,8 @@ onUnmounted(() => {
 
 <style scoped>
 .market-overview {
-  background: #fff;
-  border: 1px solid var(--border, #efeff5);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
   padding: 10px 12px;
   position: relative;
@@ -255,8 +255,8 @@ onUnmounted(() => {
   cursor: help;
 }
 .rf b { font-weight: 700; }
-.rf-pos b { color: #16a34a; }
-.rf-neg b { color: #dc2626; }
+.rf-pos b { color: var(--success-fg); }
+.rf-neg b { color: var(--danger-fg); }
 .regime-hint {
   font-size: 11px;
   color: var(--text3);
@@ -272,11 +272,11 @@ onUnmounted(() => {
 .rp-sum {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--text1, #1f2328);
+  color: var(--fg-default);
 }
 .rp-act {
   font-size: 12px;
-  color: var(--text2, #656d76);
+  color: var(--fg-muted);
 }
 
 /* 全球股市行 */
@@ -287,15 +287,15 @@ onUnmounted(() => {
 }
 .global-card {
   flex: 1;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
+  background: var(--bg-default);
+  border: 1px solid var(--border-muted);
   border-radius: 6px;
   padding: 6px 8px;
 }
 .region-label {
   font-size: 11px;
   font-weight: 600;
-  color: #2563eb;
+  color: var(--accent-fg);
   margin-bottom: 3px;
   display: flex;
   align-items: center;
@@ -304,34 +304,34 @@ onUnmounted(() => {
 .region-time {
   font-size: 10px;
   font-weight: 400;
-  color: #aaa;
+  color: var(--fg-subtle);
   margin-left: auto;
 }
 /* 盘中脉动点 / 休市静态点 */
 .live-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
-.live-dot.on { background: #16a34a; box-shadow: 0 0 0 0 rgba(22,163,74,0.6); animation: live-pulse 1.4s infinite; }
-.live-dot.off { background: #c4c8cf; }
+.live-dot.on { background: var(--success-fg); box-shadow: 0 0 0 0 rgba(22,163,74,0.6); animation: live-pulse 1.4s infinite; }
+.live-dot.off { background: var(--fg-subtle); }
 @keyframes live-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(22,163,74,0.55); }
   70%  { box-shadow: 0 0 0 6px rgba(22,163,74,0); }
   100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); }
 }
 .region-status { font-size: 10px; font-weight: 600; padding: 0 5px; border-radius: 7px; }
-.region-status.st-open { color: #15803d; background: rgba(22,163,74,0.12); }
-.region-status.st-closed { color: #94a3b8; background: rgba(0,0,0,0.05); }
+.region-status.st-open { color: var(--success-fg); background: var(--success-bg-muted); }
+.region-status.st-closed { color: var(--fg-subtle); background: rgba(0,0,0,0.05); }
 .global-line {
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
   padding: 2px 0;
-  border-top: 1px dashed #eee;
+  border-top: 1px dashed var(--border-muted);
 }
 .global-line:first-of-type {
   border-top: none;
 }
 .g-name {
-  color: #444;
+  color: var(--fg-muted);
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -352,12 +352,12 @@ onUnmounted(() => {
 /* 数值变动闪烁: 轮询拿到新值时高亮一下 */
 .g-flash { animation: g-flash-bg 1s ease-out; }
 @keyframes g-flash-bg {
-  0% { background: rgba(37,99,235,0.28); }
+  0% { background: color-mix(in srgb, var(--accent-fg) 28%, transparent); }
   100% { background: transparent; }
 }
 
 .loading-dot {
-  color: #2563eb;
+  color: var(--accent-fg);
   margin-left: 4px;
   animation: blink 1s infinite;
 }

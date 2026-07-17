@@ -1,0 +1,104 @@
+/* ============================================================
+ * 观潮 · 设计 Token 基线（docs/design-baseline.md 06 节的代码定稿）
+ * 对标 GitHub Primer 三段式功能命名 + TradingView/富途/雪球行情惯例
+ * 规则：
+ *   - A股语义一次定死：up=红=涨 / down=绿=跌 / flat=灰=平
+ *   - up/down 与 success/danger 语义分离，互不借用
+ *   - 每个语义色两档：emphasis 实底配白字（只给主按钮/最高级预警），
+ *     muted 浅底配深字（信号标签/徽章/热度块全走这档）
+ *   - 间距只允许 4/8/12/16/24px；圆角 6px(卡) + 3px(表内小件)；字重上限 600
+ * ============================================================ */
+:root {
+  /* ── 背景 ── */
+  --bg-default: #F6F8FA;
+  --bg-surface: #FFFFFF;
+  --bg-sunken: #EEF1F5;   /* 比页面底更沉一档: 表头/hover底/嵌入槽 */
+
+  /* ── 文字三层灰阶 ── */
+  --fg-default: #1F2328;
+  --fg-muted: #656D76;
+  --fg-subtle: #8B949E;
+
+  /* ── 边框 ── */
+  --border-default: #D1D9E0;
+  --border-muted: #EAEEF3;
+
+  /* ── 实底配白字：主按钮/徽章等 emphasis 实色块上的前景色。
+   *    与 --bg-surface 语义分离(那是卡片面), 深色主题引入时白字应保持白, 不随面反转 ── */
+  --on-emphasis: #FFFFFF;
+
+  /* ── 强调/链接 ── */
+  --accent-fg: #0969DA;
+  --accent-emphasis: #0969DA;
+  --accent-bg-muted: rgba(9, 105, 218, 0.09);
+
+  /* ── 品牌辅色「潮汐青」(观潮=潮汐)：仅用于品牌/装饰时刻(logo/分隔/空态/加载/hover)，
+   *    绝不用于涨跌语义，也不与 accent 主蓝抢主色 ── */
+  --tide-fg: #0C8CA6;
+  --tide-deep: #0A6E82;
+  --tide-bg-muted: #E0F4F8;
+
+  /* ── 行情语义（A股：红涨绿跌灰平）── */
+  --up-fg: #D92B26;
+  --up-emphasis: #D92B26;
+  --up-bg-muted: rgba(217, 43, 38, 0.09);
+  --down-fg: #0F8A5F;
+  --down-emphasis: #0F8A5F;
+  --down-bg-muted: rgba(15, 138, 95, 0.09);
+  --flat-fg: #8B949E;
+
+  /* ── 状态语义（与行情色分离）── */
+  --success-fg: #1A7F37;
+  --success-bg-muted: rgba(26, 127, 55, 0.09);
+  --danger-fg: #CF222E;
+  --danger-emphasis: #CF222E;
+  --danger-bg-muted: rgba(207, 34, 46, 0.09);
+  --warn-fg: #9A6700;
+  --warn-bg-muted: #FFF8C5;
+
+  /* ── 字号阶梯（去 zoom 1.25 后的真实尺寸）── */
+  --text-page-title: 20px;  /* 页面标题 600 */
+  --text-section: 16px;     /* 区块标题 600 */
+  --text-body: 14px;        /* 正文与表单 400 */
+  --text-table: 12px;       /* 表格与辅助 400 */
+  --text-kpi: 26px;         /* KPI 大数字 700 tnum */
+
+  /* ── 表格密度三档（行高）── */
+  --row-compact: 28px;      /* 榜单/盯盘 */
+  --row-standard: 36px;     /* 默认 */
+  --row-loose: 48px;        /* 复盘报告 */
+
+  /* ── 圆角两档 ── */
+  --radius: 6px;
+  --radius-sm: 3px;
+
+  /* ── 阴影两档：静置卡片微影 / 浮层描边+双层软影 ── */
+  --shadow-card: 0 1px 1px rgba(31, 35, 40, 0.04), 0 1px 3px rgba(31, 35, 40, 0.04);
+  --shadow-float: 0 0 0 1px rgba(31, 35, 40, 0.06), 0 6px 18px rgba(31, 35, 40, 0.12);
+
+  /* ── 等宽数字字体 ── */
+  --font-mono: ui-monospace, 'SF Mono', Consolas, 'Cascadia Mono', monospace;
+}
+
+/* ── 数字零抖动：行情数字一律 tabular-nums + 右对齐（由使用处保证对齐）── */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 单元格级 flash：只闪变动的格子，10% 底色 550ms 淡出，不闪整行 ──
+ * 用法：值变动时给 td/单元格挂 .cell-flash-up / .cell-flash-down，
+ * 动画结束后移除类名；动画进行中不重复触发。 */
+@keyframes cell-flash-up-kf {
+  0% { background-color: rgba(217, 43, 38, 0.10); }
+  100% { background-color: transparent; }
+}
+@keyframes cell-flash-down-kf {
+  0% { background-color: rgba(15, 138, 95, 0.10); }
+  100% { background-color: transparent; }
+}
+.cell-flash-up {
+  animation: cell-flash-up-kf 550ms ease-out;
+}
+.cell-flash-down {
+  animation: cell-flash-down-kf 550ms ease-out;
+}

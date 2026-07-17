@@ -24,12 +24,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
+      // 本地验收可代理到云端后端(纯前端零副作用): $env:VITE_PROXY_TARGET='http://124.71.75.5'; npm run dev
       '/api': {
-        target: 'http://127.0.0.1:8888',
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8888',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://127.0.0.1:8888',
+        target: (process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8888').replace(/^http/, 'ws'),
         ws: true,
       },
     },

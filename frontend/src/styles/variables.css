@@ -1,30 +1,31 @@
+/* ============================================================
+ * 兼容层：旧变量名 → 新 Token 别名（新代码请直接用 tokens.css 里的名字）
+ * 语义映射一次定死：--red=涨(--up-fg) / --green=跌(--down-fg)
+ * ============================================================ */
 :root {
-  --bg: #F6F8FA;
-  --surface: #FFFFFF;
-  --primary: #0969DA;
-  --text1: #1F2328;
-  --text2: #656D76;
-  --border: #D1D9E0;
-  --green: #1A7F37;
-  --red: #CF222E;
-  --orange: #BF8700;
-  --green-bg: rgba(26, 127, 55, 0.08);
-  --red-bg: rgba(207, 34, 46, 0.08);
-  --orange-bg: rgba(191, 135, 0, 0.08);
+  --bg: var(--bg-default);
+  --surface: var(--bg-surface);
+  --primary: var(--accent-fg);
+  --text1: var(--fg-default);
+  --text2: var(--fg-muted);
+  --border: var(--border-default);
+  --green: var(--down-fg);
+  --red: var(--up-fg);
+  --orange: var(--warn-fg);
+  --green-bg: var(--down-bg-muted);
+  --red-bg: var(--up-bg-muted);
+  --orange-bg: rgba(154, 103, 0, 0.08);
 
-  /* Navbar */
+  /* Navbar（基线0起统一浅色，深色渐变退役） */
   --navbar-height: 56px;
-  --navbar-bg: linear-gradient(135deg, #0f1923 0%, #1a1a2e 50%, #16213e 100%);
+  --navbar-bg: var(--bg-surface);
 
-  /* Sidebar */
+  /* Sidebar（平面浅色 + 右侧描边，渐变与投影退役） */
   --sidebar-width: 160px;
-  --sidebar-bg: linear-gradient(180deg, #f8faff 0%, #fff 100%);
-  --sidebar-shadow: 2px 0 12px rgba(0, 0, 0, 0.08);
-  --sidebar-active-color: var(--primary);
-  --sidebar-active-bg: rgba(9, 105, 218, 0.1);
-
-  /* Login */
-  --login-bg: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  --sidebar-bg: var(--bg-surface);
+  --sidebar-shadow: none;
+  --sidebar-active-color: var(--accent-fg);
+  --sidebar-active-bg: var(--accent-bg-muted);
 }
 
 /* Force NModal vertical centering */
@@ -33,12 +34,10 @@
   justify-content: center;
 }
 
-/* DataTable 列头竖线分隔 */
+/* ── 全站 DataTable 列头统一规范（灰底+次要色+600，字号不放大）── */
 .n-data-table-th:not(:last-child) {
-  border-right: 1px solid rgba(9, 105, 218, 0.25);
+  border-right: 1px solid var(--border-muted);
 }
-
-/* ── 全站 DataTable 列头统一规范 ── */
 .n-data-table-th {
   position: relative !important;
   vertical-align: middle !important;
@@ -53,7 +52,7 @@
 }
 .n-data-table-th__title {
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.2;
 }
 .n-data-table-th .n-data-table-sorter {
@@ -72,17 +71,18 @@
   font-size: 15px;
   padding: 12px 24px;
   border-radius: 8px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-float);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
-html {
-  zoom: 1.25;
-}
+/* zoom 1.25 已退役（v1.7.646）：字号按 tokens.css 阶梯真实尺寸定准 */
 
 body {
   font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: var(--text-body);
+  line-height: 1.6;
+  font-variant-numeric: tabular-nums;
   background: var(--bg);
   color: var(--text1);
   min-height: 100vh;

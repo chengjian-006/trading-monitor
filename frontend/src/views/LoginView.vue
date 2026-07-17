@@ -3,8 +3,9 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { NInput, NButton, NIcon } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
-import { LogInOutline, PersonOutline, LockClosedOutline, TrendingUpOutline } from '@vicons/ionicons5'
+import { LogInOutline, PersonOutline, LockClosedOutline } from '@vicons/ionicons5'
 import { useAuthStore } from '../stores/auth'
+import BrandMark from '../components/common/BrandMark.vue'
 import { fetchPublicOverview, type PublicOverview } from '../api/market-report'
 
 const authStore = useAuthStore()
@@ -188,7 +189,7 @@ function pctText(pct: number): string {
   return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
 }
 function pctColor(pct: number): string {
-  return pct > 0 ? '#dc2626' : pct < 0 ? '#16a34a' : '#94a3b8'
+  return pct > 0 ? '#D92B26' : pct < 0 ? '#0F8A5F' : '#8B949E'
 }
 </script>
 
@@ -204,28 +205,28 @@ function pctColor(pct: number): string {
 
       <!-- 装饰 SVG: 趋势线 + 蜡烛 (淡) -->
       <svg class="bg-kline" viewBox="0 0 400 800" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <g opacity="0.10">
-          <rect x="34" y="195" width="10" height="35" fill="#dc2626" />
-          <rect x="64" y="215" width="10" height="35" fill="#16a34a" />
-          <rect x="94" y="195" width="10" height="25" fill="#dc2626" />
-          <rect x="124" y="180" width="10" height="30" fill="#dc2626" />
-          <rect x="154" y="170" width="10" height="30" fill="#dc2626" />
-          <rect x="184" y="160" width="10" height="30" fill="#dc2626" />
-          <rect x="214" y="150" width="10" height="35" fill="#dc2626" />
-          <rect x="244" y="140" width="10" height="30" fill="#dc2626" />
-          <rect x="274" y="170" width="10" height="30" fill="#16a34a" />
-          <rect x="304" y="155" width="10" height="30" fill="#dc2626" />
-          <rect x="334" y="135" width="10" height="35" fill="#dc2626" />
+        <g opacity="0.12">
+          <rect x="34" y="195" width="10" height="35" fill="#D92B26" />
+          <rect x="64" y="215" width="10" height="35" fill="#0F8A5F" />
+          <rect x="94" y="195" width="10" height="25" fill="#D92B26" />
+          <rect x="124" y="180" width="10" height="30" fill="#D92B26" />
+          <rect x="154" y="170" width="10" height="30" fill="#D92B26" />
+          <rect x="184" y="160" width="10" height="30" fill="#D92B26" />
+          <rect x="214" y="150" width="10" height="35" fill="#D92B26" />
+          <rect x="244" y="140" width="10" height="30" fill="#D92B26" />
+          <rect x="274" y="170" width="10" height="30" fill="#0F8A5F" />
+          <rect x="304" y="155" width="10" height="30" fill="#D92B26" />
+          <rect x="334" y="135" width="10" height="35" fill="#D92B26" />
         </g>
         <polyline
           points="20,260 50,250 80,240 110,220 140,200 170,185 200,170 230,160 260,165 290,180 320,165 350,150 380,140"
-          fill="none" stroke="#60a5fa" stroke-width="1.4" opacity="0.30" stroke-linecap="round" stroke-linejoin="round"
+          fill="none" stroke="#0969DA" stroke-width="1.4" opacity="0.30" stroke-linecap="round" stroke-linejoin="round"
         />
       </svg>
 
       <div class="brand-content">
         <div class="brand-logo">
-          <NIcon :component="TrendingUpOutline" :size="32" />
+          <BrandMark :size="40" :radius="11" glow />
           <span class="brand-name">观潮</span>
         </div>
         <div class="brand-tagline">
@@ -252,9 +253,9 @@ function pctColor(pct: number): string {
             </div>
           </div>
           <div class="market-stats">
-            <span>涨停 <b style="color:#dc2626">{{ overview.limit_up }}</b></span>
+            <span>涨停 <b style="color:#D92B26">{{ overview.limit_up }}</b></span>
             <span class="market-stats-sep">·</span>
-            <span>跌停 <b style="color:#16a34a">{{ overview.limit_down }}</b></span>
+            <span>跌停 <b style="color:#0F8A5F">{{ overview.limit_down }}</b></span>
           </div>
         </div>
 
@@ -326,17 +327,18 @@ function pctColor(pct: number): string {
   height: 100vh;
   overflow: hidden;
   display: flex;
-  background: #f8fafc;
+  background: var(--bg-default);
 }
 
-/* ── 左侧 brand 区 ── */
+/* ── 左侧 brand 区（基线0 v1.7.646: 深色渐变退役，浅色统一）── */
 .brand-side {
   position: relative;
   flex: 0 0 42%;
   min-height: 100vh;
   overflow: hidden;
-  background: linear-gradient(180deg, #0a1929 0%, #0f2540 60%, #102a43 100%);
-  color: #fff;
+  background: linear-gradient(180deg, #F6F8FA 0%, #EDF2F8 100%);
+  border-right: 1px solid var(--border-default);
+  color: var(--fg-default);
 }
 .bg-canvas {
   position: absolute;
@@ -360,8 +362,8 @@ function pctColor(pct: number): string {
   font-family: "STSong", "SimSun", "Songti SC", serif;
   font-weight: 700;
   letter-spacing: 30px;
-  color: #fff;
-  opacity: 0.045;
+  color: #1F2328;
+  opacity: 0.035;
   user-select: none;
   pointer-events: none;
   line-height: 0.95;
@@ -379,13 +381,13 @@ function pctColor(pct: number): string {
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #60a5fa;
+  color: var(--accent-fg);
 }
 .brand-name {
   font-size: 26px;
   font-weight: 700;
   letter-spacing: 6px;
-  color: #fff;
+  color: var(--fg-default);
 }
 .brand-tagline {
   margin-top: 56px;
@@ -393,14 +395,14 @@ function pctColor(pct: number): string {
 .tagline-2 {
   font-size: 30px;
   font-weight: 600;
-  color: #fff;
+  color: var(--fg-default);
   letter-spacing: 2px;
 }
 .brand-features {
   margin-top: 22px;
   font-size: 13px;
   line-height: 2.1;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--fg-muted);
   letter-spacing: 0.5px;
 }
 
@@ -408,24 +410,24 @@ function pctColor(pct: number): string {
 .market-card {
   margin-top: 32px;
   padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  backdrop-filter: blur(4px);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
 }
 .market-card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--fg-subtle);
   letter-spacing: 2px;
   margin-bottom: 10px;
 }
 .market-snapshot-at {
   font-family: monospace;
   font-variant-numeric: tabular-nums;
-  color: #60a5fa;
+  color: var(--accent-fg);
   letter-spacing: 1px;
 }
 .market-indices {
@@ -440,7 +442,7 @@ function pctColor(pct: number): string {
   font-size: 12px;
 }
 .idx-name {
-  color: rgba(255, 255, 255, 0.78);
+  color: var(--fg-muted);
   flex: 0 0 auto;
   width: 56px;
 }
@@ -448,7 +450,7 @@ function pctColor(pct: number): string {
   font-family: monospace;
   font-variant-numeric: tabular-nums;
   font-weight: 600;
-  color: #fff;
+  color: var(--fg-default);
 }
 .idx-pct {
   font-family: monospace;
@@ -459,9 +461,9 @@ function pctColor(pct: number): string {
 .market-stats {
   margin-top: 10px;
   padding-top: 8px;
-  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+  border-top: 1px dashed var(--border-muted);
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--fg-muted);
 }
 .market-stats b {
   font-family: monospace;
@@ -472,7 +474,7 @@ function pctColor(pct: number): string {
 }
 .market-stats-sep {
   margin: 0 8px;
-  color: rgba(255, 255, 255, 0.25);
+  color: var(--fg-subtle);
 }
 
 .brand-saying {
@@ -481,14 +483,14 @@ function pctColor(pct: number): string {
 }
 .saying-label {
   font-size: 11px;
-  color: #60a5fa;
+  color: var(--accent-fg);
   letter-spacing: 3px;
   margin-bottom: 8px;
 }
 .saying-text {
   font-size: 15px;
   font-style: italic;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--fg-muted);
   line-height: 1.6;
 }
 
@@ -510,12 +512,12 @@ function pctColor(pct: number): string {
 .form-title {
   font-size: 28px;
   font-weight: 700;
-  color: #0f172a;
+  color: var(--fg-default);
   margin-bottom: 6px;
 }
 .form-subtitle {
   font-size: 13px;
-  color: #64748b;
+  color: var(--fg-muted);
   letter-spacing: 0.5px;
 }
 .form-fields {
@@ -529,17 +531,12 @@ function pctColor(pct: number): string {
   touch-action: manipulation;
   font-size: 15px;
   letter-spacing: 6px;
-  background: linear-gradient(90deg, #1e40af 0%, #3b82f6 100%);
-  border: none;
-}
-.login-btn:hover {
-  background: linear-gradient(90deg, #1d4ed8 0%, #2563eb 100%);
 }
 .form-footer {
   margin-top: 32px;
   text-align: center;
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--fg-subtle);
   letter-spacing: 0.5px;
 }
 
@@ -588,7 +585,7 @@ function pctColor(pct: number): string {
   .brand-saying {
     margin-top: 16px;
     padding-top: 14px;
-    border-top: 1px dashed rgba(255, 255, 255, 0.15);
+    border-top: 1px dashed var(--border-default);
     text-align: center;
   }
   .saying-text {

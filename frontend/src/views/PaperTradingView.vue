@@ -49,7 +49,7 @@ function fmtTime(raw?: string): string {
   return raw.replace('T', ' ').slice(0, 19)  // 2026-06-10T10:02:09 → 2026-06-10 10:02:09
 }
 // 盈亏配色(A股: 红盈绿亏) + 金额/百分比格式化
-function pnlColor(v?: number | null): string | undefined { return v == null ? undefined : (v >= 0 ? '#cf222e' : '#1a7f37') }
+function pnlColor(v?: number | null): string | undefined { return v == null ? undefined : (v >= 0 ? 'var(--up-fg)' : 'var(--down-fg)') }
 function fmtMoney(v?: number | null): string { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(2) }
 function fmtPct(v?: number | null): string { return v == null ? '' : ` (${v >= 0 ? '+' : ''}${v.toFixed(2)}%)` }
 
@@ -64,8 +64,8 @@ const tradeCols = [
   { title: '时间', key: 'trade_time', render: (r: any) => fmtTime(r.trade_time) }, { title: '名称', key: 'name' },
   { title: '方向', key: 'side', render: (r: any) => (r.side === 'buy' ? '买' : '卖') },
   { title: '状态', key: 'status', render: (r: any) => r.status === 'failed'
-      ? h('span', { style: { color: '#d03050' } }, '失败')
-      : h('span', { style: { color: '#18a058' } }, '成功') },
+      ? h('span', { style: { color: 'var(--danger-fg)' } }, '失败')
+      : h('span', { style: { color: 'var(--success-fg)' } }, '成功') },
   { title: '股数', key: 'qty', render: (r: any) => r.status === 'failed' ? '—' : r.qty },
   { title: '价', key: 'price' },
   { title: '成交额', key: '_amount', render: (r: any) => (r.status !== 'failed' && r.qty != null && r.price != null) ? (Number(r.qty) * Number(r.price)).toFixed(2) : '—' },
@@ -79,7 +79,7 @@ const tradeCols = [
       const pct = isSell ? (r.realized_pnl_pct != null ? Number(r.realized_pnl_pct) : null) : r._float_pct
       return h('span', null, [
         h('span', { style: { color: pnlColor(v) } }, fmtMoney(v) + fmtPct(pct)),
-        h('span', { style: { color: '#999', marginLeft: '4px', fontSize: '12px' } }, isSell ? '实' : '浮'),
+        h('span', { style: { color: 'var(--fg-subtle)', marginLeft: '4px', fontSize: '12px' } }, isSell ? '实' : '浮'),
       ])
     } },
 ]
@@ -162,7 +162,7 @@ const modelCols = [
         <template v-if="!isUnlimited">
           <span>最大持仓数</span><NInputNumber v-model:value="maxPos" :min="1" :max="50" style="width: 120px" />
         </template>
-        <span v-else style="color: #888">无限子弹账户不限持仓数</span>
+        <span v-else style="color: var(--fg-subtle)">无限子弹账户不限持仓数</span>
         <NButton size="small" @click="onSaveSettings">保存设置</NButton>
         <NPopconfirm @positive-click="onReset">
           <template #trigger><NButton size="small" type="warning">重置账户</NButton></template>
@@ -185,19 +185,19 @@ const modelCols = [
 
 <style scoped>
 /* 账户切换工具栏: 左=胶囊切换器 右=当前账户速览 */
-.pt-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: #fff; border: 1px solid #e8e6e1; border-radius: 10px; padding: 8px 14px; }
-.pt-seg { display: inline-flex; background: #f2f1ee; border: 1px solid #e6e4df; border-radius: 22px; padding: 3px; gap: 3px; }
-.pt-seg button { appearance: none; border: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 700; color: #8b877f; padding: 5px 18px; border-radius: 18px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: color .18s, background .18s, box-shadow .18s; white-space: nowrap; }
-.pt-seg button:hover { color: #5d594f; }
-.pt-seg button.on { background: #fff; color: #1a56a8; box-shadow: 0 1px 4px rgba(40, 60, 100, .16); }
-.pt-seg button.unl.on { color: #c2610a; box-shadow: 0 1px 4px rgba(160, 90, 10, .18); }
+.pt-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 14px; }
+.pt-seg { display: inline-flex; background: var(--bg-sunken, var(--bg-default)); border: 1px solid var(--border-default); border-radius: 22px; padding: 3px; gap: 3px; }
+.pt-seg button { appearance: none; border: 0; background: transparent; font: inherit; font-size: 13.5px; font-weight: 700; color: var(--fg-subtle); padding: 5px 18px; border-radius: 18px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; transition: color .18s, background .18s, box-shadow .18s; white-space: nowrap; }
+.pt-seg button:hover { color: var(--fg-muted); }
+.pt-seg button.on { background: var(--bg-surface); color: var(--accent-fg); box-shadow: 0 1px 4px rgba(40, 60, 100, .16); }
+.pt-seg button.unl.on { color: var(--warn-fg); box-shadow: 0 1px 4px rgba(160, 90, 10, .18); }
 .pt-seg .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.pt-seg .dot.std { background: #1a56a8; opacity: .35; }
-.pt-seg .dot.fire { background: linear-gradient(135deg, #f59e0b, #dc2626); opacity: .4; }
+.pt-seg .dot.std { background: var(--accent-fg); opacity: .35; }
+.pt-seg .dot.fire { background: linear-gradient(135deg, var(--warn-fg), var(--up-fg)); opacity: .4; }
 .pt-seg button.on .dot { opacity: 1; }
 .pt-quick { margin-left: auto; display: flex; gap: 22px; align-items: center; }
 .pt-quick .q { display: flex; align-items: baseline; gap: 7px; }
-.pt-quick .l { font-size: 12px; color: #9a958c; }
+.pt-quick .l { font-size: 12px; color: var(--fg-subtle); }
 .pt-quick .v { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 768px) {

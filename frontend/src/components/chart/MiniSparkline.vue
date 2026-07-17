@@ -34,8 +34,21 @@ const isUp = computed(() => {
   return props.trends[props.trends.length - 1].price >= props.preClose
 })
 
-const lineColor = computed(() => isUp.value ? '#CF222E' : '#1A7F37')
-const fillColor = computed(() => isUp.value ? 'rgba(207,34,46,0.12)' : 'rgba(26,127,55,0.12)')
+// v1.7.647 亮点: 对齐 Token 涨跌色(压饱和红/绿) + 渐变填充 + 发光端点
+const lineColor = computed(() => isUp.value ? '#D92B26' : '#0F8A5F')
+const uid = Math.random().toString(36).slice(2, 8)  // 每实例唯一渐变 id, 防 SVG defs 撞车
+
+// 末点坐标(发光端点用)
+const endPoint = computed(() => {
+  if (props.trends.length < 2) return null
+  const prices = props.trends.map(t => t.price)
+  const min = Math.min(...prices, props.preClose)
+  const max = Math.max(...prices, props.preClose)
+  const range = max - min || 1
+  const stepX = w.value / (prices.length - 1)
+  const last = prices[prices.length - 1]
+  return { x: (prices.length - 1) * stepX, y: h.value - ((last - min) / range) * h.value }
+})
 
 const pathD = computed(() => {
   if (props.trends.length < 2) return ''
@@ -70,9 +83,19 @@ const preCloseY = computed(() => {
 <template>
   <div ref="root" class="mini-wrap" :style="{ width: w + 'px', height: h + 'px' }">
     <svg v-if="visible && trends.length >= 2" :width="w" :height="h" class="mini-sparkline" aria-hidden="true">
-      <path :d="areaD" :fill="fillColor" />
+      <defs>
+        <linearGradient :id="`spk-${uid}`" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" :stop-color="lineColor" stop-opacity="0.22" />
+          <stop offset="1" :stop-color="lineColor" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <path :d="areaD" :fill="`url(#spk-${uid})`" />
       <line v-if="preCloseY >= 0" x1="0" :y1="preCloseY" :x2="w" :y2="preCloseY" stroke="#ccc" stroke-width="0.5" stroke-dasharray="2,2" />
-      <path :d="pathD" :stroke="lineColor" stroke-width="1.5" fill="none" />
+      <path :d="pathD" :stroke="lineColor" stroke-width="1.5" fill="none" stroke-linejoin="round" stroke-linecap="round" />
+      <template v-if="endPoint">
+        <circle :cx="endPoint.x" :cy="endPoint.y" r="3.6" :fill="lineColor" opacity="0.22" />
+        <circle :cx="endPoint.x" :cy="endPoint.y" r="1.9" :fill="lineColor" />
+      </template>
     </svg>
   </div>
 </template>
