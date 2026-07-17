@@ -204,6 +204,17 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .up { color: var(--up-fg); }
 .down { color: var(--down-fg); }
 
+/* 右栏盯盘轨 (v1.7.656): 仅桌面双栏时(≥961px, 与 SignalView .cockpit-side sticky 对应)
+   把面板收进视口高度, 头/图例/脚注固定, 中间清单内部滚动 —— 长清单不再撑长整页。
+   ≤960px(单列堆叠)不生效: 面板自然高度随页面滚动。 */
+@media (min-width: 961px) {
+  .nearbuy-panel { display: flex; flex-direction: column; max-height: calc(100vh - 24px); }
+  .nearbuy-panel .head,
+  .nearbuy-panel .legend,
+  .nearbuy-panel .foot-hint { flex-shrink: 0; }
+  .nearbuy-panel .list { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+}
+
 @media (max-width: 768px) {
   .nearbuy-panel { padding: 8px 10px; }
   .title { font-size: 13px; }

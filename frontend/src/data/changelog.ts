@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.656',
+    date: '2026-07-18',
+    title: '盯盘看板重排：不等宽双栏 + 临近买点整列到底',
+    changes: [
+      {
+        text: '监控看板从四面板等宽栅格改为按内容密度分配的不等宽双栏：左主栏纵向堆叠（短线情绪 → 板块轮动细条 → 情绪温度表），右栏「临近买点」长清单独占一栏、整列到底 sticky 跟随、内部自滚动，不再被挤窄或撑长整页。窄屏自动回落单列堆叠。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.655',
     date: '2026-07-18',
     title: 'AI 盘面报告精简为「操作建议+理由」 + 下线问财候选榜页',

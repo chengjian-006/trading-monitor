@@ -121,17 +121,22 @@ onMounted(() => {
     <!-- 市场风险两级预警状态条 (GREEN/YELLOW/RED 三态): 环境级"该不该开新仓", 全宽母线 -->
     <MarketRiskBanner />
 
-    <!-- 机构级驾驶舱栅格 (v1.7.650): 情绪/题材/板块/临近买点 密集排布,
-         够宽自动两栏、窄屏回一栏, 每 panel 保底 440px 防挤压 -->
+    <!-- 机构级驾驶舱栅格 (v1.7.656 重排): 不等宽双栏, 按内容密度分配 —
+         左主栏(情绪主角 → 板块轮动细条 → 情绪温度表)纵向堆叠, 右栏临近买点长清单整列到底自滚动。
+         窄屏(≤960px)回落单列堆叠。 -->
     <div class="cockpit-grid">
-      <!-- 短线情绪面板 (温度计/封板率/连板梯队): 开盘先看"今天敢不敢干" -->
-      <EmotionPanel />
-      <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
-      <ThemeHeatPanel />
-      <!-- 板块轮动·弱强转换: 盘中题材走强/退潮状态 + 14:30 次日预测 -->
-      <SectorRotationPanel />
-      <!-- 临近买点 (自选距四买点的触发/接近): "哪些自选已贴近买点" -->
-      <NearBuyPanel />
+      <div class="cockpit-main">
+        <!-- 短线情绪 (温度计/封板率/连板梯队): 开盘先看"今天敢不敢干", 主角占位 -->
+        <EmotionPanel />
+        <!-- 板块轮动·弱强转换: 内容常稀疏(盘中多为无信号), 压在情绪下方细条不独占一栏 -->
+        <SectorRotationPanel />
+        <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
+        <ThemeHeatPanel />
+      </div>
+      <!-- 临近买点 (自选距四买点的触发/接近): 长清单最吃高度, 独占右栏做整列到底自滚动的盯盘轨 -->
+      <div class="cockpit-side">
+        <NearBuyPanel />
+      </div>
     </div>
 
     <!-- AI 市场分析 -->
@@ -231,18 +236,30 @@ onMounted(() => {
   flex-direction: column;
   gap: 10px;
 }
-/* 机构级驾驶舱栅格: 够宽自动两栏, 每 panel 保底 440px; 顶端对齐防高度不一拉伸 */
+/* 机构级驾驶舱栅格 (v1.7.656 重排): 左宽右窄不等宽双栏, 按内容密度分配空间 */
 .cockpit-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+  grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
   gap: 10px;
-  align-items: start;
+  align-items: start;   /* 各栏顶端对齐, 右栏自身 sticky 不随左栏拉伸 */
 }
-.cockpit-grid > * {
+/* 左主栏: 情绪 → 板块轮动细条 → 情绪温度表 纵向堆叠 */
+.cockpit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   min-width: 0;   /* 防内部宽表撑破栅格 */
 }
-@media (max-width: 768px) {
+/* 右栏: 临近买点整列到底, sticky 跟随, 内部自滚动(见 NearBuyPanel .list) */
+.cockpit-side {
+  min-width: 0;
+  position: sticky;
+  top: 12px;
+}
+@media (max-width: 960px) {
+  /* 窄屏回落单列: 右栏解除 sticky, 顺序=情绪/轮动/温度表/临近买点 */
   .cockpit-grid { grid-template-columns: 1fr; }
+  .cockpit-side { position: static; }
 }
 .report-card {
   border-radius: 6px;
