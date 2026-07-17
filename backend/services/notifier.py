@@ -838,9 +838,10 @@ _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
 _RISK_TAG = {"RED": ("大盘空仓中", "red"), "YELLOW": ("大盘谨慎", "orange")}
 # <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用。
 # {since} = 时间锚点(如「（13:11起）」, 对标状态页 since 模式), 无锚点时为空串。
+# v1.7.652: 压成一行紧凑版(原三排🚨占三行太抢眼), 保留行动指令。
 _RISK_BANNER = {
-    "RED": "<font color='red'>**🚨🚨🚨 大盘空仓中{since} —— 停开新仓、别抄底、先保命 🚨🚨🚨**</font>",
-    "YELLOW": "<font color='orange'>**⚠️⚠️ 大盘谨慎中{since} —— 控制仓位、别追高 ⚠️⚠️**</font>",
+    "RED": "<font color='red'>**🔴 大盘空仓中{since} · 停开新仓、别抄底**</font>",
+    "YELLOW": "<font color='orange'>**🟡 大盘谨慎中{since} · 控制仓位、别追高**</font>",
 }
 
 

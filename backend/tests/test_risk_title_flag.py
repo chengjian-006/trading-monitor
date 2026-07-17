@@ -66,7 +66,7 @@ def test_risk_deco_banner(monkeypatch):
     # 锚点缺失(取不到 updated_at): 横幅仍发, 只是没有「几点起」
     _set_state(monkeypatch, "RED", since="")
     _, banner_ns = _run(notifier._risk_deco("📈 买入 · [X]"))
-    assert "大盘空仓中 ——" in banner_ns and "起）" not in banner_ns
+    assert "大盘空仓中 ·" in banner_ns and "停开新仓" in banner_ns and "起）" not in banner_ns
 
     _set_state(monkeypatch, "GREEN")
     t, b = _run(notifier._risk_deco("📈 买入 · [X]"))
