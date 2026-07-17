@@ -710,6 +710,10 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
         lark_tags: list = [(signal_name, _tag_color)] if signal_name else []
         if direction == "buy" and model_stats and model_stats.get("rank_3m"):
             lark_tags.append((f"第{model_stats['rank_3m']}名", "orange"))
+        # 大盘风险 → header 小标签(不盖标题), 挂彩签首位; 风险卡自身返回 None
+        _rtag = await _risk_tag(lark_title)
+        if _rtag:
+            lark_tags = [_rtag] + lark_tags
         # 个股信号卡片底部加"查看分时图"按钮, 跳系统分时页 (大盘预警 plunge 不挂个股图)
         link = ""
         site = (load_config().get("site_url", "") or "").rstrip("/")
@@ -825,12 +829,13 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
     return lark_ok or pp_ok
 
 
-# ── 大盘风险标记(v1.7.628, v1.7.629 加正文横幅) ──
-# 大盘风险(谨慎/空仓)生效期间, 所有推送做双重醒目标记:
-#   1) 标题前缀(手机通知栏第一眼) 2) 正文顶部红色加粗大横幅(点开第一行)。
+# ── 大盘风险标记(v1.7.628, v1.7.629 加正文横幅; v1.7.652 标题前缀改 header 小标签) ──
+# 大盘风险(谨慎/空仓)生效期间, 非风险卡做两处标记:
+#   1) header 彩签(text_tag): 一枚小标签「大盘空仓中/大盘谨慎」, 不再盖标题(标题保持卡片自己的主信息)。
+#   2) 正文顶部红色加粗横幅(点开第一行): 带行动指令与时间锚点。
 # 市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事, 再挂就重复)。
 _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
-_RISK_TITLE_PREFIX = {"RED": "🚨大盘空仓中🚨 ", "YELLOW": "⚠️大盘谨慎中 "}
+_RISK_TAG = {"RED": ("大盘空仓中", "red"), "YELLOW": ("大盘谨慎", "orange")}
 # <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用。
 # {since} = 时间锚点(如「（13:11起）」, 对标状态页 since 模式), 无锚点时为空串。
 _RISK_BANNER = {
@@ -840,7 +845,8 @@ _RISK_BANNER = {
 
 
 async def _risk_deco(title: str) -> tuple[str, str]:
-    """(带前缀的标题, 正文横幅md)。无风险/风险卡自身/取态失败 → (原标题, '')。"""
+    """(标题原样, 正文横幅md)。v1.7.652 起标题不再加风险前缀(改走 _risk_tag 彩签);
+    无风险/风险卡自身/取态失败 → (原标题, '')。"""
     try:
         if any(k in (title or "") for k in _RISK_TITLE_SKIP):
             return title, ""
@@ -848,14 +854,27 @@ async def _risk_deco(title: str) -> tuple[str, str]:
         st, since = await get_risk_state_info()   # 2分钟缓存, 不加DB压力
     except Exception:
         return title, ""
-    if st not in _RISK_TITLE_PREFIX:
+    if st not in _RISK_BANNER:
         return title, ""
     banner = _RISK_BANNER[st].format(since=f"（{since}起）" if since else "")
-    return _RISK_TITLE_PREFIX[st] + title, banner
+    return title, banner
+
+
+async def _risk_tag(title: str = "") -> tuple[str, str] | None:
+    """大盘风险 header 小标签 (label, color); 挂进卡片彩签(text_tags), 不盖标题(v1.7.652)。
+    无风险/风险卡自身(标题含市场风险/大盘风控)/取态失败 → None。"""
+    try:
+        if any(k in (title or "") for k in _RISK_TITLE_SKIP):
+            return None
+        from backend.services.market_risk_controller import get_risk_state_info
+        st, _since = await get_risk_state_info()
+    except Exception:
+        return None
+    return _RISK_TAG.get(st)
 
 
 async def _with_risk_flag(title: str) -> str:
-    """只要标题的旧接口(兼容既有调用/测试)。"""
+    """只要标题的旧接口(兼容既有调用)。v1.7.652 起标题不再前缀风险标, 原样返回。"""
     return (await _risk_deco(title))[0]
 
 
@@ -889,6 +908,10 @@ async def send_dual_card(content: str, *, lark_title: str, elements: list,
     cfg = load_config()
     lark_title, banner = await _risk_deco(lark_title)
     body = (banner + "\n\n" if banner else "") + content
+    # 大盘风险 → header 小标签(不盖标题), 放彩签首位; 风险卡自身 _risk_tag 返回 None
+    rtag = await _risk_tag(lark_title)
+    if rtag:
+        text_tags = [rtag] + list(text_tags or [])
 
     lark_ok = False
     lark_webhook = cfg.get("lark_webhook", "")

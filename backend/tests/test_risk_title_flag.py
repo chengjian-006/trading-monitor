@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""大盘风险标题标记 notifier._with_risk_flag 单测 (v1.7.627)。
+"""大盘风险标记 notifier 单测 (v1.7.627; v1.7.652 标题前缀改 header 小标签)。
 
-大盘风险(谨慎/空仓)生效期间, 所有推送标题前挂醒目风险标;
-市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事)。
+大盘风险(谨慎/空仓)生效期间, 非风险卡做两处标记: header 小标签(_risk_tag) + 正文横幅(_risk_deco);
+标题不再前缀风险标(不盖卡片主信息)。市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事)。
 """
 import asyncio
 
@@ -19,40 +19,44 @@ def _set_state(monkeypatch, state: str, since: str = "13:11"):
     monkeypatch.setattr(market_risk_controller, "get_risk_state_info", _fake)
 
 
-def test_red_prefixes_all_titles(monkeypatch):
+def test_red_gives_tag_not_title_prefix(monkeypatch):
+    # v1.7.652: 空仓 → header 小标签(大盘空仓中/red), 标题保持原样不加前缀
     _set_state(monkeypatch, "RED")
-    assert _run(notifier._with_risk_flag("📈 买入 · [二波过前高]")) == "🚨大盘空仓中🚨 📈 买入 · [二波过前高]"
-    assert _run(notifier._with_risk_flag("🔔 自定义预警")).startswith("🚨大盘空仓中🚨")
+    assert _run(notifier._risk_tag("📈 买入 · [二波过前高]")) == ("大盘空仓中", "red")
+    assert _run(notifier._with_risk_flag("📈 买入 · [二波过前高]")) == "📈 买入 · [二波过前高]"
 
 
-def test_yellow_prefixes(monkeypatch):
+def test_yellow_gives_tag(monkeypatch):
     _set_state(monkeypatch, "YELLOW")
-    assert _run(notifier._with_risk_flag("📊 盘面播报")) == "⚠️大盘谨慎中 📊 盘面播报"
+    assert _run(notifier._risk_tag("📊 盘面播报")) == ("大盘谨慎", "orange")
+    assert _run(notifier._with_risk_flag("📊 盘面播报")) == "📊 盘面播报"
 
 
-def test_green_untouched(monkeypatch):
+def test_green_no_tag(monkeypatch):
     _set_state(monkeypatch, "GREEN")
+    assert _run(notifier._risk_tag("📈 买入 · [X]")) is None
     assert _run(notifier._with_risk_flag("📈 买入 · [X]")) == "📈 买入 · [X]"
 
 
-def test_risk_cards_themselves_not_prefixed(monkeypatch):
+def test_risk_cards_themselves_no_tag(monkeypatch):
     _set_state(monkeypatch, "RED")
-    assert _run(notifier._with_risk_flag("🔴 市场风险 · 升到「空仓」档")) == "🔴 市场风险 · 升到「空仓」档"
-    assert _run(notifier._with_risk_flag("📛 大盘风控·退潮提示")) == "📛 大盘风控·退潮提示"
+    assert _run(notifier._risk_tag("🔴 市场风险 · 升到「空仓」档")) is None
+    assert _run(notifier._risk_tag("📛 大盘风控·退潮提示")) is None
 
 
-def test_state_fetch_failure_falls_back_to_plain(monkeypatch):
+def test_state_fetch_failure_no_tag(monkeypatch):
     async def _boom():
         raise RuntimeError("db down")
     monkeypatch.setattr(market_risk_controller, "get_risk_state_info", _boom)
+    assert _run(notifier._risk_tag("📈 买入 · [X]")) is None
     assert _run(notifier._with_risk_flag("📈 买入 · [X]")) == "📈 买入 · [X]"
 
 
 def test_risk_deco_banner(monkeypatch):
-    # v1.7.629: 除标题前缀外, 正文顶部再插一条红色加粗大横幅; v1.7.630 带时间锚点
+    # 标题不再前缀(v1.7.652), 但正文顶部横幅照旧(带时间锚点)
     _set_state(monkeypatch, "RED", since="13:11")
     title, banner = _run(notifier._risk_deco("📈 买入 · [X]"))
-    assert title.startswith("🚨大盘空仓中🚨")
+    assert title == "📈 买入 · [X]"            # 标题原样, 不加前缀
     assert "大盘空仓中（13:11起）" in banner and "<font color='red'>" in banner and "**" in banner
 
     _set_state(monkeypatch, "YELLOW")
