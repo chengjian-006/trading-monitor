@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.660',
+    date: '2026-07-18',
+    title: '全站字号统一放大一成（桌面）',
+    changes: [
+      {
+        text: '整体界面字号偏小，统一放大约一成，读数更清楚；桌面端按比例放大字与间距保持协调，移动端维持原适配不叠加。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.659',
     date: '2026-07-18',
     title: '全局补查询区：5 个数据页统一加筛选',
