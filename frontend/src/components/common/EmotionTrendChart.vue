@@ -60,12 +60,12 @@ async function render() {
   chart = createChart(chartEl.value, {
     width: chartEl.value.clientWidth,
     height: 170,
-    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#888', fontSize: 10 },
-    grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-    rightPriceScale: { visible: true, borderColor: '#eee' },
-    leftPriceScale: { visible: true, borderColor: '#eee' },
+    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#5A6472', fontSize: 10 },
+    grid: { vertLines: { color: '#E6EAF0' }, horzLines: { color: '#E6EAF0' } },
+    rightPriceScale: { visible: true, borderColor: '#D2D8E1' },
+    leftPriceScale: { visible: true, borderColor: '#D2D8E1' },
     timeScale: {
-      borderColor: '#eee', timeVisible: true, secondsVisible: false,
+      borderColor: '#D2D8E1', timeVisible: true, secondsVisible: false,
       tickMarkFormatter: (t: number) => idxToClock(Math.round((t as number) / 60)),
     },
     crosshair: { mode: 0 },
@@ -85,8 +85,8 @@ async function render() {
     s.setData(data as any)
   }
   // 涨停/跌停 → 右轴(数值小); 上涨/下跌 → 左轴(数值大, 虚线)
-  mk('limit_up_count', '#dc2626', 'right')
-  mk('limit_down_count', '#16a34a', 'right')
+  mk('limit_up_count', '#E0342A', 'right')
+  mk('limit_down_count', '#12A06B', 'right')
   mk('up_count', '#f59e0b', 'left', true)
   mk('down_count', '#0891b2', 'left', true)
   chart.timeScale().setVisibleRange({ from: 0 as any, to: (SESSION_LAST * 60) as any })

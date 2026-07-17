@@ -37,8 +37,9 @@ function initChart() {
   const lastPrice = props.data[props.data.length - 1].price
   const up = lastPrice >= preClose
 
-  const lineColor = up ? '#CF222E' : '#1A7F37'
-  const areaTop = up ? 'rgba(207,34,46,0.12)' : 'rgba(26,127,55,0.12)'
+  // 机构级 (v1.7.650): 分时线涨跌色对齐冷调 Token 值
+  const lineColor = up ? '#E0342A' : '#12A06B'
+  const areaTop = up ? 'rgba(224,52,42,0.12)' : 'rgba(18,160,107,0.12)'
   const areaBottom = 'transparent'
 
   const dataMap = new Map<number, IntradayPoint>()
@@ -48,7 +49,7 @@ function initChart() {
   chart = createChart(chartEl.value, {
     width: chartEl.value.clientWidth,
     height: chartHeight,
-    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#666', fontSize: 11 },
+    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#5A6472', fontSize: 11 },
     // 十字光标的时间标签走 localization(横轴刻度的 tickMarkFormatter 管不到它);
     // time 值是"当日秒数"非 Unix 时间戳, 不设会显示成 1970-01-01
     localization: {
@@ -58,18 +59,18 @@ function initChart() {
         return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
       },
     },
-    grid: { vertLines: { color: '#f0f0f0' }, horzLines: { color: '#f0f0f0' } },
+    grid: { vertLines: { color: '#E6EAF0' }, horzLines: { color: '#E6EAF0' } },
     // 左右轴必须用【完全相同】的 scaleMargins, 否则同一像素行在两轴上对应不同值 —
     //   价格走左轴、涨跌幅%走右轴(v1.7.595 对调), 两轴 scaleMargins 必须一致,
     //   否则涨停价(最高点)与右轴%读数错位(如涨停+9.95%被读成~+9.0%)。
     //   底部留 0.24 给成交量副图(top0.78), 价格线不压到量柱上。
     // 右轴显示涨跌幅%(相对昨收), 与左轴价格刻度一一对齐(0.00%=昨收线)
-    rightPriceScale: { visible: true, borderColor: '#e0e0e0', scaleMargins: { top: 0.04, bottom: 0.24 } },
+    rightPriceScale: { visible: true, borderColor: '#D2D8E1', scaleMargins: { top: 0.04, bottom: 0.24 } },
     // 左轴显示价格
-    leftPriceScale: { visible: true, borderColor: '#e0e0e0', scaleMargins: { top: 0.04, bottom: 0.24 } },
+    leftPriceScale: { visible: true, borderColor: '#D2D8E1', scaleMargins: { top: 0.04, bottom: 0.24 } },
     timeScale: {
       visible: true,
-      borderColor: '#e0e0e0',
+      borderColor: '#D2D8E1',
       timeVisible: false,
       tickMarkFormatter: (t: number) => {
         const sec = t as number

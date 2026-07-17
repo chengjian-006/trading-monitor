@@ -30,11 +30,11 @@ let avgSeries: ISeriesApi<'Line'> | null = null
 let volumeSeries: ISeriesApi<'Histogram'> | null = null
 let resizeObs: ResizeObserver | null = null
 
-const A_UP = '#dc2626'    // 红涨
-const A_DOWN = '#16a34a'  // 绿跌
+const A_UP = '#E0342A'    // 红涨
+const A_DOWN = '#12A06B'  // 绿跌
 
 const chartMinPx = computed(() => props.height ?? (isPhone.value ? 150 : 200))
-const pctColor = computed(() => props.pctChange >= 0 ? '#dc2626' : '#16a34a')
+const pctColor = computed(() => props.pctChange >= 0 ? '#E0342A' : '#12A06B')
 const pctText = computed(() => (props.pctChange >= 0 ? '+' : '') + props.pctChange.toFixed(2) + '%')
 const up = computed(() => props.pctChange >= 0)
 
@@ -92,14 +92,14 @@ function render() {
   chart = createChart(chartEl.value, {
     width: chartEl.value.clientWidth,
     height: chartHeight,
-    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#666', fontSize: 10 },
-    grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-    rightPriceScale: { borderColor: '#e5e5e5', scaleMargins: { top: 0.05, bottom: 0.30 } },
+    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#5A6472', fontSize: 10 },
+    grid: { vertLines: { color: '#E6EAF0' }, horzLines: { color: '#E6EAF0' } },
+    rightPriceScale: { borderColor: '#D2D8E1', scaleMargins: { top: 0.05, bottom: 0.30 } },
     // 左轴显示涨跌幅%(相对昨收), 仅分时且有昨收时启用; 与右侧价格轴同 margins 故一一对应
-    leftPriceScale: { visible: mode.value === 'intraday' && (props.intraday?.pre_close ?? 0) > 0, borderColor: '#e5e5e5', scaleMargins: { top: 0.05, bottom: 0.30 } },
+    leftPriceScale: { visible: mode.value === 'intraday' && (props.intraday?.pre_close ?? 0) > 0, borderColor: '#D2D8E1', scaleMargins: { top: 0.05, bottom: 0.30 } },
     timeScale: {
       visible: true,
-      borderColor: '#e5e5e5',
+      borderColor: '#D2D8E1',
       timeVisible: mode.value === 'intraday',
       secondsVisible: false,
       tickMarkFormatter: mode.value === 'intraday'

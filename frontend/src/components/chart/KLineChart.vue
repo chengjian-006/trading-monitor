@@ -17,8 +17,9 @@ const props = defineProps<{
 // 点击某根K线 → 抛出该交易日(YYYY-MM-DD), 供外层跳分时图看当天分时回放
 const emit = defineEmits<{ dayClick: [date: string] }>()
 
-const A_UP = '#cf222e'
-const A_DOWN = '#1a7f37'
+// 机构级 (v1.7.650): 蜡烛涨跌色对齐冷调 Token 值(红涨绿跌不变, 仅微调至冷调)
+const A_UP = '#E0342A'
+const A_DOWN = '#12A06B'
 const MA_DEFS: { key: 'ma5' | 'ma10' | 'ma20' | 'ma60'; color: string; label: string }[] = [
   { key: 'ma5', color: '#f59e0b', label: 'MA5' },
   { key: 'ma10', color: '#3b82f6', label: 'MA10' },
@@ -119,10 +120,10 @@ function render() {
   chart = createChart(chartEl.value, {
     width: chartEl.value.clientWidth,
     height: isPhone.value ? phoneH : deskH,
-    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#666', fontSize: 11 },
-    grid: { vertLines: { color: '#f5f5f5' }, horzLines: { color: '#f5f5f5' } },
-    rightPriceScale: { borderColor: '#e5e5e5', scaleMargins: { top: 0.06, bottom: 0.26 } },
-    timeScale: { borderColor: '#e5e5e5', timeVisible: false, secondsVisible: false },
+    layout: { background: { type: 'solid' as any, color: '#fff' }, textColor: '#5A6472', fontSize: 11 },
+    grid: { vertLines: { color: '#E6EAF0' }, horzLines: { color: '#E6EAF0' } },
+    rightPriceScale: { borderColor: '#D2D8E1', scaleMargins: { top: 0.06, bottom: 0.26 } },
+    timeScale: { borderColor: '#D2D8E1', timeVisible: false, secondsVisible: false },
     crosshair: { mode: 0 },
   })
 
