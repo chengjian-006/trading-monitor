@@ -16,10 +16,10 @@ onMounted(load)
 // 综合最优 = 年化资金效率最高且样本≥50(已按年化降序返回)
 const best = computed(() => data.value.models.find(m => m.n >= 50) || data.value.models[0] || null)
 function pfColor(pf: number) {
-  if (pf >= 2) return '#b91c1c'
-  if (pf >= 1.5) return '#a16207'
-  if (pf >= 1) return '#475569'
-  return '#15803d'
+  if (pf >= 2) return 'var(--up-fg)'
+  if (pf >= 1.5) return 'var(--warn-fg)'
+  if (pf >= 1) return 'var(--fg-muted)'
+  return 'var(--down-fg)'
 }
 </script>
 
@@ -68,22 +68,22 @@ function pfColor(pf: number) {
 </template>
 
 <style scoped>
-.mb-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; }
+.mb-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; }
 .mb-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 4px; }
-.mb-title { font-weight: 700; font-size: 14px; color: #1e293b; }
-.mb-date { font-size: 12px; color: #94a3b8; }
-.mb-best { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 6px 10px; font-size: 13px; color: #9a3412; margin-bottom: 10px; }
-.mb-best b { color: #b91c1c; }
-.mb-best span { color: #c2410c; margin-left: 6px; }
+.mb-title { font-weight: 700; font-size: 14px; color: var(--fg-default); }
+.mb-date { font-size: 12px; color: var(--fg-subtle); }
+.mb-best { background: var(--warn-bg-muted); border: 1px solid var(--warn-fg); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--warn-fg); margin-bottom: 10px; }
+.mb-best b { color: var(--up-fg); }
+.mb-best span { color: var(--warn-fg); margin-left: 6px; }
 .mb-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .mb-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-.mb-table th { background: #f8fafc; color: #64748b; font-weight: 600; padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid #e2e8f0; line-height: 1.2; }
-.mb-table td { padding: 5px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid #f1f5f9; color: #334155; }
-.mb-mname { text-align: left !important; font-weight: 600; color: #1e293b; }
-.mb-eff { font-weight: 600; color: #7c3aed; }
-.mb-ann { font-weight: 700; color: #b91c1c; }
-.up { color: #dc2626; }
-.down { color: #16a34a; }
-.mb-foot { margin-top: 8px; font-size: 11px; color: #94a3b8; line-height: 1.5; }
-.mb-empty { padding: 18px; text-align: center; color: #94a3b8; font-size: 13px; }
+.mb-table th { background: var(--bg-sunken); color: var(--fg-muted); font-weight: 600; padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--border-default); line-height: 1.2; }
+.mb-table td { padding: 5px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--border-muted); color: var(--fg-default); }
+.mb-mname { text-align: left !important; font-weight: 600; color: var(--fg-default); }
+.mb-eff { font-weight: 600; color: var(--accent-fg); }
+.mb-ann { font-weight: 700; color: var(--up-fg); }
+.up { color: var(--up-fg); }
+.down { color: var(--down-fg); }
+.mb-foot { margin-top: 8px; font-size: 11px; color: var(--fg-subtle); line-height: 1.5; }
+.mb-empty { padding: 18px; text-align: center; color: var(--fg-subtle); font-size: 13px; }
 </style>

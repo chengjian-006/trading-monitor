@@ -115,8 +115,8 @@ onMounted(() => { loadAlerts() })
       <div class="stock-top">
         <div class="stock-top-left">
           <span v-if="s.focused" class="stock-star">*</span>
-          <span class="stock-name" :style="{ color: s.focused ? '#e63946' : s.status === 'hold' ? '#1a56a8' : signalsByCode.has(s.code) ? '#d35400' : 'inherit' }">{{ s.name }}</span>
-          <span class="stock-code" role="button" tabindex="0" :style="{ color: s.focused ? '#e63946' : '#2080f0', textDecoration: 'underline', textDecorationStyle: 'dotted', cursor: 'pointer' }" title="点击查看分时 + 日K" :aria-label="`查看 ${s.name} 分时 + 日K`" @click="openCharts(s.code, s.name)" @keydown.enter="openCharts(s.code, s.name)">{{ s.code }}</span>
+          <span class="stock-name" :style="{ color: s.focused ? 'var(--up-fg)' : s.status === 'hold' ? 'var(--accent-fg)' : signalsByCode.has(s.code) ? 'var(--warn-fg)' : 'inherit' }">{{ s.name }}</span>
+          <span class="stock-code" role="button" tabindex="0" :style="{ color: s.focused ? 'var(--up-fg)' : 'var(--accent-fg)', textDecoration: 'underline', textDecorationStyle: 'dotted', cursor: 'pointer' }" title="点击查看分时 + 日K" :aria-label="`查看 ${s.name} 分时 + 日K`" @click="openCharts(s.code, s.name)" @keydown.enter="openCharts(s.code, s.name)">{{ s.code }}</span>
           <template v-if="signalsByCode.has(s.code)">
             <span v-if="signalCounts(s.code).buy > 0" class="signal-badge signal-badge-buy" :title="`${signalCounts(s.code).buy} 个买入信号`">{{ signalCounts(s.code).buy }}</span>
             <span v-if="signalCounts(s.code).sell > 0" class="signal-badge signal-badge-sell" :title="`${signalCounts(s.code).sell} 个卖出/减仓信号`">{{ signalCounts(s.code).sell }}</span>
@@ -223,17 +223,17 @@ onMounted(() => { loadAlerts() })
   font-weight: 700;
 }
 .stock-card.signaled {
-  background: rgba(255, 120, 0, 0.12);
-  border-color: rgba(255, 120, 0, 0.4);
-  border-left: 4px solid #ff6b00;
+  background: var(--warn-bg-muted);
+  border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent);
+  border-left: 4px solid var(--warn-fg);
 }
 .stock-card.hold {
-  background: rgba(32, 128, 240, 0.08);
-  border-color: rgba(32, 128, 240, 0.2);
+  background: var(--accent-bg-muted);
+  border-color: color-mix(in srgb, var(--accent-fg) 20%, transparent);
 }
 .stock-card.hold.signaled {
-  background: rgba(32, 128, 240, 0.08);
-  border-left: 4px solid #ff6b00;
+  background: var(--accent-bg-muted);
+  border-left: 4px solid var(--warn-fg);
 }
 .stock-top-left {
   display: flex;
@@ -248,7 +248,7 @@ onMounted(() => { loadAlerts() })
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  color: white;
+  color: var(--on-emphasis);
   font-size: 10px;
   font-weight: 700;
   margin-left: 4px;
@@ -256,9 +256,9 @@ onMounted(() => { loadAlerts() })
   vertical-align: middle;
   flex: 0 0 auto;
 }
-.signal-badge-buy   { background: #ff3b00; }
-.signal-badge-sell  { background: #16a34a; }
-.signal-badge-other { background: #94a3b8; }
+.signal-badge-buy   { background: var(--up-fg); }
+.signal-badge-sell  { background: var(--down-fg); }
+.signal-badge-other { background: var(--fg-subtle); }
 .stock-signals {
   display: flex;
   flex-wrap: wrap;
@@ -266,16 +266,16 @@ onMounted(() => { loadAlerts() })
   margin-bottom: 8px;
 }
 .signal-tag {
-  color: white;
+  color: var(--on-emphasis);
   padding: 1px 6px;
   border-radius: 3px;
   font-size: 11px;
 }
 .signal-tag.tag-buy {
-  background: #ff6b00;
+  background: var(--up-fg);
 }
 .signal-tag.tag-sell {
-  background: #16a34a;
+  background: var(--down-fg);
 }
 .stock-star {
   color: var(--red);
@@ -348,7 +348,7 @@ onMounted(() => { loadAlerts() })
   line-height: 16px;
   border-radius: 3px;
   background: linear-gradient(135deg, #ff6b00, #ff3b00);
-  color: white;
+  color: var(--on-emphasis);
 }
 /* 名称行迷你徽章: 涨停/跌停/连板/首板 (A股 红涨绿跌) */
 .mini-badge {
@@ -362,20 +362,20 @@ onMounted(() => { loadAlerts() })
 }
 .badge-limit-up {
   background: var(--red);
-  color: #fff;
+  color: var(--on-emphasis);
 }
 .badge-limit-down {
   background: var(--green);
-  color: #fff;
+  color: var(--on-emphasis);
 }
 .badge-lianban {
   background: linear-gradient(135deg, #ff6b00, #ff2d00);
-  color: #fff;
+  color: var(--on-emphasis);
 }
 .badge-shouban {
-  background: #fff1f0;
-  color: #cf1322;
-  border: 1px solid #ffa39e;
+  background: var(--up-bg-muted);
+  color: var(--up-fg);
+  border: 1px solid color-mix(in srgb, var(--up-fg) 30%, transparent);
 }
 /* 关键指标行: 5日涨幅 / 换手 / 量比 */
 .stock-metrics {

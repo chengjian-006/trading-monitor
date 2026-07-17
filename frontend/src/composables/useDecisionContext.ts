@@ -98,10 +98,12 @@ export function useDecisionContext() {
     let label: string
     let size: string
     let color: string
-    if (score >= 50) { action = 'execute'; label = '建议执行'; size = '20-30%'; color = '#16a34a' }
-    else if (score >= 25) { action = 'light'; label = '轻仓试单'; size = '5-10%'; color = '#0284c7' }
-    else if (score >= 0)  { action = 'wait';  label = '观望确认'; size = '—';      color = '#d97706' }
-    else                  { action = 'avoid'; label = '回避';    size = '0%';     color = '#dc2626' }
+    // 机构级 (v1.7.650): 决策色对齐冷调 Token 十六进制值(与 TagLegendButton 的 var 图例像素级一致)
+    // execute=success#1A8F4E / light=accent#1668DC / wait=warn#B7791F / avoid=danger#D22B2B
+    if (score >= 50) { action = 'execute'; label = '建议执行'; size = '20-30%'; color = '#1A8F4E' }
+    else if (score >= 25) { action = 'light'; label = '轻仓试单'; size = '5-10%'; color = '#1668DC' }
+    else if (score >= 0)  { action = 'wait';  label = '观望确认'; size = '—';      color = '#B7791F' }
+    else                  { action = 'avoid'; label = '回避';    size = '0%';     color = '#D22B2B' }
     return { action, label, size, color, reasons }
   }
 

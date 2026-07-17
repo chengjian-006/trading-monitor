@@ -27,7 +27,7 @@ const flameMap = computed<Record<string, { level: string; bg: string }>>(() => {
   const m: Record<string, { level: string; bg: string }> = {}
   for (const s of props.stocks) {
     const lvl = resonanceLevel(s.popularity_rank, amountRankMap.value[s.code])
-    if (lvl) m[s.code] = { level: lvl, bg: lvl === '超强' ? '#cf222e' : lvl === '强' ? '#ea7a0c' : '#fb7185' }
+    if (lvl) m[s.code] = { level: lvl, bg: lvl === '超强' ? 'var(--up-fg)' : lvl === '强' ? 'var(--warn-fg)' : 'var(--fg-subtle)' }
   }
   return m
 })
@@ -123,12 +123,12 @@ function onSaved(_code: string, text: string) {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 .strat-name { font-weight: 600; font-size: 14px; min-width: 0; }
-.strat-name.hold { color: #1a56a8; }
-.strat-name.focused { color: #e63946; }
+.strat-name.hold { color: var(--accent-fg); }
+.strat-name.focused { color: var(--up-fg); }
 .strat-code {
   font-family: monospace;
   font-size: 12px;
-  color: #2080f0;
+  color: var(--accent-fg);
   cursor: pointer;
   text-decoration: underline dotted;
   touch-action: manipulation;
@@ -137,11 +137,11 @@ function onSaved(_code: string, text: string) {
   font-size: 10px;
   padding: 0 4px;
   border-radius: 3px;
-  color: #fff;
+  color: var(--on-emphasis);
   line-height: 16px;
 }
-.strat-sig.buy { background: #ff3b00; }
-.strat-sig.sell { background: #16a34a; }
+.strat-sig.buy { background: var(--up-fg); }
+.strat-sig.sell { background: var(--down-fg); }
 .strat-head-right { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .strat-price { font-weight: 700; font-size: 14px; font-variant-numeric: tabular-nums; }
 .strat-pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }

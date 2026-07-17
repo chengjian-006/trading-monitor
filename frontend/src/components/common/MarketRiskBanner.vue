@@ -72,31 +72,31 @@ useVisiblePolling(load, 300000)
   line-height: 1.5;
   flex-wrap: wrap;
 }
-.risk-banner.red  { background: #fef2f2; border: 1px solid #fecaca; }
-.risk-banner.yellow { background: #fffbeb; border: 1px solid #fde68a; }
+.risk-banner.red  { background: var(--danger-bg-muted); border: 1px solid var(--border-default); }
+.risk-banner.yellow { background: var(--warn-bg-muted); border: 1px solid var(--border-default); }
 .risk-banner.green { background: transparent; border: 1px solid transparent; }
 .risk-title { font-weight: 600; color: var(--text1); white-space: nowrap; }
 .risk-levels { display: flex; align-items: center; gap: 4px; }
-.risk-arrow { color: #c4c9d1; font-size: 10px; }
+.risk-arrow { color: var(--fg-subtle); font-size: 10px; }
 .risk-lv {
   display: flex; align-items: center; gap: 4px;
   padding: 2px 8px; border-radius: 12px;
-  font-size: 11px; color: #94a3b8; white-space: nowrap;
+  font-size: 11px; color: var(--fg-subtle); white-space: nowrap;
   transition: all 0.15s;
 }
 .risk-lv.active {
-  font-weight: 700; color: #fff;
-  background: #94a3b8;
+  font-weight: 700; color: var(--on-emphasis);
+  background: var(--fg-subtle);
 }
-.risk-lv.active:has(.dot.green)  { background: #16a34a; }
-.risk-lv.active:has(.dot.yellow) { background: #d97706; }
-.risk-lv.active:has(.dot.red)    { background: #dc2626; }
+.risk-lv.active:has(.dot.green)  { background: var(--success-fg); }
+.risk-lv.active:has(.dot.yellow) { background: var(--warn-fg); }
+.risk-lv.active:has(.dot.red)    { background: var(--danger-fg); }
 .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.dot.green  { background: #16a34a; }
-.dot.yellow { background: #d97706; }
-.dot.red    { background: #dc2626; }
-.risk-lv.active .dot { background: #fff; }
-.risk-detail { color: #888; font-size: 11px; font-variant-numeric: tabular-nums; }
-.red  .risk-detail { color: #b91c1c; }
-.yellow .risk-detail { color: #92400e; }
+.dot.green  { background: var(--success-fg); }
+.dot.yellow { background: var(--warn-fg); }
+.dot.red    { background: var(--danger-fg); }
+.risk-lv.active .dot { background: var(--on-emphasis); }
+.risk-detail { color: var(--fg-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.red  .risk-detail { color: var(--danger-fg); }
+.yellow .risk-detail { color: var(--warn-fg); }
 </style>

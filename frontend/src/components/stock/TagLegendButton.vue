@@ -15,22 +15,22 @@ interface TagSpec {
 }
 
 const tags: TagSpec[] = [
-  { label: '小额', desc: '今日预估全天成交额 <20亿 (按时点系数外推, 10 分钟评估一次)', bg: '#fef3c7', color: '#b45309' },
-  { label: '高换', desc: '换手率 ≥15% — 短线情绪票 / 注意筹码松动', bg: '#fee2e2', color: '#b91c1c' },
-  { label: '异动', desc: '量比 ≥3 — 突然放量, 主力进场或恐慌出货, 看方向', bg: '#dbeafe', color: '#1d4ed8' },
-  { label: '涨停', desc: '今日封涨停板 (按板块阈值: 主板10% / 创业板·科创20% / 北交所30% / ST 5%)', bg: '#CF222E', color: '#fff' },
-  { label: '跌停', desc: '今日封跌停板 (阈值同上, 负向)', bg: '#1A7F37', color: '#fff' },
-  { label: '2连板', desc: '连续涨停 N 个交易日 (≥2 板, 橙红渐变, 高标龙头/情绪高度)', bg: 'linear-gradient(135deg, #ff6b00, #ff2d00)', color: '#fff' },
-  { label: '首板', desc: '最近一个交易日涨停 (单板)', bg: '#fff1f0', color: '#cf1322' },
-  { label: '芯片', desc: '「概念」列蓝色 chip — 个股所属概念题材 (最多显示 2 个, 鼠标悬停看全部)', bg: '#f0f5ff', color: '#2f54eb' },
-  { label: '最强', desc: '板块内排名第 1 (龙头股, 行业列尾标)', bg: 'linear-gradient(135deg, #ff6b00, #ff3b00)', color: '#fff' },
+  { label: '小额', desc: '今日预估全天成交额 <20亿 (按时点系数外推, 10 分钟评估一次)', bg: 'var(--warn-bg-muted)', color: 'var(--warn-fg)' },
+  { label: '高换', desc: '换手率 ≥15% — 短线情绪票 / 注意筹码松动', bg: 'var(--danger-bg-muted)', color: 'var(--danger-fg)' },
+  { label: '异动', desc: '量比 ≥3 — 突然放量, 主力进场或恐慌出货, 看方向', bg: 'var(--accent-bg-muted)', color: 'var(--accent-fg)' },
+  { label: '涨停', desc: '今日封涨停板 (按板块阈值: 主板10% / 创业板·科创20% / 北交所30% / ST 5%)', bg: 'var(--up-fg)', color: 'var(--on-emphasis)' },
+  { label: '跌停', desc: '今日封跌停板 (阈值同上, 负向)', bg: 'var(--down-fg)', color: 'var(--on-emphasis)' },
+  { label: '2连板', desc: '连续涨停 N 个交易日 (≥2 板, 橙红渐变, 高标龙头/情绪高度)', bg: 'linear-gradient(135deg, #ff6b00, #ff2d00)', color: 'var(--on-emphasis)' },
+  { label: '首板', desc: '最近一个交易日涨停 (单板)', bg: 'var(--up-bg-muted)', color: 'var(--up-fg)' },
+  { label: '芯片', desc: '「概念」列蓝色 chip — 个股所属概念题材 (最多显示 2 个, 鼠标悬停看全部)', bg: 'var(--accent-bg-muted)', color: 'var(--accent-fg)' },
+  { label: '最强', desc: '板块内排名第 1 (龙头股, 行业列尾标)', bg: 'linear-gradient(135deg, #ff6b00, #ff3b00)', color: 'var(--on-emphasis)' },
 ]
 
 const verdictColors: Array<{ label: string; desc: string; color: string }> = [
-  { label: '建议执行', desc: '决策综合分 ≥50, 建议仓位 20-30%', color: '#16a34a' },
-  { label: '轻仓试单', desc: '决策综合分 25-49, 建议仓位 5-10%', color: '#0284c7' },
-  { label: '观望确认', desc: '决策综合分 0-24, 暂不入场', color: '#d97706' },
-  { label: '回避',     desc: '决策综合分 <0 (大盘危险 / 历史胜率低), 不要碰', color: '#dc2626' },
+  { label: '建议执行', desc: '决策综合分 ≥50, 建议仓位 20-30%', color: 'var(--success-fg)' },
+  { label: '轻仓试单', desc: '决策综合分 25-49, 建议仓位 5-10%', color: 'var(--accent-fg)' },
+  { label: '观望确认', desc: '决策综合分 0-24, 暂不入场', color: 'var(--warn-fg)' },
+  { label: '回避',     desc: '决策综合分 <0 (大盘危险 / 历史胜率低), 不要碰', color: 'var(--danger-fg)' },
 ]
 </script>
 
@@ -74,7 +74,7 @@ const verdictColors: Array<{ label: string; desc: string; color: string }> = [
   font-size: 11px;
   color: var(--text2);
   background: transparent;
-  border: 1px dashed var(--border, #d4d4d8);
+  border: 1px dashed var(--border-default);
   border-radius: 4px;
   cursor: pointer;
   user-select: none;
@@ -107,7 +107,7 @@ const verdictColors: Array<{ label: string; desc: string; color: string }> = [
   font-size: 11px;
   padding: 1px 6px;
   border-left: 3px solid;
-  background: #f8fafc;
+  background: var(--bg-sunken);
   font-weight: 600;
   flex: 0 0 auto;
   min-width: 60px;
@@ -116,7 +116,7 @@ const verdictColors: Array<{ label: string; desc: string; color: string }> = [
 .legend-hint {
   margin-top: 10px;
   padding-top: 6px;
-  border-top: 1px dashed var(--border, #e5e5e5);
+  border-top: 1px dashed var(--border-default);
   font-size: 10px;
   color: var(--text3);
   font-style: italic;

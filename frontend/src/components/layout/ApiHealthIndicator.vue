@@ -32,10 +32,10 @@ const overallLabel = computed(() => {
 })
 
 function colorOf(summary: string) {
-  if (summary === 'ok') return '#22c55e'
-  if (summary === 'degraded') return '#f59e0b'
-  if (summary === 'fail') return '#ef4444'
-  return '#9ca3af'
+  if (summary === 'ok') return 'var(--success-fg)'
+  if (summary === 'degraded') return 'var(--warn-fg)'
+  if (summary === 'fail') return 'var(--danger-fg)'
+  return 'var(--fg-subtle)'
 }
 
 function labelOf(summary: string) {
@@ -142,7 +142,7 @@ const detailExpanded = ref(false)
         <div v-if="failingTasks.length" class="failing-tasks-block">
           <div class="functions-head">
             <span>⚠ 调度任务异常</span>
-            <span class="functions-summary" style="color:#ef4444">{{ failingTasks.length }} 个连续失败</span>
+            <span class="functions-summary" style="color:var(--danger-fg)">{{ failingTasks.length }} 个连续失败</span>
           </div>
           <div class="failing-tasks-list">
             <div v-for="t in failingTasks" :key="t.job_id" class="failing-task-item"
@@ -174,7 +174,7 @@ const detailExpanded = ref(false)
               <div class="check-row">
                 <span
                   class="check-dot"
-                  :style="{ background: c.status === 'ok' ? '#22c55e' : c.status === 'unknown' ? '#9ca3af' : '#ef4444' }"
+                  :style="{ background: c.status === 'ok' ? 'var(--success-fg)' : c.status === 'unknown' ? 'var(--fg-subtle)' : 'var(--danger-fg)' }"
                 />
                 <span class="check-label">{{ state.usage_labels[usage] || usage }}</span>
                 <span v-if="c.status === 'unknown'" class="check-unknown">5min无调用</span>
@@ -236,8 +236,8 @@ const detailExpanded = ref(false)
   font-size: 12px;
 }
 .functions-block {
-  background: #f9fafb;
-  border: 1px solid #e5e7eb;
+  background: var(--bg-default);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   padding: 6px 8px;
   margin-bottom: 8px;
@@ -248,7 +248,7 @@ const detailExpanded = ref(false)
   align-items: center;
   font-weight: 600;
   font-size: 12px;
-  color: #374151;
+  color: var(--fg-default);
   margin-bottom: 4px;
 }
 .functions-summary {
@@ -276,27 +276,27 @@ const detailExpanded = ref(false)
   grid-row: 1;
 }
 .fn-label {
-  color: #1f2937;
+  color: var(--fg-default);
   grid-row: 1;
 }
 .fn-status {
   font-size: 10px;
   grid-row: 1;
 }
-.fn-ok .fn-status { color: #16a34a; }
-.fn-fail .fn-status { color: #ef4444; font-weight: 600; }
-.fn-unknown .fn-status { color: #9ca3af; }
+.fn-ok .fn-status { color: var(--success-fg); }
+.fn-fail .fn-status { color: var(--danger-fg); font-weight: 600; }
+.fn-unknown .fn-status { color: var(--fg-subtle); }
 .fn-reason {
   grid-column: 2 / span 2;
   grid-row: 2;
   font-size: 10px;
-  color: #6b7280;
+  color: var(--fg-muted);
   line-height: 1.3;
 }
-.fn-fail .fn-reason { color: #991b1b; }
+.fn-fail .fn-reason { color: var(--danger-fg); }
 .src-section-title {
   font-size: 11px;
-  color: #6b7280;
+  color: var(--fg-muted);
   font-weight: 600;
   margin: 4px 0 2px;
   letter-spacing: 0.3px;
@@ -309,14 +309,14 @@ const detailExpanded = ref(false)
   touch-action: manipulation;
 }
 .src-section-title:hover {
-  color: #374151;
+  color: var(--fg-default);
 }
 .failing-tasks-block {
   margin-top: 10px;
   padding: 8px;
   border-radius: 4px;
-  background: rgba(239, 68, 68, 0.04);
-  border-left: 3px solid #ef4444;
+  background: color-mix(in srgb, var(--danger-fg) 5%, transparent);
+  border-left: 3px solid var(--danger-fg);
 }
 .failing-tasks-list {
   display: flex;
@@ -330,24 +330,24 @@ const detailExpanded = ref(false)
   gap: 1px;
   padding: 4px 6px;
   border-radius: 3px;
-  background: white;
+  background: var(--bg-surface);
 }
 .failing-task-item.is-alerted {
-  background: rgba(239, 68, 68, 0.06);
-  border-left: 2px solid #dc2626;
+  background: color-mix(in srgb, var(--danger-fg) 7%, transparent);
+  border-left: 2px solid var(--danger-fg);
 }
 .ft-name {
   font-weight: 600;
   font-size: 12px;
-  color: #374151;
+  color: var(--fg-default);
 }
 .ft-count {
   font-size: 11px;
-  color: #b91c1c;
+  color: var(--danger-fg);
 }
 .ft-error {
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--fg-subtle);
   font-family: monospace;
   word-break: break-all;
 }
@@ -355,7 +355,7 @@ const detailExpanded = ref(false)
   display: inline-block;
   width: 10px;
   font-size: 9px;
-  color: #9ca3af;
+  color: var(--fg-subtle);
   transition: transform 0.15s;
 }
 .detail-arrow.expanded {
@@ -364,7 +364,7 @@ const detailExpanded = ref(false)
 .detail-hint {
   margin-left: auto;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--fg-subtle);
   font-weight: 400;
 }
 .popover-header {
@@ -378,12 +378,12 @@ const detailExpanded = ref(false)
   font-size: 13px;
 }
 .popover-checked {
-  color: #888;
+  color: var(--fg-muted);
   font-size: 11px;
   margin-bottom: 8px;
 }
 .src-block {
-  border-top: 1px solid #eee;
+  border-top: 1px solid var(--border-default);
   padding: 6px 0;
 }
 .src-block:first-of-type {
@@ -423,21 +423,21 @@ const detailExpanded = ref(false)
   flex-shrink: 0;
 }
 .check-label {
-  color: #333;
+  color: var(--fg-default);
 }
 .check-latency {
-  color: #999;
+  color: var(--fg-subtle);
   margin-left: auto;
   font-variant-numeric: tabular-nums;
 }
 .check-fail-tag {
-  color: #ef4444;
+  color: var(--danger-fg);
   margin-left: auto;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 .check-unknown {
-  color: #9ca3af;
+  color: var(--fg-subtle);
   margin-left: auto;
   font-size: 10px;
 }
@@ -445,9 +445,9 @@ const detailExpanded = ref(false)
   margin-top: 2px;
   margin-left: 0;
   padding: 3px 6px;
-  background: #fef2f2;
-  border-left: 2px solid #ef4444;
-  color: #991b1b;
+  background: var(--danger-bg-muted);
+  border-left: 2px solid var(--danger-fg);
+  color: var(--danger-fg);
   font-size: 10px;
   line-height: 1.4;
   word-break: break-all;

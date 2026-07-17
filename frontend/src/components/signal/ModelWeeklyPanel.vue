@@ -20,11 +20,12 @@ const hasData = computed(() => data.value.models.some(m => m.cells.some(c => c.e
 
 function mmdd(w: string) { return w ? w.slice(5) : '' }
 function cellStyle(rate: number | null, ev: number) {
-  if (rate === null || ev === 0) return { background: '#f8fafc', color: '#cbd5e1' }
+  if (rate === null || ev === 0) return { background: 'var(--bg-sunken)', color: 'var(--fg-subtle)' }
   const faint = ev < 3                              // 样本<3淡显(噪音大)
-  if (rate >= 60) return { background: faint ? '#fdecec' : '#fbd5d5', color: '#b91c1c' }
-  if (rate >= 45) return { background: faint ? '#fdf6e3' : '#fcefc7', color: '#a16207' }
-  return { background: faint ? '#eafaf0' : '#cdeede', color: '#15803d' }
+  // 交通灯热度: 红=高胜率好用(up) / 黄=中(warn) / 绿=失效(down); faint 用低透明档保留噪音提示
+  if (rate >= 60) return { background: `color-mix(in srgb, var(--up-fg) ${faint ? 8 : 22}%, transparent)`, color: 'var(--up-fg)' }
+  if (rate >= 45) return { background: `color-mix(in srgb, var(--warn-fg) ${faint ? 8 : 22}%, transparent)`, color: 'var(--warn-fg)' }
+  return { background: `color-mix(in srgb, var(--down-fg) ${faint ? 8 : 22}%, transparent)`, color: 'var(--down-fg)' }
 }
 </script>
 
@@ -79,23 +80,23 @@ function cellStyle(rate: number | null, ev: number) {
 </template>
 
 <style scoped>
-.mw-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 14px; }
+.mw-card { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px; padding: 12px 14px; }
 .mw-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-.mw-title { font-weight: 700; font-size: 14px; color: #1e293b; }
-.mw-sel { font-size: 12px; padding: 2px 6px; border: 1px solid #cbd5e1; border-radius: 4px; color: #475569; touch-action: manipulation; }
-.mw-best { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 6px; padding: 6px 10px; font-size: 13px; color: #9a3412; margin-bottom: 10px; }
-.mw-best b { color: #b91c1c; }
-.mw-best span { color: #c2410c; margin-left: 6px; }
-.mw-best-weak { background: #f8fafc; border-color: #e2e8f0; color: #64748b; }
+.mw-title { font-weight: 700; font-size: 14px; color: var(--fg-default); }
+.mw-sel { font-size: 12px; padding: 2px 6px; border: 1px solid var(--border-default); border-radius: 4px; color: var(--fg-muted); touch-action: manipulation; }
+.mw-best { background: var(--warn-bg-muted); border: 1px solid color-mix(in srgb, var(--warn-fg) 32%, transparent); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--warn-fg); margin-bottom: 10px; }
+.mw-best b { color: var(--up-fg); }
+.mw-best span { color: var(--warn-fg); margin-left: 6px; }
+.mw-best-weak { background: var(--bg-sunken); border-color: var(--border-default); color: var(--fg-muted); }
 .mw-table-wrap { overflow-x: auto; overscroll-behavior-x: contain; }
 .mw-table { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
-.mw-table th { background: #f8fafc; color: #64748b; font-weight: 600; padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid #e2e8f0; }
-.mw-table td { padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid #f1f5f9; }
-.mw-mname { text-align: left !important; color: #334155; font-weight: 600; position: sticky; left: 0; background: #fff; }
+.mw-table th { background: var(--bg-sunken); color: var(--fg-muted); font-weight: 600; padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--border-default); }
+.mw-table td { padding: 4px 6px; text-align: center; white-space: nowrap; border-bottom: 1px solid var(--border-muted); }
+.mw-mname { text-align: left !important; color: var(--fg-default); font-weight: 600; position: sticky; left: 0; background: var(--bg-surface); }
 .mw-recent { font-weight: 700; }
 .mw-rate { display: block; line-height: 1.1; }
 .mw-n { display: block; font-size: 10px; opacity: 0.7; }
-.mw-empty { color: #cbd5e1; }
-.mw-foot { margin-top: 8px; font-size: 11px; color: #94a3b8; }
-.mw-loading { padding: 18px; text-align: center; color: #94a3b8; font-size: 13px; }
+.mw-empty { color: var(--fg-subtle); }
+.mw-foot { margin-top: 8px; font-size: 11px; color: var(--fg-subtle); }
+.mw-loading { padding: 18px; text-align: center; color: var(--fg-subtle); font-size: 13px; }
 </style>
