@@ -1368,6 +1368,12 @@ async def _run_migrations(conn):
                 "DELETE FROM cfzy_sys_scheduled_tasks WHERE job_id IN (%s, %s, %s)",
                 ("tail_decision_1440", "post_close_summary_1505", "disclosure_reminder"),
             )
+            # 存量行改名(INSERT IGNORE 不更新已存在行, 故显式 UPDATE): 收盘复盘 → 晚盘复盘总结
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET name = %s, description = %s WHERE job_id = %s",
+                ("晚盘复盘总结·19:00",
+                 "晚7点一张晚盘复盘总结: 持仓今日表现 + 今日信号+近90天胜率+最好/警惕 + 近期财报披露(未来7天, 原08:40独立卡下线并入)",
+                 "review_summary_2330"))
         except Exception:
             pass
 
