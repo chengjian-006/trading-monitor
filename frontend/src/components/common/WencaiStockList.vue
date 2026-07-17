@@ -81,23 +81,23 @@ defineExpose({ selectedCount: () => selected.size })
 <style scoped>
 .bar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 8px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
-.cell { border: 1px solid #efeff5; border-radius: 7px; padding: 8px 10px; transition: all 0.15s; }
-.cell.picked { background: rgba(46,158,255,0.05); border-color: rgba(46,158,255,0.4); }
+.cell { border: 1px solid var(--border-muted); border-radius: 7px; padding: 8px 10px; transition: all 0.15s; }
+.cell.picked { background: var(--accent-bg-muted); border-color: color-mix(in srgb, var(--accent-fg) 40%, transparent); }
 .cell-top { display: flex; align-items: center; gap: 8px; }
 .stock { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 1; cursor: pointer; touch-action: manipulation; }
-.name { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.code { font-size: 11px; color: #999; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.name { font-size: 13px; font-weight: 600; color: var(--fg-default); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code { font-size: 11px; color: var(--fg-subtle); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .quote { display: flex; align-items: baseline; gap: 6px; flex-shrink: 0; }
-.price { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.8); font-variant-numeric: tabular-nums; }
+.price { font-size: 13px; font-weight: 600; color: var(--fg-default); font-variant-numeric: tabular-nums; }
 .pct { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
 .tag { font-size: 10.5px; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
-.t-tech { background: rgba(208,48,80,0.1); color: #d03050; }
-.t-buy { background: rgba(24,160,88,0.12); color: #18a058; }
-.t-concept { background: rgba(46,158,255,0.1); color: #2e9eff; }
-.t-num { background: rgba(0,0,0,0.05); color: #888; font-variant-numeric: tabular-nums; }
-.up { color: #d03050; }
-.down { color: #18a058; }
+.t-tech { background: var(--up-bg-muted); color: var(--up-fg); }
+.t-buy { background: var(--down-bg-muted); color: var(--down-fg); }
+.t-concept { background: var(--accent-bg-muted); color: var(--accent-fg); }
+.t-num { background: var(--bg-sunken); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.up { color: var(--up-fg); }
+.down { color: var(--down-fg); }
 @media (max-width: 768px) {
   .grid { grid-template-columns: 1fr; }
 }

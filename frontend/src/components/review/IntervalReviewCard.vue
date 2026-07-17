@@ -44,24 +44,24 @@ function setPreset(n: number) {
 }
 
 const pctCell = (v: number | null) => {
-  if (v == null) return h('span', { style: { color: 'var(--text3,#999)' } }, '—')
-  const color = v >= 0 ? 'var(--red,#dc2626)' : 'var(--green,#16a34a)' // A股 正红负绿
+  if (v == null) return h('span', { style: { color: 'var(--fg-subtle)' } }, '—')
+  const color = v >= 0 ? 'var(--up-fg)' : 'var(--down-fg)' // A股 正红负绿
   return h('span', { style: { color, fontWeight: 600, fontFamily: 'monospace', fontVariantNumeric: 'tabular-nums' } },
     `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`)
 }
 const outcomeCell = (o: string | null) => {
   const cfg: Record<string, [string, string]> = {
-    success: ['成功', 'var(--red,#dc2626)'], fail: ['失败', 'var(--green,#16a34a)'],
-    neutral: ['中性', '#888'],
+    success: ['成功', 'var(--up-fg)'], fail: ['失败', 'var(--down-fg)'],
+    neutral: ['中性', 'var(--fg-muted)'],
   }
-  const [label, color] = cfg[o ?? ''] ?? ['待评估', '#d97706']
+  const [label, color] = cfg[o ?? ''] ?? ['待评估', 'var(--warn-fg)']
   return h('span', { style: { color, fontWeight: 700, fontSize: '12px' } }, label)
 }
 // 计划出场单元格: label + 目标价 + 触及徽标(已触及橙色高亮)
 const exitCell = (label: string, price: number | null, hit: boolean) => {
-  if (!label) return h('span', { style: { color: 'var(--text3,#999)' } }, '—')
+  if (!label) return h('span', { style: { color: 'var(--fg-subtle)' } }, '—')
   const parts = [h('span', {}, `${label} @${price ?? '—'}`)]
-  if (hit) parts.push(h('span', { style: { color: '#b45309', fontWeight: 700, marginLeft: '4px' } }, '已触及'))
+  if (hit) parts.push(h('span', { style: { color: 'var(--warn-fg)', fontWeight: 700, marginLeft: '4px' } }, '已触及'))
   return h('span', { style: { fontSize: '12px' } }, parts)
 }
 

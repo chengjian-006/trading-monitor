@@ -305,8 +305,8 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
 }
 .running-badge {
   font-size: 12px;
-  color: #18a058;
-  background: rgba(24, 160, 88, 0.08);
+  color: var(--accent-fg);
+  background: var(--accent-bg-muted);
   padding: 2px 10px;
   border-radius: 10px;
 }
@@ -355,8 +355,8 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
   gap: 10px;
 }
 .task-card {
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border, #e8e8e8);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
   padding: 14px 16px;
   transition: box-shadow 0.2s, opacity 0.2s;
@@ -400,11 +400,11 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
   border-radius: 4px;
 }
 .task-status.running {
-  color: #18a058;
-  background: rgba(24, 160, 88, 0.1);
+  color: var(--accent-fg);
+  background: var(--accent-bg-muted);
 }
 .task-status.stopped {
-  color: #999;
+  color: var(--fg-subtle);
   background: rgba(0, 0, 0, 0.04);
 }
 .task-run-info {
@@ -426,10 +426,10 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
 .task-error {
   margin-top: 4px;
   font-size: 11px;
-  color: #b91c1c;
-  background: rgba(220, 38, 38, 0.06);
+  color: var(--danger-fg);
+  background: var(--danger-bg-muted);
   padding: 4px 8px;
-  border-left: 2px solid #dc2626;
+  border-left: 2px solid var(--danger-fg);
   border-radius: 2px;
   word-break: break-all;
   cursor: help;
