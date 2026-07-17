@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.655',
+    date: '2026-07-18',
+    title: 'AI 盘面报告精简为「操作建议+理由」 + 下线问财候选榜页',
+    changes: [
+      {
+        text: 'AI 盘面分析报告精简：只保留「操作建议」判定（适合买入/谨慎观望/不适合买入）与一句理由，去掉热点板块、风险警示、持仓动态、操作要点四块，聚焦一眼看结论。',
+        tag: 'improve',
+      },
+      {
+        text: '下线「问财候选榜」页面（问财观点页保留）。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.654',
     date: '2026-07-17',
     title: '安全整改 H1：数据库连接 TLS 开关就位（config 驱动 + 启动自检）',

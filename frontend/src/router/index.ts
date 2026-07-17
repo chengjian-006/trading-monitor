@@ -7,7 +7,6 @@ const router = createRouter({
     { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
     { path: '/', name: 'signals', component: () => import('../views/SignalView.vue') },
     { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue') },
-    { path: '/wencai', name: 'wencai', component: () => import('../views/WencaiView.vue') },
     { path: '/wencai-opinion', name: 'wencai-opinion', component: () => import('../views/WencaiOpinionView.vue') },
     { path: '/intraday', name: 'intraday', component: () => import('../views/IntraDayView.vue') },
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },

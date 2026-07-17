@@ -7,7 +7,7 @@ import {
   ReaderOutline, SettingsOutline, PeopleOutline,
   OptionsOutline, RocketOutline, TrendingUpOutline,
   TimerOutline, BarChartOutline,
-  WalletOutline, ListOutline, SearchOutline, BulbOutline,
+  WalletOutline, ListOutline, BulbOutline,
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 
@@ -38,7 +38,6 @@ const menuGroups: MenuGroup[] = [
     children: [
       { key: 'signals', label: '监控看板', path: '/', icon: PulseOutline },
       { key: 'pool', label: '股票池', path: '/pool', icon: LayersOutline },
-      { key: 'wencai', label: '问财候选榜', path: '/wencai', icon: SearchOutline },
       { key: 'wencai-opinion', label: '问财观点', path: '/wencai-opinion', icon: BulbOutline },
       { key: 'history', label: '信号历史', path: '/history', icon: TimeOutline },
       { key: 'models', label: '模型图鉴', path: '/models', icon: ReaderOutline },
