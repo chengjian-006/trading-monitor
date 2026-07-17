@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.657',
+    date: '2026-07-18',
+    title: '短线情绪面板 KPI 对齐机构终端：mono 等宽数字 + 安静高亮',
+    changes: [
+      {
+        text: '短线情绪面板核心指标改用 mono 等宽大数字（涨停/跌停/封板率等），高亮格由蓝底改素底描边不再抢主色，连板梯队涨幅同步等宽；更贴近机构终端读数风格。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.656',
     date: '2026-07-18',
     title: '盯盘看板重排：不等宽双栏 + 临近买点整列到底',

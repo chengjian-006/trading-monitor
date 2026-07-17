@@ -233,11 +233,12 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .phase-text { font-size: 20px; font-weight: 800; letter-spacing: 1px; }
 .phase-desc { font-size: 11.5px; color: var(--fg-muted); line-height: 1.45; }
 
+/* KPI 六格 (v1.7.657 对齐机构终端效果图): mono 等宽大数字 + 安静素底高亮(不抢终端蓝) */
 .metrics { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; margin-top: 8px; }
 .metric { background: var(--bg-default); border-radius: 6px; padding: 6px 5px; text-align: center; }
-.metric.highlight { background: var(--accent-bg-muted); }
+.metric.highlight { background: var(--bg-sunken); box-shadow: inset 0 0 0 1px var(--border-muted); }
 .m-label { font-size: 11px; color: var(--fg-subtle); margin-bottom: 2px; }
-.m-value { font-size: 17px; font-weight: 700; color: var(--fg-default); font-variant-numeric: tabular-nums; }
+.m-value { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--fg-default); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 
 .ladder-box { margin-top: 8px; }
 .card-title { font-size: 12px; font-weight: 600; color: var(--fg-default); margin-bottom: 6px; display: flex; align-items: baseline; flex-wrap: wrap; }
@@ -254,7 +255,7 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .lt-chip.in-pool { background: var(--accent-bg-muted); border-color: var(--accent-fg); }
 .lt-chip.broke { border-style: dashed; border-color: var(--warn-fg); }
 .lc-name { flex-shrink: 0; font-size: 12px; font-weight: 600; color: var(--fg-default); white-space: nowrap; }
-.lc-pct { flex-shrink: 0; font-size: 11px; font-weight: 600; color: var(--up-fg); font-variant-numeric: tabular-nums; }
+.lc-pct { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: var(--up-fg); font-variant-numeric: tabular-nums; }
 .lc-streak { flex-shrink: 0; font-size: 10px; color: var(--warn-fg); background: var(--warn-bg-muted); border-radius: 4px; padding: 0 4px; white-space: nowrap; }
 .lc-reason { flex: 1; min-width: 0; font-size: 10.5px; color: var(--fg-subtle); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lt-first { margin-top: 6px; font-size: 11.5px; color: var(--fg-subtle); }
