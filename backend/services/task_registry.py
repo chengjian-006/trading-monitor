@@ -16,7 +16,7 @@ from backend.services.weak_extreme_scanner import scan_weak_extreme_snapshot
 from backend.services.capital_inflow_scanner import scan_capital_inflow
 from backend.services.strength_quality_scanner import scan_strength_quality_snapshot
 from backend.services.sparkline_prefetcher import prefetch_intraday_sparklines
-from backend.services.post_close_summary import run_post_close_summary
+# run_post_close_summary 已下线(15:05盘后汇总, 并入晚盘复盘总结)
 from backend.services.api_health import check_all_api_health
 from backend.services.attack_direction_analyst import run_attack_direction_analysis
 from backend.services.auction_summary_analyst import run_auction_summary, run_auction_0926
@@ -63,11 +63,11 @@ from backend.services.custom_alert_scanner import check_custom_alerts
 from backend.services.risk_announcement_scanner import scan_risk_announcements
 from backend.services.financial_risk_scanner import scan_financial_risk
 from backend.services.blackswan_alerts import scan_blackswan_alerts
-from backend.services.disclosure_reminder import refresh_disclosure_calendar, run_disclosure_reminder
+from backend.services.disclosure_reminder import refresh_disclosure_calendar  # run_disclosure_reminder已下线(披露并入晚盘复盘)
 from backend.services.earnings_forecast_scan import run_earnings_forecast_scan
 from backend.services.stock_names_refresher import refresh_stock_names
 from backend.services.holding_brief import refresh_holding_state_fwd, run_holding_evening_report
-from backend.services.tail_decision import run_tail_decision_1440
+# run_tail_decision_1440 已下线(14:40尾盘决策, 用户拍板精简盘后推送)
 from backend.services.system_health import run_system_health_digest
 from backend.services.morning_focus import run_morning_focus
 from backend.services.push_health_report import run_push_health_report
@@ -113,7 +113,6 @@ TASK_HANDLERS: dict[str, object] = {
     "scan_capital_inflow": scan_capital_inflow,
     "scan_strength_quality_snapshot": scan_strength_quality_snapshot,
     "prefetch_intraday_sparklines": prefetch_intraday_sparklines,
-    "run_post_close_summary": run_post_close_summary,
     "check_all_api_health": check_all_api_health,
     "run_attack_direction_analysis": run_attack_direction_analysis,
     "run_auction_summary": run_auction_summary,
@@ -171,10 +170,8 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_stock_names": refresh_stock_names,
     "refresh_holding_state_fwd": refresh_holding_state_fwd,
     "run_holding_evening_report": run_holding_evening_report,
-    "run_tail_decision_1440": run_tail_decision_1440,
     "run_system_health_digest": run_system_health_digest,
     "refresh_disclosure_calendar": refresh_disclosure_calendar,
-    "run_disclosure_reminder": run_disclosure_reminder,
     "run_earnings_forecast_scan": run_earnings_forecast_scan,
     "run_morning_focus": run_morning_focus,
     "run_push_health_report": run_push_health_report,

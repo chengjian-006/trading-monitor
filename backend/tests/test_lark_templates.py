@@ -196,9 +196,21 @@ def test_system_cards_grey():
 
 
 def test_intel_cards_blue():
-    for tid in ("盘面分析/收盘复盘", "盘面分析/真假强势评分快照", "盘面分析/次日板块预测",
-                "盘面分析/尾盘决策合并卡", "持仓研判晚报/持仓研判晚报"):
+    for tid in ("盘面分析/晚盘复盘总结", "持仓研判晚报/持仓研判晚报"):
         assert _by_id(tid)["card"]["header"]["template"] == "blue", tid
+
+
+def test_evening_review_card_has_holdings_and_disclosure():
+    """晚盘复盘总结 = 持仓今日表现 + 信号胜率 + 近期披露 三段合一。"""
+    card = _by_id("盘面分析/晚盘复盘总结")["card"]
+    assert card["header"]["template"] == "blue"
+    assert "晚盘复盘总结" in card["header"]["title"]["content"]
+    md_all = _md_all(card)
+    assert "持仓今日表现" in md_all              # 💼 持仓段
+    assert "近期财报披露" in md_all              # 📅 披露段(从早盘挪来)
+    assert "| 股票 | 今日 | 浮盈 |" in md_all    # 持仓全短表
+    assert "| 股票 | 披露日 | 类型 |" in md_all  # 披露全短表
+    assert card["config"]["summary"]["content"].strip()
 
 
 def _md_all(card: dict) -> str:
@@ -225,7 +237,7 @@ def test_morning_focus_card_matches_service():
     assert card["header"]["template"] == "blue"
     md_all = _md_all(card)
     assert "昨日买点追踪" in md_all
-    assert "披露日历卡" in md_all                # 今日披露一行(明细卡照发, 这里只提及)
+    assert "今日披露财报" in md_all              # 今日披露一行(盘前速览)
     assert "大盘风险" in md_all                  # 当前生效状态段
     # 样例 6 只 > TOP_N=5 → 全量折叠必须出现
     assert any(e.get("tag") == "collapsible_panel"
@@ -244,12 +256,6 @@ def test_push_health_card_matches_service():
     assert "BUY_WEAK_EXTREME" not in md_all
     assert "模型图鉴" in md_all                  # 集中被关 → 点名建议分支
     assert card["config"]["summary"]["content"].strip()
-
-
-def test_prediction_card_has_bar_chart():
-    card = _by_id("盘面分析/次日板块预测")["card"]
-    charts = [e for e in card["body"]["elements"] if e.get("tag") == "chart"]
-    assert len(charts) == 1 and charts[0]["chart_spec"]["type"] == "bar"
 
 
 # ── 路由 ──

@@ -1136,27 +1136,22 @@ async def _run_migrations(conn):
             ("disclosure_calendar_refresh", "财报预约披露·刷新·08:20",
              "每日 08:20 拉当前报告期定期报告预约披露时间表落库(慢变, 顺带捕捉披露日变更), 供披露日历提醒读取",
              "cron", _json.dumps({"hour": 8, "minute": 20}), "refresh_disclosure_calendar"),
-            ("disclosure_reminder", "财报披露日历·提醒·08:40",
-             "交易日 08:40 把自选+持仓里未来7天内要披露定期报告的票推一张提醒卡(防御: 财报是二元事件, 利空跌幅大于利好涨幅, 拿不准可披露前减仓)",
-             "cron", _json.dumps({"hour": 8, "minute": 40}), "run_disclosure_reminder"),
+            # v1.7.651: 08:40 独立披露卡下线 — 披露内容并入 19:00 晚盘复盘总结(review_summary),
+            #   晚上提前一天知道明日/近期披露, 同属防御; 08:20 refresh_disclosure_calendar 保留当数据源。
             ("earnings_forecast_scan", "预增榜·当日正向业绩预告·18:30",
              "每日 18:30 拉当日新出业绩预告落库, 把正向预告(预增/略增/扭亏等)推一张预增榜卡(自选/持仓命中置顶+全市场大幅预增TopN); 回测背书仅快进快出非埋伏神器",
              "cron", _json.dumps({"hour": 18, "minute": 30}), "run_earnings_forecast_scan"),
-            # v1.7.554: 推送降噪·批次B③ — 尾盘三卡(真假强势14:30/次日板块14:30/弱势极限14:45)合并成14:40一张
-            ("tail_decision_1440", "尾盘决策·14:40(强势评分+次日板块+弱势极限合并)",
-             "14:40 一张合并卡: 真假强势评分 + 次日板块预测 + 弱势极限尾盘候选; 原三条 14:30~14:45 独立推送合并",
-             "cron", _json.dumps({"hour": 14, "minute": 40}), "run_tail_decision_1440"),
+            # v1.7.554: 尾盘三卡合并成14:40 tail_decision; v1.7.651: 14:40尾盘决策整卡下线(用户拍板精简盘后推送,
+            #   真假强势/次日板块预测不再推; 弱势极限候选仍有11:30快照)。
             ("auction_sector_strength_0926", "竞价分析·09:26",
              "9:25集合竞价撮合后推板块强弱硬数据卡: 行业最强/最弱+概念top10(涨家比/领涨股标红自选)+昨日热点承接度+持仓板块名次; 与AI开盘共性卡互补不走AI",
              "cron", _json.dumps({"hour": 9, "minute": 26}), "run_auction_sector_strength"),
-            ("post_close_summary_1505", "盘后汇总·15:05",
-             "收盘后5分钟汇总所有 alert_timing=post_close 的信号命中，企微一条消息推送",
-             "cron", _json.dumps({"hour": 15, "minute": 5}), "run_post_close_summary"),
+            # v1.7.651: 15:05 盘后信号汇总下线(真假强势/主流题材, 与晚盘复盘总结重叠, 用户拍板精简)。
             ("freeze_intraday_1510", "分时曲线归档·15:10",
              "收盘后冻结股票池当日分时曲线到 cfzy_sys_intraday_snapshot，供分时图历史回放",
              "cron", _json.dumps({"hour": 15, "minute": 10}), "freeze_intraday_snapshots"),
-            ("review_summary_2330", "收盘复盘摘要·19:00",
-             "晚7点推送复盘摘要(今日信号+买卖点胜率对比+最好/警惕信号)到企微/飞书。胜率由16:00回填先行, 此处胜率为当日最新",
+            ("review_summary_2330", "晚盘复盘总结·19:00",
+             "晚7点一张晚盘复盘总结: 持仓今日表现(逐票涨跌+浮盈) + 今日信号+近90天买卖点胜率+最好/警惕信号 + 近期财报披露(未来7天)。胜率由16:00回填先行, 此处为当日最新; 披露内容并入(原08:40独立卡下线)",
              "cron", _json.dumps({"hour": 19, "minute": 0}), "run_review_summary"),
             ("prefetch_intraday_sparklines", "分时走势预热",
              "每25秒预拉股票池分时数据，让缓存常热，前端打开页面秒返",
@@ -1361,6 +1356,17 @@ async def _run_migrations(conn):
             await cur.execute(
                 "DELETE FROM cfzy_sys_scheduled_tasks WHERE job_id = %s",
                 ("weak_extreme_1500",),
+            )
+        except Exception:
+            pass
+
+        # v1.7.651: 盘后推送精简(用户拍板) — 下线三张卡, 内容并入 19:00 晚盘复盘总结(review_summary):
+        #   tail_decision_1440(14:40尾盘决策=真假强势+次日板块+弱势极限候选) / post_close_summary_1505(15:05盘后汇总) /
+        #   disclosure_reminder(08:40早盘披露卡, 披露内容挪进晚盘复盘的「近期披露」段)。存量库删这三行(seed 已同步移除)。
+        try:
+            await cur.execute(
+                "DELETE FROM cfzy_sys_scheduled_tasks WHERE job_id IN (%s, %s, %s)",
+                ("tail_decision_1440", "post_close_summary_1505", "disclosure_reminder"),
             )
         except Exception:
             pass

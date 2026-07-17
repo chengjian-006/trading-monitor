@@ -1,9 +1,9 @@
 """情报类推送卡(基线 v1.1 蓝卡)改版回归测试 — 第三批 7 张。
 
-覆盖: 竞价播报/盘面播报、竞价分析、尾盘决策、收盘复盘、次日板块预测、
-真假强势评分快照、资金进攻方向。验证五区骨架(结论KPI/heading → 数据区全短列
+覆盖: 竞价播报/盘面播报、竞价分析、晚盘复盘总结(持仓表现+胜率+近期披露)、次日板块预测、
+真假强势评分快照、资金进攻方向、合并竞价卡。验证五区骨架(结论KPI/heading → 数据区全短列
 → 👉定性 → 折叠)、信封字段(summary/family=intel)、fallback 同源信息量、
-正文不写时间、chart 硬规则(media锁定)等。
+正文不写时间、chart 硬规则(media锁定)等。(尾盘决策合并卡14:40已下线, 相关测试移除)
 """
 from unittest.mock import AsyncMock
 
@@ -177,6 +177,28 @@ class TestReviewCard:
         assert "按交易计划执行" in _advice_lines(elements)[0]["content"]
         assert meta["top"] == ""
 
+    def test_holdings_and_disclosure_sections(self):
+        """晚盘复盘总结新增两段: 💼持仓今日表现(跌幅大在前) + 📅近期披露。"""
+        from backend.services.review_summary import _build_review_card
+        hold_perf = [
+            {"code": "002463", "name": "沪电股份", "price": 128.68, "pct": -5.88, "floating": -3.20},
+            {"code": "600519", "name": "贵州茅台", "price": 1245.0, "pct": 1.11, "floating": 2.30},
+        ]
+        disc_rows = [{"code": "002463", "name": "沪电股份", "appoint_date": "2026-07-20",
+                      "report_type": "2", "report_year": "2026"}]
+        text, elements, meta = _build_review_card(
+            1, 0, 0, 0, self._cmp(), [], [],
+            hold_perf=hold_perf, disc_rows=disc_rows, disc_hold={"002463"})
+        md = _md_join(elements)
+        assert "持仓今日表现" in md and "2只（1涨 1跌）" in md
+        assert "| 股票 | 今日 | 浮盈 |" in md
+        assert "近期财报披露" in md and "| 股票 | 披露日 | 类型 |" in md
+        assert "🔴沪电股份" in md          # 持仓票标🔴
+        # 披露 → 建议追加避险话术
+        assert "披露前拿不准的持仓可减仓避险" in _advice_lines(elements)[0]["content"]
+        # fallback 同源含两段
+        assert "持仓今日表现" in text and "近期披露" in text
+
 
 # ── 5. 次日板块预测 ──
 
@@ -272,59 +294,7 @@ class TestAttackCard:
         assert "09:45" not in text and "👉" in text
 
 
-# ── 7. 尾盘决策合并卡(信封 + 组装) ──
-
-class TestTailDecisionCard:
-    async def test_merged_envelope(self, monkeypatch):
-        from backend.services import tail_decision as td
-        import backend.services.strength_quality_scanner as sqs
-        import backend.services.sector_rotation_scanner as srs
-        import backend.services.weak_extreme_scanner as wes
-        import backend.services.notifier as notifier
-
-        monkeypatch.setattr(td, "is_workday", lambda now=None: True)
-        sq_part = ("强势文本", [card_kit.heading_md("强势")], {"real": 4, "observe": 2})
-        pred_part = ("预测文本", [card_kit.heading_md("预测")], {"wts": 2, "stw": 1, "cont": 0})
-        monkeypatch.setattr(sqs, "scan_strength_quality_snapshot",
-                            AsyncMock(return_value=sq_part))
-        monkeypatch.setattr(srs, "predict_sector_next_day",
-                            AsyncMock(return_value=pred_part))
-        monkeypatch.setattr(wes, "collect_weak_extreme_hits",
-                            AsyncMock(return_value=[{"code": "000001"}]))
-        monkeypatch.setattr(wes, "build_weak_extreme_section", lambda hits: "弱势极限一段")
-        captured = {}
-
-        async def fake_send_card(card):
-            captured["card"] = card
-            return True
-
-        monkeypatch.setattr(notifier, "send_card", fake_send_card)
-        await td.run_tail_decision_1440()
-        card = captured["card"]
-        assert card.title == "📊 尾盘决策"
-        assert card.family == "intel" and card.template == "blue"
-        assert "真强势4只" in card.summary and "弱转强候选2" in card.summary
-        assert "弱势极限1只" in card.summary
-        md = _md_join(card.elements)
-        assert "真假强势评分" in md and "次日板块预测" in md and "弱势极限一段" in md
-        assert "14:40" not in card.fallback     # 正文不写时间
-        assert "强势文本" in card.fallback and "预测文本" in card.fallback
-
-    async def test_all_empty_no_push(self, monkeypatch):
-        from backend.services import tail_decision as td
-        import backend.services.strength_quality_scanner as sqs
-        import backend.services.sector_rotation_scanner as srs
-        import backend.services.weak_extreme_scanner as wes
-        import backend.services.notifier as notifier
-
-        monkeypatch.setattr(td, "is_workday", lambda now=None: True)
-        monkeypatch.setattr(sqs, "scan_strength_quality_snapshot", AsyncMock(return_value=None))
-        monkeypatch.setattr(srs, "predict_sector_next_day", AsyncMock(return_value=None))
-        monkeypatch.setattr(wes, "collect_weak_extreme_hits", AsyncMock(return_value=[]))
-        send = AsyncMock()
-        monkeypatch.setattr(notifier, "send_card", send)
-        await td.run_tail_decision_1440()
-        send.assert_not_awaited()
+# ── 7. (尾盘决策合并卡已下线 — 14:40整卡取消, 内容不再推送; 相关测试随之移除) ──
 
 
 # ── 8. 合并竞价卡(信封 + 双部分组装) ──

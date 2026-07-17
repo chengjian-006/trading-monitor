@@ -676,10 +676,10 @@ register("盘面分析", "资金进攻方向·09:45",
          "交易日09:45定时执行 · 无明显主线时顶部改「资金分散·观望为主」照推")
 
 
-# ── 收盘复盘: 直调 review_summary._build_review_card ──
+# ── 晚盘复盘总结: 直调 review_summary._build_review_card(持仓+信号胜率+近期披露三段) ──
 
 def _review_preview() -> dict:
-    from backend.services.review_summary import COMPARE_DAYS, _build_review_card
+    from backend.services.review_summary import _build_review_card
     cmp = {"buy": {"evaluated": 20, "success": 11, "success_rate": 55.0,
                    "pending": 3, "avg_p5": 1.23},
            "sell": {"evaluated": 10, "success": 6, "success_rate": 60.0,
@@ -687,18 +687,32 @@ def _review_preview() -> dict:
     top = [{"signal_name": "缩量后放量突破（右侧）", "success_rate": 71.0, "success": 5, "evaluated": 7},
            {"signal_name": "强势起点", "success_rate": 67.0, "success": 6, "evaluated": 9}]
     weak = [{"signal_name": "弱势极限", "success_rate": 40.0, "success": 2, "evaluated": 5}]
-    text, elements, meta = _build_review_card(3, 2, 1, 0, cmp, top, weak)
+    hold_perf = [
+        {"code": "002463", "name": "沪电股份", "price": 128.68, "pct": -5.88, "floating": -3.20},
+        {"code": "300476", "name": "胜宏科技", "price": 96.50, "pct": -2.10, "floating": 8.40},
+        {"code": "600519", "name": "贵州茅台", "price": 1245.0, "pct": 1.11, "floating": 2.30},
+    ]
+    disc_rows = [
+        {"code": "002463", "name": "沪电股份", "appoint_date": "2026-07-20",
+         "report_type": "2", "report_year": "2026"},
+        {"code": "300750", "name": "宁德时代", "appoint_date": "2026-07-22",
+         "report_type": "2", "report_year": "2026"},
+    ]
+    disc_hold = {"002463"}
+    text, elements, meta = _build_review_card(
+        3, 2, 1, 0, cmp, top, weak,
+        hold_perf=hold_perf, disc_rows=disc_rows, disc_hold=disc_hold)
     card = card_kit.Card(
-        title="📊 收盘复盘", elements=elements, fallback=text, family="intel",
-        subtitle=f"近 {COMPARE_DAYS} 天实际收盘口径",
-        summary=card_kit.summary_text("收盘复盘", "买3卖2", meta.get("buy_rate_str")))
+        title="📊 晚盘复盘总结", elements=elements, fallback=text, family="intel",
+        subtitle="持仓表现 · 信号胜率 · 近期披露",
+        summary=card_kit.summary_text("晚盘复盘", "持仓3只", "买3卖2", "披露2只"))
     return _card_json(card)
 
 
-register("盘面分析", "收盘复盘",
-         "收盘后复盘摘要: KPI三栏(今日买/卖/胜率)+买卖点胜率强度条+最好/警惕榜+口径折叠",
+register("盘面分析", "晚盘复盘总结",
+         "晚7点一张收盘总结: KPI三栏+💼持仓今日表现(逐票涨跌/浮盈)+买卖点胜率强度条+最好/警惕榜+📅近期财报披露+口径折叠",
          _review_preview(),
-         "交易日盘后定时推送 · 排在 outcome 回填之后")
+         "交易日 19:00 定时推送 · 排在 outcome 回填之后 · 披露内容并入(原08:40独立卡下线)")
 
 
 # ── 涨停复盘: 直调 limit_up_archive.build_review_card ──
@@ -782,112 +796,8 @@ register("盘面分析", "板块强转弱·退潮",
          "交易日每3分钟扫描 · 强转弱退潮跃迁即推, 同题材当日仅一次")
 
 
-# ── 次日板块预测 / 真假强势 / 尾盘决策: 直调真实构卡(合并卡由真实部件组装) ──
-
-_PRED_GROUPS = {
-    "弱转强候选": [{"theme": "创新药", "traj": "0→1→1→3", "today": 3,
-                    "reason": "近3日低迷(均0.7), 今日回升至3家, 次日或反弹启动",
-                    "points": [("07-11", 0), ("07-14", 1), ("07-15", 1), ("07-16", 3)]}],
-    "强转弱候选": [{"theme": "光通信", "traj": "5→5→6→3", "today": 3,
-                    "reason": "近3日均5家高位, 今日3家较昨(6)回落, 次日防退潮",
-                    "points": [("07-11", 5), ("07-14", 5), ("07-15", 6), ("07-16", 3)]}],
-    "强势延续": [{"theme": "半导体", "traj": "4→5→6→6", "today": 6,
-                  "reason": "高位企稳, 次日有望延续",
-                  "points": [("07-11", 4), ("07-14", 5), ("07-15", 6), ("07-16", 6)]},
-                 {"theme": "机器人", "traj": "3→4→6→6", "today": 6, "reason": "主线延续",
-                  "points": [("07-11", 3), ("07-14", 4), ("07-15", 6), ("07-16", 6)]},
-                 {"theme": "PCB", "traj": "2→3→4→4", "today": 4, "reason": "梯队完整",
-                  "points": [("07-11", 2), ("07-14", 3), ("07-15", 4), ("07-16", 4)]}],
-    "疑似终结": [{"theme": t, "traj": "", "reason": ""}
-                 for t in ("数据中心电源", "液冷服务器", "半导体石英", "印尼锂盐", "参股算力")],
-}
-
-
-def _prediction_parts() -> tuple:
-    """(text, elements, meta) — 直调 _push_prediction(return_only=True), 该路径纯格式化零I/O。"""
-    from backend.services.sector_rotation_scanner import _push_prediction
-    return asyncio.run(_push_prediction(_PRED_GROUPS, return_only=True))
-
-
-def _strength_parts() -> tuple:
-    from backend.services.strength_quality_scanner import _build_strength_card
-    real = [
-        {"name": "国际复材", "code": "301526", "industry": "玻璃玻纤", "stock_5d_cum": 59.58,
-         "score": 105, "is_real_strong": True,
-         "criteria": [{"delta": 25, "name": "逆势创新高"}, {"delta": 20, "name": "多头排列"}]},
-        {"name": "中际旭创", "code": "300308", "industry": "光通信", "stock_5d_cum": 11.26,
-         "score": 85, "is_real_strong": True,
-         "criteria": [{"delta": 25, "name": "逆势创新高"}, {"delta": 20, "name": "量缩健康"}]},
-    ]
-    observe = [
-        {"name": "华正新材", "code": "603186", "stock_5d_cum": 38.79, "score": 60, "criteria": []},
-        {"name": "云南锗业", "code": "002428", "stock_5d_cum": 23.73, "score": 55, "criteria": []},
-    ]
-    return _build_strength_card(real, observe, 42, 3210.78, -4.77, 50)
-
-
-def _prediction_preview() -> dict:
-    text, elements, meta = _prediction_parts()
-    card = card_kit.Card(
-        title="📊 次日板块预测", elements=elements, fallback=text, family="intel",
-        subtitle="收盘前启发式预判 · 未回测",
-        summary=card_kit.summary_text(
-            "次日预测", f"弱转强{meta['wts']}", f"强转弱{meta['stw']}", f"延续{meta['cont']}"))
-    return _card_json(card)
-
-
-register("盘面分析", "次日板块预测",
-         "收盘前用多日涨停序列+今日质地做次日强弱预判(启发式未回测): KPI三栏+头号候选柱状图+理由折叠",
-         _prediction_preview(),
-         "交易日14:30计算 · 并入14:40尾盘决策合并卡 · 疑似终结折叠计数不堆名")
-
-
-def _strength_preview() -> dict:
-    text, elements, meta = _strength_parts()
-    card = card_kit.Card(
-        title="📊 真假强势评分快照", elements=elements, fallback=text, family="intel",
-        subtitle="尾盘 · 全天成交约九成已定",
-        summary=card_kit.summary_text(
-            "真假强势", f"真强势{meta['real']}只", f"观望{meta['observe']}只",
-            f"最高{meta['top']}" if meta.get("top") else ""))
-    return _card_json(card)
-
-
-register("盘面分析", "真假强势评分快照",
-         "盘中给股票池打真假强势分: KPI三栏+真强势Top5短表+全名单折叠, 真强势=企稳首日率先放量上攻者",
-         _strength_preview(),
-         "交易日14:30计算 · 并入14:40尾盘决策合并卡")
-
-
-def _tail_decision_preview() -> dict:
-    """尾盘决策合并卡 — 与 tail_decision.run_tail_decision_1440 同法组装(分节符+三部分真实元素)。"""
-    from backend.services.weak_extreme_scanner import build_weak_extreme_section
-    sq_text, sq_elements, sq_meta = _strength_parts()
-    pred_text, pred_elements, pred_meta = _prediction_parts()
-    weak_hits = [{"code": "600276", "name": "恒瑞医药", "close": 27.42, "pct": -1.15,
-                  "amount": 6.2e8, "detail": "MA20距-1.2% | 地量(近10日最低×1.05、均量×0.62)"}]
-    section = build_weak_extreme_section(weak_hits)
-
-    def _sep(title: str) -> dict:
-        return _md(f"<font color='grey'>━━━━━━ {title} ━━━━━━</font>")
-
-    elements = ([_sep("真假强势评分")] + list(sq_elements)
-                + [_sep("次日板块预测")] + list(pred_elements)
-                + [_sep("弱势极限·尾盘候选"), _md(section)])
-    bits = [f"真强势{sq_meta.get('real', 0)}只", f"弱转强候选{pred_meta.get('wts', 0)}",
-            f"弱势极限{len(weak_hits)}只"]
-    card = card_kit.Card(
-        title="📊 尾盘决策", elements=elements,
-        fallback="【尾盘决策】\n" + sq_text + "\n" + pred_text + "\n" + section,
-        family="intel", subtitle="真假强势 + 次日板块预测 + 弱势极限",
-        summary=card_kit.summary_text("尾盘决策", *bits))
-    return _card_json(card)
-
-
-register("盘面分析", "尾盘决策合并卡",
-         "14:40三合一: 真假强势评分+次日板块预测+弱势极限尾盘候选合成一张卡, 任一失败仍发其余",
-         _tail_decision_preview(),
-         "交易日14:40 · 各部分独立计算 · 全空则不发")
+# 注: 「次日板块预测 / 真假强势评分 / 尾盘决策合并卡」预览已下线 —
+#   14:40 尾盘决策整卡下线(用户拍板精简盘后推送), 三者均不再作为独立推送, 故移除预览。
 
 # 手工镜像 · 资金回流·板块预警: 构卡内联在 capital_inflow_scanner 编排里, 按现行版式对齐。
 register("盘面分析", "资金回流·板块预警",
@@ -1104,28 +1014,9 @@ register("持仓研判晚报", "持仓研判晚报",
 
 
 # ═══════════════════════════════════════════
-# 九、盘后提醒(披露日历 / 预增榜)
+# 九、盘后提醒(预增榜)
 # ═══════════════════════════════════════════
-
-def _disclosure_preview() -> dict:
-    from datetime import date
-    from backend.services.disclosure_reminder import build_disclosure_card
-    base = date.today()
-    rows = [
-        {"code": "300750", "name": "宁德时代", "report_type": "2",
-         "appoint_date": (base + timedelta(days=3)).isoformat(), "report_year": base.year},
-        {"code": "002594", "name": "比亚迪", "report_type": "2",
-         "appoint_date": (base + timedelta(days=6)).isoformat(), "report_year": base.year},
-        {"code": "601012", "name": "隆基绿能", "report_type": "2",
-         "appoint_date": (base + timedelta(days=7)).isoformat(), "report_year": base.year},
-    ]
-    return _card_json(build_disclosure_card(rows, hold_codes={"300750"}, today=base))
-
-
-register("盘后提醒", "财报披露日历·近期",
-         "自选/持仓里未来7天内要披露定期报告的票, 盘前提醒(防御避险): 全短列表+回测依据折叠",
-         _disclosure_preview(),
-         "交易日 08:40 · 自选+持仓未来7天内有披露才发")
+# 注: 财报披露日历原 08:40 独立卡已下线, 披露内容并入「盘面分析/晚盘复盘总结」的近期披露段。
 
 
 def _forecast_preview() -> dict:

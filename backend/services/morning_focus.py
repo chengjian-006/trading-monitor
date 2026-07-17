@@ -3,15 +3,15 @@
 一张蓝色情报卡(基线 v1.1 五区骨架), 只取系统内现成数据(全部读库/内存函数, 不拉外部接口):
   - KPI 三栏: 持仓N只 / 昨日触发信号M条 / 今日财报披露K家(自选+持仓)
   - 昨日信号跟踪: 昨日买点触发的票(股票|模型短名|昨收涨跌), >5 只 Top5+等N只(全量折叠)
-  - 今日风险一行: 今日披露财报的自选/持仓摘要(取数复用 disclosure_reminder;
-    08:40 那张披露日历卡照发不动, 这里只提一句"详见披露日历卡")
+  - 今日风险一行: 今日披露财报的自选/持仓摘要(取数复用 disclosure_reminder 的 upcoming_disclosures;
+    盘前速览今日披露; 近期全窗口披露见 19:00 晚盘复盘总结的近期披露段)
   - 当前生效状态: 大盘风险档(market_risk_controller) / 止损压力票数(stop_escalation
     活跃升级 episode) / 到线提醒生效订阅数(push_pref ma_alert_*)
   - 👉 一句话; 空数据段跳过; 全空(无持仓无信号无披露)不发
 
-防重复划界: 收盘复盘(review_summary 19:00)看"胜率战绩"、竞价播报(09:26)看"今早盘面"、
-披露日历(08:40)是"披露明细卡"、持仓研判晚报(holding_brief)是"逐票深度" —— 本卡只做
-08:50 盘前"清单式速览"(昨日追踪+今日日程+当前状态), 不算胜率、不看盘面、不展开明细。
+防重复划界: 晚盘复盘总结(review_summary 19:00)看"持仓表现+胜率战绩+近期披露"、竞价播报(09:26)看"今早盘面"、
+持仓研判晚报(holding_brief 20:00)是"逐票深度" —— 本卡只做 08:50 盘前"清单式速览"
+(昨日追踪+今日日程+当前状态), 不算胜率、不看盘面、不展开明细。
 
 每日一次去重: cfzy_biz_guard_throttle 哨兵行(code=SYS, rule=morning_focus), 重启不重发;
 学 stop_escalation "先标记再推"(防发送成功后标记失败 → 重启重发)。
@@ -105,13 +105,13 @@ def build_morning_focus_card(*, holding_n: int, total_signals: int, buy_rows: li
         if len(buy_rows) > TOP_N:
             fb.append(f"…等 {len(buy_rows)} 只")
 
-    # ── 今日风险段: 披露一句摘要(明细卡 08:40 照发, 这里只提及) ──
+    # ── 今日风险段: 今日披露一句摘要(盘前速览; 近期全窗口披露见19:00晚盘复盘总结) ──
     if k:
         names = "、".join(
             f"{'🔴' if str(r.get('code')) in hold_codes else ''}{r.get('name')}"
             for r in disclosure_rows[:5])
         more = f" 等{k}家" if k > 5 else ""
-        line = f"📅 今日披露财报：{names}{more}（🔴=持仓），详见 08:40 披露日历卡"
+        line = f"📅 今日披露财报：{names}{more}（🔴=持仓），披露前拿不准可减仓避险"
         elements.append(md_element(line))
         fb += ["", line]
 

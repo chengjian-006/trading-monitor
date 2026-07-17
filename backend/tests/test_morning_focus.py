@@ -72,8 +72,8 @@ def test_build_card_basic_structure():
     assert "| 股票 | 模型 | 昨收 |" in md
     assert "缩量后放量突破" in md and "（右侧）" not in md
     assert "+2.7%" in md
-    # 今日风险一行: 提及披露日历卡, 持仓票标🔴
-    assert "披露日历" in md and "🔴贵州茅台" in md
+    # 今日风险一行: 今日披露摘要, 持仓票标🔴
+    assert "今日披露财报" in md and "🔴贵州茅台" in md
     # 当前状态: 风险档 + 止损压力 + 到线提醒
     assert "🟡" in md and "谨慎" in md and "07-15 16:40" in md
     assert "止损压力" in md and "到线提醒" in md
