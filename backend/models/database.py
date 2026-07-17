@@ -1791,10 +1791,58 @@ async def _seed_scheduled_tasks(conn):
         logger.info("Seeded default scheduled tasks")
 
 
+def _build_db_ssl(ssl_cfg):
+    """H1(v1.7.654): config 驱动的库连接 TLS。**默认(config 无 database.ssl 键)返回 None → 不加密,
+    与历史行为完全一致零改变**; 只有显式配置才启用, 故对现网零风险。
+
+    ssl_cfg 形态(config.json 的 database.ssl):
+      缺省/None/False/空   → None(明文, 现状)
+      True                 → 加密但不校验服务器证书(check_hostname=False, CERT_NONE), 最省事
+      {"ca": "/path.pem"}  → 用指定 CA 证书校验服务器身份(最严格)
+      {"verify": false}    → 显式加密不校验
+
+    火山 veDB 若在控制台开了 SSL: config 填 "ssl": true 即加密上线; 要证书校验则填 ca 路径。
+    注意: 服务端若 have_ssl=DISABLED(未开 SSL), 即便这里传了 ctx, aiomysql 仍会静默退回明文
+    —— 故 init_db 连上后会跑 _verify_db_encrypted 自检真实链路是否加密, 没加密就打醒目告警。
+    """
+    if not ssl_cfg:
+        return None
+    import ssl as _ssl
+    ctx = _ssl.create_default_context()
+    ca = ssl_cfg.get("ca") if isinstance(ssl_cfg, dict) else None
+    # 有 ca 默认校验; 无 ca(仅 True 或 {}) 默认不校验(veDB 证书未必链到公网 CA)
+    verify = ssl_cfg.get("verify", bool(ca)) if isinstance(ssl_cfg, dict) else False
+    if ca:
+        ctx.load_verify_locations(ca)
+    if not verify:
+        ctx.check_hostname = False
+        ctx.verify_mode = _ssl.CERT_NONE
+    return ctx
+
+
+async def _verify_db_encrypted(conn):
+    """H1 自检: config 要求了 TLS, 核实链路真加密了没(防服务端未开 SSL 时静默明文的假安全感)。"""
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute("SHOW SESSION STATUS LIKE 'Ssl_cipher'")
+            row = await cur.fetchone()
+        cipher = row[1] if row else ""
+        if cipher:
+            logger.info(f"[db] TLS 已生效, cipher={cipher}")
+        else:
+            logger.warning(
+                "[db] config 配置了 database.ssl 但实际连接仍是明文(Ssl_cipher 为空) —— "
+                "服务端很可能未开启 SSL(火山 veDB 需在控制台启用), 数据仍跨公网明文传输!"
+            )
+    except Exception as e:
+        logger.warning(f"[db] TLS 状态自检失败(不影响连接): {e}")
+
+
 async def init_db():
     global _pool
     cfg = load_config().get("database", {})
-    _pool = await aiomysql.create_pool(
+    ssl_ctx = _build_db_ssl(cfg.get("ssl"))
+    pool_kwargs = dict(
         host=cfg.get("host", "127.0.0.1"),
         port=cfg.get("port", 3306),
         user=cfg.get("user", "root"),
@@ -1802,7 +1850,7 @@ async def init_db():
         db=cfg.get("db", "trading"),
         charset="utf8mb4",
         autocommit=True,
-        # 生产 DB 跨云(火山引擎 RDS), 单查询往返~44ms、建连接~280ms。
+        # 生产 DB 跨云(火山引擎 veDB), 单查询往返~44ms、建连接~280ms。
         # minsize 提到 5 常驻保温连接, 避免冷连接每次付 280ms 重连;
         # maxsize 提到 25 缓解前台接口 + 一堆高频后台任务(3s/30s/60s)争抢连接排队;
         # pool_recycle 1h 主动回收, 防远端 wait_timeout 静默掐断后拿到死连接。
@@ -1810,7 +1858,12 @@ async def init_db():
         maxsize=25,
         pool_recycle=3600,
     )
+    if ssl_ctx is not None:
+        pool_kwargs["ssl"] = ssl_ctx   # H1: 仅当 config 显式配置 database.ssl 才传, 否则维持现状
+    _pool = await aiomysql.create_pool(**pool_kwargs)
     async with _pool.acquire() as conn:
+        if ssl_ctx is not None:
+            await _verify_db_encrypted(conn)
         await _rename_tables(conn)
         async with conn.cursor() as cur:
             for stmt in SCHEMA_STATEMENTS:

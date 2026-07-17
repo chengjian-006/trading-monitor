@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.654',
+    date: '2026-07-17',
+    title: '安全整改 H1：数据库连接 TLS 开关就位（config 驱动 + 启动自检）',
+    changes: [
+      {
+        text: '为数据库连接铺好传输加密开关：config 的 database.ssl 填 true 即对跨云数据库连接启用 TLS 加密，可选证书校验；默认不填时行为与此前完全一致，对现网零影响。连接建立后自动自检链路是否真加密，未加密会打醒目告警。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.653',
     date: '2026-07-17',
     title: '安全整改批一：裸奔接口挂鉴权 + 观点上报限流 + 推送改 HTTPS',

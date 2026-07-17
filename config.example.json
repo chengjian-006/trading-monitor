@@ -26,7 +26,8 @@
     "port": 3306,
     "user": "<db user>",
     "password": "<db password>",
-    "db": "<db name>"
+    "db": "<db name>",
+    "_ssl说明": "H1 传输加密开关(默认不填=明文, 与历史一致)。火山 veDB 在控制台开启 SSL 后, 此处填 \"ssl\": true 即加密(不校验证书); 要证书校验则填 \"ssl\": {\"ca\": \"/path/ca.pem\"}。启动日志会打印 [db] TLS 已生效 或告警仍明文。"
   },
 
   "blogger_tracking": {
