@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.666',
+    date: '2026-07-18',
+    title: '修登录页大盘卡手机端指数数字逐字换行',
+    changes: [
+      {
+        text: '登录页「大盘实时」卡在手机上指数数字被挤到逐字换行（3764.15 断成三行）；改为价格/涨跌不换行、指数在手机端单列全宽显示，恢复正常。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.665',
     date: '2026-07-18',
     title: '查询区交互统一为实时过滤 + 数据页移动端适配',

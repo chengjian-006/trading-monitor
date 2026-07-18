@@ -451,12 +451,14 @@ function pctColor(pct: number): string {
   font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--fg-default);
+  white-space: nowrap;
 }
 .idx-pct {
   font-family: monospace;
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   margin-left: auto;
+  white-space: nowrap;
 }
 .market-stats {
   margin-top: 10px;
@@ -576,6 +578,14 @@ function pctColor(pct: number): string {
   }
   .market-card {
     margin-top: 14px;
+  }
+  /* 手机端: 2列太窄致指数数字逐字换行, 改单列每行全宽; 名称收窄给数字让位 */
+  .market-indices {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .idx-name {
+    width: 68px;
   }
   .brand-watermark {
     font-size: 180px;
