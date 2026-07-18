@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.673',
+    date: '2026-07-18',
+    title: '界面英文全面中文化',
+    changes: [
+      {
+        text: '全局设置 Naive UI 中文语言包：日期选择器（开始/结束日期、清除、确认、星期与月份）、分页、空数据等内置英文一次性改为中文；同时去掉机构风格里残留的英文小标签（TRADE LOG / PERFORMANCE 等），环境标 PROD/DEV 改为 生产/开发。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.672',
     date: '2026-07-18',
     title: '股票池表格：自定义显示列 + MA20 以下弱势行底色',

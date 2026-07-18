@@ -231,7 +231,7 @@ const modelCols = [
       <!-- 英雄区 -->
       <div class="pnl hero">
         <div class="hero-l">
-          <div class="hero-eyebrow">账户总资产 / TOTAL EQUITY</div>
+          <div class="hero-eyebrow">账户总资产</div>
           <div class="hero-eq">¥{{ money0(s.total_equity) }}</div>
           <div class="hero-ret">
             <span class="ret-chip" :class="retUp ? 'up' : 'down'">{{ retUp ? '▲' : '▼' }} {{ pct2(s.total_return_pct) }}</span>
@@ -262,11 +262,11 @@ const modelCols = [
       <!-- 资金曲线 + 战绩 -->
       <div class="row2">
         <div class="pnl">
-          <div class="pnl-head"><span class="tt">资金曲线</span><span class="mlbl">EQUITY CURVE</span></div>
+          <div class="pnl-head"><span class="tt">资金曲线</span></div>
           <div class="pnl-body"><PaperEquityChart :data="store.equity" /></div>
         </div>
         <div class="pnl">
-          <div class="pnl-head"><span class="tt">交易战绩</span><span class="mlbl">PERFORMANCE</span><span class="sp"></span><span class="pnl-meta">{{ s.closed_trades ?? 0 }} 笔已平仓</span></div>
+          <div class="pnl-head"><span class="tt">交易战绩</span><span class="sp"></span><span class="pnl-meta">{{ s.closed_trades ?? 0 }} 笔已平仓</span></div>
           <div class="pnl-body stat-body">
             <div class="gauge-wrap">
               <div class="gauge">
@@ -297,7 +297,7 @@ const modelCols = [
       <!-- 仓位分布 + 持仓卡 -->
       <div class="row3">
         <div class="pnl">
-          <div class="pnl-head"><span class="tt">仓位分布</span><span class="mlbl">ALLOCATION</span></div>
+          <div class="pnl-head"><span class="tt">仓位分布</span></div>
           <div class="pnl-body alloc-body">
             <svg class="donut" viewBox="0 0 42 42">
               <circle cx="21" cy="21" r="15.9" fill="none" stroke="var(--border-muted)" stroke-width="6" />
@@ -314,7 +314,7 @@ const modelCols = [
           </div>
         </div>
         <div class="pnl">
-          <div class="pnl-head"><span class="tt">当前持仓</span><span class="mlbl">HOLDINGS · {{ store.positions.length }}</span><span class="sp"></span><span class="pnl-meta">浮盈随现价 60s 联动</span></div>
+          <div class="pnl-head"><span class="tt">当前持仓</span><span class="mlbl">共 {{ store.positions.length }} 只</span><span class="sp"></span><span class="pnl-meta">浮盈随现价 60s 联动</span></div>
           <div class="pnl-body">
             <div v-if="!store.positions.length" class="empty">当前无持仓 · 等模型买点触发自动建仓</div>
             <div v-else class="hold-grid">
@@ -356,13 +356,13 @@ const modelCols = [
 
       <!-- 按买点模型胜率 -->
       <div class="pnl" v-if="store.modelStats.length">
-        <div class="pnl-head"><span class="tt">按买点模型 · 已实现胜率</span><span class="mlbl">BY MODEL</span></div>
+        <div class="pnl-head"><span class="tt">按买点模型 · 已实现胜率</span></div>
         <div class="pnl-body"><NDataTable :columns="modelCols" :data="store.modelStats" :row-key="(r:any) => r.model" :bordered="false" size="small" /></div>
       </div>
 
       <!-- 成交流水 + 查询区 -->
       <div class="pnl">
-        <div class="pnl-head"><span class="tt">成交流水</span><span class="mlbl">TRADE LOG</span><span class="sp"></span><span class="pnl-meta">{{ filteredTrades.length }} / {{ tradesView.length }} 笔</span></div>
+        <div class="pnl-head"><span class="tt">成交流水</span><span class="sp"></span><span class="pnl-meta">{{ filteredTrades.length }} / {{ tradesView.length }} 笔</span></div>
         <div class="pnl-body">
           <FilterPanel>
           <div class="filter-bar">
@@ -383,7 +383,7 @@ const modelCols = [
 
       <!-- 账户设置 -->
       <div class="pnl">
-        <div class="pnl-head"><span class="tt">账户设置</span><span class="mlbl">SETTINGS</span></div>
+        <div class="pnl-head"><span class="tt">账户设置</span></div>
         <div class="pnl-body">
           <div class="settings-row">
             <span>初始资金</span><NInputNumber v-model:value="initCap" :min="10000" :step="10000" style="width:160px" />

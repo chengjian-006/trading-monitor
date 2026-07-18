@@ -16,9 +16,9 @@ defineProps<{ connected: boolean }>()
 const envInfo = computed(() => {
   const host = window.location.hostname
   if (host === 'localhost' || host === '127.0.0.1') {
-    return { label: 'DEV', color: 'var(--success-fg)' }
+    return { label: '开发', color: 'var(--success-fg)' }
   }
-  return { label: 'PROD', color: 'var(--danger-fg)' }
+  return { label: '生产', color: 'var(--danger-fg)' }
 })
 
 function handleLogout() {

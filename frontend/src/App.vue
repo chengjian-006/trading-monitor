@@ -11,7 +11,7 @@ import MarketRiskTopBanner from './components/layout/MarketRiskTopBanner.vue'
 import StockDetailModal from './components/chart/StockDetailModal.vue'
 import { computed, ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { NConfigProvider, NModal, NCard, type GlobalThemeOverrides } from 'naive-ui'
+import { NConfigProvider, NModal, NCard, zhCN, dateZhCN, type GlobalThemeOverrides } from 'naive-ui'
 import './composables/useGlobalMessage'
 import { useGlobalDialog } from './composables/useGlobalMessage'
 import { fetchUploadStatus } from './api/trade-analysis'
@@ -105,7 +105,7 @@ const themeOverrides: GlobalThemeOverrides = {
 </script>
 
 <template>
-  <NConfigProvider :theme-overrides="themeOverrides">
+  <NConfigProvider :theme-overrides="themeOverrides" :locale="zhCN" :date-locale="dateZhCN">
     <!-- PC Layout -->
     <div v-if="!isMobile" class="app-layout-pc">
       <AppHeader v-if="!isLoginPage" :connected="connected" />

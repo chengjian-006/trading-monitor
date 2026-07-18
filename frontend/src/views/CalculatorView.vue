@@ -66,7 +66,7 @@ const filled = computed(() => buyPrice.value != null && stopPrice.value != null)
     <div class="calc-grid">
       <!-- 输入 -->
       <div class="pnl">
-        <div class="pnl-head"><span class="tt">输入</span><span class="mlbl">INPUT</span></div>
+        <div class="pnl-head"><span class="tt">输入</span></div>
         <div class="pnl-body">
           <div class="fld"><label>账户总资金</label><NInputNumber v-model:value="capital" :min="0" :step="10000" style="width:100%">
             <template #prefix>¥</template></NInputNumber></div>
@@ -86,7 +86,7 @@ const filled = computed(() => buyPrice.value != null && stopPrice.value != null)
 
       <!-- 结果 -->
       <div class="pnl">
-        <div class="pnl-head"><span class="tt">建议</span><span class="mlbl">RESULT</span></div>
+        <div class="pnl-head"><span class="tt">建议</span></div>
         <div class="pnl-body">
           <div v-if="!filled || perShareRisk == null" class="calc-empty">填入买入价 + 止损价（止损低于买入）即可算出建议仓位。</div>
           <template v-else>
