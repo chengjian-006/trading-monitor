@@ -86,6 +86,11 @@ chrome.storage.onChanged.addListener((ch, area) => {
   if (area === 'local' && ch.updateInfo) renderUpdateBar(ch.updateInfo.newValue);
 });
 
+// 后台监听到问财登录 cookie 变化 → 自动刷新额度/登录态(弹窗切走再回来也能生效)
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg && msg.type === 'loginRefreshed') loadQuota();
+});
+
 // ---------- 问答页 ----------
 function renderPresets(presets) {
   const box = $('askBtns'); box.innerHTML = '';
@@ -236,23 +241,55 @@ function loadHistory() {
   });
 }
 
+// ---------- 登录 ----------
+function setLoginUI(state) {
+  // state: 'ok' | 'out' | 'unknown'
+  $('loginTip').classList.toggle('hide', state !== 'out');
+  const st = $('loginStatus');
+  if (st) st.textContent = state === 'ok' ? '已登录 ✓' : state === 'out' ? '未登录' : '检测中…';
+}
+
+let loginPollTimer = null;
+function openWencaiLogin() {
+  chrome.tabs.create({ url: 'https://www.iwencai.com/' });
+  toast('登录后会自动刷新');
+  // 轮询等待登录成功(弹窗没被关掉时生效; 关掉后靠后台 cookie 监听兜底)
+  let tries = 0;
+  clearInterval(loginPollTimer);
+  loginPollTimer = setInterval(() => {
+    tries++;
+    chrome.runtime.sendMessage({ type: 'quota' }, (q) => {
+      if (chrome.runtime.lastError) return;
+      if (q && q.ok) { clearInterval(loginPollTimer); renderQuota(q); toast('已登录 ✓'); }
+      else if (tries >= 40) clearInterval(loginPollTimer);   // 最多轮询约2分钟
+    });
+  }, 3000);
+}
+$('ltGo').onclick = openWencaiLogin;
+$('reLogin').onclick = openWencaiLogin;
+
 // ---------- 额度 ----------
+function renderQuota(q) {
+  const el = $('quota'); el.innerHTML = '';
+  const pill = (txt, cls, onClick) => {
+    const p = document.createElement('span'); p.className = 'qpill ' + (cls || ''); p.innerHTML = txt;
+    if (onClick) { p.classList.add('clickable'); p.onclick = onClick; }
+    el.appendChild(p);
+  };
+  if (!q || !q.ok) {
+    if (q && q.error === '未登录') { pill('⚠️ 未登录问财，点此去登录 →', 'warn', openWencaiLogin); setLoginUI('out'); }
+    else { pill('额度未知', 'warn'); setLoginUI('unknown'); }
+    return;
+  }
+  setLoginUI('ok');
+  if (q.normal != null) pill('普通剩 <b>' + q.normal + '</b>');
+  if (q.deepInfer != null) pill('深研剩 <b>' + q.deepInfer + '</b>', 'deep');
+  if (q.leftTime) pill(q.leftTime + ' 后刷新额度', 'ghost');
+}
+// 打开弹窗即拉一次额度 = 顺手 touch 问财 user-info, 给登录态保温(软保活)。
 function loadQuota() {
   chrome.runtime.sendMessage({ type: 'quota' }, (q) => {
-    const el = $('quota'); el.innerHTML = '';
-    const pill = (txt, cls, onClick) => {
-      const p = document.createElement('span'); p.className = 'qpill ' + (cls || ''); p.innerHTML = txt;
-      if (onClick) { p.classList.add('clickable'); p.onclick = onClick; }
-      el.appendChild(p);
-    };
-    if (chrome.runtime.lastError || !q || !q.ok) {
-      if ((q && q.error) === '未登录') pill('⚠️ 未登录问财，点此去登录 →', 'warn', () => chrome.tabs.create({ url: 'https://www.iwencai.com/' }));
-      else pill('额度未知', 'warn');
-      return;
-    }
-    if (q.normal != null) pill('普通剩 <b>' + q.normal + '</b>');
-    if (q.deepInfer != null) pill('深研剩 <b>' + q.deepInfer + '</b>', 'deep');
-    if (q.leftTime) pill(q.leftTime + ' 后刷新额度', 'ghost');
+    renderQuota(chrome.runtime.lastError ? null : q);
   });
 }
 

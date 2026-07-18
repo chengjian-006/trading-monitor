@@ -179,3 +179,13 @@ chrome.contextMenus && chrome.contextMenus.onClicked.addListener((info) => {
   const q = (info.selectionText || '').trim();
   if (q) askViaBestSurface(q);
 });
+
+// ---------- 问财登录态变化 → 通知弹窗自动刷新额度 ----------
+// 用户在 iwencai 登录成功会写入 v cookie; 监听到就广播, 弹窗即使当时被切走也能回来刷新。
+chrome.cookies && chrome.cookies.onChanged.addListener((info) => {
+  try {
+    const c = info.cookie;
+    if (!c || c.name !== 'v' || (c.domain || '').indexOf('iwencai.com') < 0) return;
+    chrome.runtime.sendMessage({ type: 'loginRefreshed', loggedIn: !info.removed }).catch(() => {});   // 无接收端(弹窗已关)忽略
+  } catch (e) { /* ignore */ }
+});

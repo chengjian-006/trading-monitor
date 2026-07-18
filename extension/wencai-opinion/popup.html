@@ -31,6 +31,12 @@
 
     <!-- 问答 -->
     <section class="panel active" id="panel-ask">
+
+      <div id="loginTip" class="login-tip hide">
+        <div class="lt-l"><span class="lt-ic">🔑</span><span class="lt-txt">未登录问财，登录后才能提问</span></div>
+        <button id="ltGo" class="btn primary">登录问财</button>
+      </div>
+
       <div class="sec-label">快捷提问 <span class="sec-hint">后台跑，不用开问财页</span></div>
       <div id="askBtns" class="preset-list"></div>
 
@@ -75,6 +81,14 @@
         <span class="oe-txt">打开完整设置页<small>宽屏编辑预置问题 / 定时 / 上报规则</small></span>
         <span class="oe-go">→</span>
       </button>
+
+      <div class="card">
+        <div class="card-title">账号</div>
+        <label class="sw-row" style="cursor:default">
+          <span class="sw-txt">问财登录状态<small id="loginStatus">检测中…</small></span>
+          <button id="reLogin" class="btn ghost">重新登录</button>
+        </label>
+      </div>
 
       <div class="card">
         <div class="card-title">上报</div>
