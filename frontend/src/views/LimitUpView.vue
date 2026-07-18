@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { NButton, NSelect, NIcon, NSkeleton, NTag, NInput } from 'naive-ui'
 import { DownloadOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5'
 import client from '../api/client'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { fetchLimitUp, fetchLimitUpDates, limitUpExportUrl, type LimitUpStock, type LimitUpMeta } from '../api/limit-up'
 
@@ -269,6 +270,7 @@ onMounted(async () => {
         </div>
 
         <template v-else>
+          <FilterPanel>
           <div class="lu-filter">
             <NInput v-model:value="kw" size="small" clearable placeholder="搜代码 / 名称"
               class="f-kw" :input-props="{ type: 'search' }">
@@ -282,6 +284,7 @@ onMounted(async () => {
             </NButton>
             <span v-if="filterActive" class="f-n">{{ filteredBoards.length }} / {{ boards.length }} 只</span>
           </div>
+          </FilterPanel>
 
           <div v-if="!filteredBoards.length" class="lu-empty">没有匹配的涨停股，试试放宽筛选条件。</div>
           <div v-else class="lu-tablewrap">
