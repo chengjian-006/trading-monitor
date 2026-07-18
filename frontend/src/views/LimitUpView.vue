@@ -410,7 +410,7 @@ h2 .c { color: #b0812c; } h2 .n { font-size: 12.5px; color: var(--fg-subtle); fo
 .lu-empty { padding: 40px 16px; text-align: center; color: var(--fg-subtle); font-size: 14px; }
 .lu-foot { margin-top: 22px; font-size: 12px; color: var(--fg-subtle); line-height: 1.6; }
 
-@media (max-width: 560px) {
+@media (max-width: 768px) {
   .lu-kpis { grid-template-columns: repeat(2, 1fr); }
   .lu-title h1 { font-size: 20px; }
   .lu-controls { width: 100%; }

@@ -6,6 +6,7 @@ import { ref, onMounted, computed } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NTag, NPopconfirm, NCollapse, NCollapseItem, NInput, NDatePicker, NSelect } from 'naive-ui'
 import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline } from '@vicons/ionicons5'
 import { listWencaiOpinions, deleteWencaiOpinion, addWencaiToPool, type WencaiOpinion, type WencaiConclusion } from '../api/wencai'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import { useUiStore } from '../stores/ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 
@@ -111,11 +112,11 @@ function hasConclusion(c: WencaiConclusion | undefined): boolean {
   return !!c && !!(c.stock || c.buy || c.takeProfit || c.stopLoss || c.logic || c.risk)
 }
 function conclusionRows(c: WencaiConclusion | undefined) {
-  const defs: [string, string, string | undefined][] = [
-    ['📌', '主推', c?.stock], ['🟢', '买点', c?.buy], ['🎯', '止盈', c?.takeProfit],
-    ['🛑', '止损', c?.stopLoss], ['⏳', '周期', c?.period], ['💡', '逻辑', c?.logic], ['⚠️', '风险', c?.risk],
+  const defs: [string, string, string, string | undefined][] = [
+    ['📌', '主推', 'stock', c?.stock], ['🟢', '买点', 'buy', c?.buy], ['🎯', '止盈', 'tp', c?.takeProfit],
+    ['🛑', '止损', 'sl', c?.stopLoss], ['⏳', '周期', 'period', c?.period], ['💡', '逻辑', 'logic', c?.logic], ['⚠️', '风险', 'risk', c?.risk],
   ]
-  return defs.filter((d) => d[2]).map((d) => ({ icon: d[0], label: d[1], val: d[2] as string }))
+  return defs.filter((d) => d[3]).map((d) => ({ icon: d[0], label: d[1], key: d[2], val: d[3] as string }))
 }
 
 async function removeOpinion(id: number) {
@@ -128,8 +129,13 @@ async function removeOpinion(id: number) {
   }
 }
 
+// 只取"最终推荐标的"(primary), 不展示话术里顺带提到的其它个股 —— 避免噪音干扰判断(v1.7.667)
+function recStocks(op: WencaiOpinion) {
+  return (op.stocks || []).filter((s) => s.primary)
+}
+
 async function addStocksToPool(op: WencaiOpinion) {
-  const picks = op.stocks.map((s) => ({ code: s.code, name: s.name }))
+  const picks = recStocks(op).map((s) => ({ code: s.code, name: s.name }))
   if (!picks.length) return
   addingId.value = op.id
   try {
@@ -163,7 +169,8 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="loaded && hasData" class="filter-bar">
+    <FilterPanel v-if="loaded && hasData">
+    <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item" style="min-width: 200px">
           <label for="op-keyword">关键词</label>
@@ -215,6 +222,7 @@ onMounted(load)
         </NButton>
       </div>
     </div>
+    </FilterPanel>
 
     <div v-if="!loaded" class="cards">
       <NSkeleton v-for="i in 3" :key="i" height="120px" style="margin-bottom:12px;border-radius:10px" />
@@ -248,20 +256,22 @@ onMounted(load)
           </div>
         </div>
 
+        <!-- 结论速览: 卡片核心, 突出展示 -->
         <div v-if="hasConclusion(op.conclusion)" class="concl">
           <div class="concl-h">🎯 结论速览</div>
-          <div v-for="row in conclusionRows(op.conclusion)" :key="row.label" class="concl-row">
-            <span class="ci">{{ row.icon }}</span><span class="cl">{{ row.label }}</span><span class="cv">{{ row.val }}</span>
+          <div class="concl-grid">
+            <div v-for="row in conclusionRows(op.conclusion)" :key="row.label" class="concl-row" :class="'r-' + row.key">
+              <span class="ci">{{ row.icon }}</span><span class="cl">{{ row.label }}</span><span class="cv">{{ row.val }}</span>
+            </div>
           </div>
         </div>
 
-        <div v-if="op.stocks.length" class="stocks">
-          <span class="lbl">提及个股:</span>
+        <!-- 推荐标的: 只列最终推荐(primary), 不再展示话术里顺带提及的其它个股, 避免干扰判断(v1.7.667) -->
+        <div v-if="recStocks(op).length" class="rec-stocks">
+          <span class="rl">推荐标的</span>
           <NTag
-            v-for="s in op.stocks" :key="s.code"
-            size="small" :type="s.primary ? 'primary' : 'default'"
-            :bordered="!s.primary" checkable :checked="s.primary"
-            class="stk" @click="ui.openStock(s.code, s.name)"
+            v-for="s in recStocks(op)" :key="s.code"
+            size="small" type="primary" class="stk" @click="ui.openStock(s.code, s.name)"
           >
             {{ s.name }}<span class="code">{{ s.code }}</span>
           </NTag>
@@ -273,7 +283,6 @@ onMounted(load)
             加自选
           </NButton>
         </div>
-        <div v-else class="stocks no-stk">未从话术中识别出具体个股(可能是纯观点/多票对比, 见下方原文)</div>
 
         <NCollapse class="ans-collapse">
           <NCollapseItem title="展开完整分析" name="ans">
@@ -317,30 +326,49 @@ onMounted(load)
 }
 .filter-item label { font-size: 12px; color: var(--fg-subtle); white-space: nowrap; }
 .filter-actions { display: flex; gap: 8px; align-items: flex-end; justify-content: flex-end; }
-.cards { display: flex; flex-direction: column; gap: 12px; }
+.cards { display: flex; flex-direction: column; gap: 14px; }
+/* 真卡片: 描边 + 双层柔和投影 + hover 抬升 (v1.7.667) */
 .op-card {
-  border: 1px solid var(--border-default); border-radius: 10px;
-  padding: 12px 14px; background: var(--bg-surface);
+  border: 1px solid var(--border-default); border-radius: 12px;
+  padding: 14px 16px; background: var(--bg-surface);
+  box-shadow: 0 1px 2px rgba(20,30,50,.05), 0 4px 14px rgba(20,30,50,.04);
+  transition: box-shadow .18s, border-color .18s;
 }
+.op-card:hover { box-shadow: 0 2px 6px rgba(20,30,50,.08), 0 10px 30px rgba(20,30,50,.07); border-color: var(--border-hard); }
+/* 问题=上下文, 弱化为次要; 结论速览才是焦点 */
 .op-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-.q { font-weight: 600; font-size: 14px; line-height: 1.5; flex: 1; }
+.q { font-weight: 600; font-size: 13px; line-height: 1.5; flex: 1; color: var(--fg-muted); }
 .meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .time { font-size: 11px; color: var(--fg-subtle); }
-.stocks { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.lbl { font-size: 12px; color: var(--fg-subtle); }
+
+/* 结论速览: 卡片核心焦点块 */
+.concl {
+  margin: 12px 0 0; padding: 12px 14px;
+  border: 1px solid rgba(22,104,220,.22); border-radius: 10px;
+  background: var(--accent-bg-muted);
+}
+.concl-h { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--fg-default); }
+.concl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 18px; }
+.concl-row { display: flex; gap: 7px; align-items: baseline; padding: 3px 0; font-size: 13px; line-height: 1.5; }
+.concl-row .ci { flex-shrink: 0; }
+.concl-row .cl { flex-shrink: 0; width: 32px; color: var(--fg-subtle); font-size: 12px; }
+.concl-row .cv { flex: 1; color: var(--fg-default); }
+/* 主推/买点=最关键加粗; 止盈红/止损绿; 逻辑/风险长文跨整行 */
+.concl-row.r-stock .cv, .concl-row.r-buy .cv { font-weight: 700; }
+.concl-row.r-tp .cv { color: var(--up-fg); font-weight: 600; }
+.concl-row.r-sl .cv { color: var(--down-fg); font-weight: 600; }
+.concl-row.r-logic, .concl-row.r-risk { grid-column: 1 / -1; }
+
+/* 推荐标的: 只显最终推荐 */
+.rec-stocks { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rec-stocks .rl { font-size: 12px; color: var(--fg-subtle); font-weight: 600; }
 .stk { cursor: pointer; }
 .stk .code { margin-left: 4px; opacity: 0.6; font-size: 11px; }
-.no-stk { font-size: 12px; color: var(--fg-subtle); }
 .add-btn { margin-left: 4px; }
-.ans-collapse { margin-top: 6px; }
+
+.ans-collapse { margin-top: 8px; }
 .answer { font-size: 13px; line-height: 1.7; white-space: normal; word-break: break-word; }
 .reasoning { font-size: 12px; line-height: 1.7; color: var(--fg-subtle); white-space: pre-wrap; word-break: break-word; }
-.concl { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border-default); border-radius: 10px; background: color-mix(in srgb, var(--accent-fg) 4%, transparent); }
-.concl-h { font-weight: 700; font-size: 13px; margin-bottom: 6px; }
-.concl-row { display: flex; gap: 8px; align-items: flex-start; padding: 3px 0; font-size: 13px; line-height: 1.5; }
-.concl-row .ci { flex-shrink: 0; }
-.concl-row .cl { flex-shrink: 0; width: 34px; color: var(--fg-subtle); }
-.concl-row .cv { flex: 1; }
 
 @media (max-width: 768px) {
   .opinion-view { padding: 12px; }
@@ -349,5 +377,6 @@ onMounted(load)
   .filter-bar { grid-template-columns: 1fr; }
   .filter-item { min-width: 140px; }
   .filter-actions { justify-content: flex-start; }
+  .concl-grid { grid-template-columns: 1fr; }   /* 手机单列 */
 }
 </style>

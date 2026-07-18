@@ -4,6 +4,7 @@ import { NButton, NIcon, NSkeleton, NInput, NSelect } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { formatYi } from '../utils/formatAmount'
 import { SearchOutline, SparklesOutline, RefreshOutline, FlameOutline } from '@vicons/ionicons5'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import {
   fetchPopularity, fetchPopularityDates, analyzeStockAi,
   type PopularityStock, type HotSector,
@@ -390,6 +391,7 @@ onMounted(async () => {
     </div>
 
     <!-- 个股查询区 -->
+    <FilterPanel>
     <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item">
@@ -431,6 +433,7 @@ onMounted(async () => {
         </NButton>
       </div>
     </div>
+    </FilterPanel>
 
     <!-- ① 主线强度总览 热力条 -->
     <div v-if="overviewBars.length" class="overview-card">

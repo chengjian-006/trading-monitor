@@ -4,6 +4,7 @@ import { NTag, NSkeleton, NInput, NSelect, NButton, NIcon, NDatePicker, NModal, 
 import { RefreshOutline, SearchOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 import { fetchSignalHistory, fetchSignalStats, fetchSignalOutcomeStats, type SignalStatsItem, type SignalOutcomeStatsItem } from '../api/signals'
 import { upsertSignalExecution, deleteSignalExecution, fetchSignalExecutions, type SignalExecution } from '../api/signal-executions'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import { fetchIntraday, type IntradayPoint } from '../api/kline'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { useResponsive } from '../composables/useResponsive'
@@ -514,6 +515,7 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
 
 <template>
   <div>
+    <FilterPanel>
     <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item filter-item-range">
@@ -553,6 +555,7 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
         </NButton>
       </div>
     </div>
+    </FilterPanel>
 
     <NSkeleton v-if="loading && allSignals.length === 0" :repeat="8" text />
 
@@ -1050,6 +1053,11 @@ const DetailCell = (props: { row: Signal }) => renderDetail(props.row)
 }
 
 @media (max-width: 768px) {
+  /* 折叠开关已接管, 手机端取消 sticky 防与开关叠加 */
+  .filter-bar {
+    position: static;
+    top: auto;
+  }
   .overview-grid {
     grid-template-columns: 1fr;
   }

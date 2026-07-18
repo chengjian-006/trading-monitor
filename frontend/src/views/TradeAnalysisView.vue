@@ -11,6 +11,7 @@ import {
   type AnalysisResult, type CompareResult, type PairedTrade,
 } from '../api/trade-analysis'
 import { useResponsive } from '../composables/useResponsive'
+import FilterPanel from '../components/common/FilterPanel.vue'
 
 const { isMobile } = useResponsive()
 function mobCols(cols: DataTableColumns, keep: string[]): DataTableColumns {
@@ -415,6 +416,7 @@ const summary = computed(() => result.value?.summary)
             <!-- 成交流水（核对导入）+ 交易回合 -->
             <NTabPane name="records" tab="成交流水">
               <p class="tab-hint">原始成交记录，<b>按时间倒序</b>（最新在最上）——用于核对最新导入的交割单是否正确、有无漏单/错单。</p>
+              <FilterPanel>
               <div class="filter-bar">
                 <div class="filter-fields">
                   <div class="filter-item">
@@ -456,6 +458,7 @@ const summary = computed(() => result.value?.summary)
                   </NButton>
                 </div>
               </div>
+              </FilterPanel>
               <NDataTable :columns="recordColumnsM" :data="filteredRecords" :bordered="false" size="small" :pagination="{ pageSize: 30 }" max-height="520" />
               <div class="sub-title">配对交易（买入→卖出回合）</div>
               <NDataTable :columns="tradeColumnsM" :data="trades" :bordered="false" size="small" :pagination="{ pageSize: 20 }" max-height="440" />

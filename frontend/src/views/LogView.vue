@@ -4,6 +4,7 @@ import { NDataTable, NPagination, NSkeleton, NTag, NSelect, NButton, NIcon, NMod
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { RefreshOutline, SearchOutline, DocumentTextOutline } from '@vicons/ionicons5'
 import { fetchLogs, fetchLogActions } from '../api/auth'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import type { OperationLog } from '../types'
 
 const message = useGlobalMessage()
@@ -169,6 +170,7 @@ onMounted(() => {
 
 <template>
   <div>
+    <FilterPanel>
     <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item">
@@ -216,6 +218,7 @@ onMounted(() => {
         </NButton>
       </div>
     </div>
+    </FilterPanel>
 
     <NSkeleton v-if="loading && logs.length === 0" :repeat="5" text />
 

@@ -4,6 +4,7 @@ import { NDataTable, NButton, NInputNumber, NPopconfirm, NTag, NInput, NSelect, 
 import { RefreshOutline, SearchOutline } from '@vicons/ionicons5'
 import { usePaperStore } from '../stores/paper-trading'
 import { resetPaperAccount, updatePaperSettings, type AccountKey } from '../api/paper-trading'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import { fetchKline } from '../api/kline'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import PaperEquityChart from '../components/common/PaperEquityChart.vue'
@@ -363,6 +364,7 @@ const modelCols = [
       <div class="pnl">
         <div class="pnl-head"><span class="tt">成交流水</span><span class="mlbl">TRADE LOG</span><span class="sp"></span><span class="pnl-meta">{{ filteredTrades.length }} / {{ tradesView.length }} 笔</span></div>
         <div class="pnl-body">
+          <FilterPanel>
           <div class="filter-bar">
             <div class="filter-fields">
               <div class="filter-item"><label>关键词</label><NInput v-model:value="fltKw" size="small" clearable placeholder="代码/名称" /></div>
@@ -374,6 +376,7 @@ const modelCols = [
               <NButton size="small" type="primary"><template #icon><NIcon><SearchOutline /></NIcon></template>查询</NButton>
             </div>
           </div>
+          </FilterPanel>
           <NDataTable :columns="tradeCols" :data="filteredTrades" :row-key="(r:any) => r.id" :bordered="false" size="small" :scroll-x="1000" />
         </div>
       </div>

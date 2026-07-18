@@ -482,4 +482,23 @@ function chartBox(el: any): { ratio: string; svg: string } {
 .lark-card.mobile .card-footer { padding: 6px 12px; }
 .footer-text { font-size: 11px; color: #bbb; }
 
+/* ===== 移动端适配(≤768): 侧栏顶部全宽 + 预览卡全宽, 消除横向溢出 ===== */
+@media (max-width: 768px) {
+  /* 横排改纵向堆叠, 不再钉死视口高 */
+  .lark-preview-page { flex-direction: column; height: auto; }
+
+  /* 分类侧栏从固定 260px 左栏改顶部全宽块 */
+  .sidebar {
+    width: 100%; flex-shrink: 1;
+    border-right: none; border-bottom: 1px solid #e5e5e5;
+  }
+
+  /* 预览区允许收缩, 防 flex 子项撑破 */
+  .preview-area { min-width: 0; width: 100%; padding: 16px 12px; }
+
+  /* 预览卡全宽不溢出(PC/手机两种壳都收进容器宽) */
+  .preview-wrapper.pc,
+  .preview-wrapper.mobile { max-width: 100%; width: 100%; }
+}
+
 </style>

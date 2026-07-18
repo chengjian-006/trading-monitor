@@ -26,9 +26,9 @@ function fmtTime(raw?: string): string {
   const s = raw.replace('T', ' ')
   return s.slice(5, 16)   // MM-DD HH:mm
 }
+// 只显最终推荐(primary), 不回退到全部提及个股, 避免噪音干扰判断(v1.7.667)
 function primaryStocks(op: WencaiOpinion) {
-  const ps = (op.stocks || []).filter((s) => s.primary)
-  return (ps.length ? ps : (op.stocks || [])).slice(0, 3)
+  return (op.stocks || []).filter((s) => s.primary).slice(0, 3)
 }
 </script>
 

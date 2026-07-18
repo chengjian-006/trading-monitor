@@ -7,6 +7,7 @@ import {
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { useResponsive } from '../composables/useResponsive'
 import { h } from 'vue'
+import FilterPanel from '../components/common/FilterPanel.vue'
 import { PersonAddOutline, KeyOutline, TrashOutline, CheckmarkOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
 import { listUsers, createUser, deleteUser, resetPassword, updateUser } from '../api/auth'
 import type { User } from '../types'
@@ -225,6 +226,7 @@ const columns = computed(() => {
       </NSpace>
     </div>
 
+    <FilterPanel>
     <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item">
@@ -255,6 +257,7 @@ const columns = computed(() => {
         </NButton>
       </div>
     </div>
+    </FilterPanel>
 
     <NSkeleton v-if="loading" :repeat="3" text />
     <Transition v-else name="content-fade" appear>
