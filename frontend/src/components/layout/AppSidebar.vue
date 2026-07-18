@@ -7,7 +7,7 @@ import {
   ReaderOutline, SettingsOutline, PeopleOutline,
   RocketOutline, TrendingUpOutline,
   BarChartOutline,
-  WalletOutline, ListOutline,
+  WalletOutline, ListOutline, CalculatorOutline, NotificationsOutline,
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 
@@ -40,6 +40,7 @@ const menuGroups: MenuGroup[] = [
     children: [
       { key: 'signals', label: '监控看板', path: '/', icon: PulseOutline },
       { key: 'pool', label: '股票池', path: '/pool', icon: LayersOutline },
+      { key: 'alert-center', label: '预警中心', path: '/alert-center', icon: NotificationsOutline },
       { key: 'models', label: '模型策略', path: '/models', icon: ReaderOutline },
     ],
   },
@@ -62,6 +63,7 @@ const menuGroups: MenuGroup[] = [
       { key: 'model-backtest', label: '模型回测', path: '/model-backtest', icon: BarChartOutline },
       { key: 'trade-analysis', label: '交易分析', path: '/trade-analysis', icon: WalletOutline },
       { key: 'paper-trading', label: '模拟账户', path: '/paper-trading', icon: BarChartOutline },
+      { key: 'calculator', label: '仓位计算', path: '/calculator', icon: CalculatorOutline },
     ],
   },
   {

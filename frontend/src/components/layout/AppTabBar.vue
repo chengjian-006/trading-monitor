@@ -23,6 +23,7 @@ const moreGroups = [
     items: [
       { key: 'signals', label: '监控看板', icon: '📊', path: '/' },
       { key: 'pool', label: '股票池', icon: '📋', path: '/pool' },
+      { key: 'alert-center', label: '预警中心', icon: '🔔', path: '/alert-center' },
       { key: 'models', label: '模型策略', icon: '📖', path: '/models' },
     ],
   },
@@ -41,6 +42,7 @@ const moreGroups = [
       { key: 'model-backtest', label: '模型回测', icon: '📊', path: '/model-backtest' },
       { key: 'trade-analysis', label: '交易分析', icon: '💰', path: '/trade-analysis' },
       { key: 'paper-trading', label: '模拟账户', icon: '💹', path: '/paper-trading' },
+      { key: 'calculator', label: '仓位计算', icon: '🧮', path: '/calculator' },
     ],
   },
   {
