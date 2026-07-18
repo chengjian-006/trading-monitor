@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.664',
+    date: '2026-07-18',
+    title: '顶栏状态区重设计：统一状态母线',
+    changes: [
+      {
+        text: '顶栏右侧重排：大盘风险不再是压过全栏的刺眼红方块，改为脉冲红点+红色标签融入状态母线；接口健康、后端连接统一为「圆点+等宽标签+发丝竖线」的等高状态单元；用户名与退出单独成组、以硬分隔线隔开，层次更清。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.663',
     date: '2026-07-18',
     title: '问财观点折进监控看板做面板',

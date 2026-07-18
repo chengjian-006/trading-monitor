@@ -201,19 +201,18 @@ const detailExpanded = ref(false)
   display: flex;
   align-items: center;
 }
+/* 融入顶栏状态母线 (v1.7.663): 去掉自带药丸底, 纯 圆点+标签, 与其它状态单元统一 */
 .dots {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--bg-default);
-  border: 1px solid var(--border-muted);
-  font-size: 12px;
+  gap: 6px;
+  font-size: inherit;
   color: var(--fg-muted);
   cursor: pointer;
   touch-action: manipulation;
+  transition: opacity 0.15s;
 }
+.dots:hover { opacity: 0.75; }
 .src-tag {
   display: inline-flex;
   align-items: center;

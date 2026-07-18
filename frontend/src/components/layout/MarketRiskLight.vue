@@ -46,46 +46,45 @@ function go() {
 </template>
 
 <style scoped>
+/* 融入顶栏状态母线 (v1.7.663 重设计): 去掉刺眼实心块, 统一为 圆点+彩色标签;
+   红态保留脉冲圆点吸睛, 但不再是压过全栏的红方块。 */
 .risk-light {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: 12px;
-  border: 1px solid transparent;
+  padding: 0;
+  border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 12px;
+  font: inherit;
   line-height: 1.4;
-  transition: all 0.15s;
+  transition: opacity 0.15s;
 }
-.lamp { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.risk-light:hover { opacity: 0.75; }
+.lamp { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
-/* 绿: 安静小点 + 淡字, 深色顶栏/浅色手机头都可读 */
-.risk-light.green .lamp { background: #16a34a; }
-.risk-light.green .txt { color: #7f8b99; }
-.risk-light.green:hover { border-color: rgba(127, 139, 153, 0.35); }
+/* 绿: 安静小点 + 淡字 */
+.risk-light.green .lamp { background: var(--success-fg); }
+.risk-light.green .txt { color: var(--fg-subtle); }
 
-/* 黄/红: 彩色药丸 + 白字 + 呼吸闪烁, 全站醒目 */
-.risk-light.yellow { background: #d97706; }
-.risk-light.red { background: #dc2626; }
-.risk-light.yellow .txt,
-.risk-light.red .txt { color: #fff; font-weight: 700; }
-.risk-light.yellow .lamp,
-.risk-light.red .lamp { background: #fff; animation: risk-blink 1.6s ease-in-out infinite; }
-.risk-light.red { animation: risk-glow 1.6s ease-in-out infinite; }
+/* 黄: 橙点 + 橙粗字 */
+.risk-light.yellow .lamp { background: var(--warn-fg); }
+.risk-light.yellow .txt { color: var(--warn-fg); font-weight: 700; }
 
-@keyframes risk-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+/* 红: 脉冲红点 + 红粗字, 全站最醒目的状态但融入母线 */
+.risk-light.red .lamp {
+  background: var(--danger-fg);
+  box-shadow: 0 0 0 0 rgba(210, 43, 43, 0.55);
+  animation: risk-pulse 1.6s ease-in-out infinite;
 }
-@keyframes risk-glow {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.55); }
-  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+.risk-light.red .txt { color: var(--danger-fg); font-weight: 700; }
+
+@keyframes risk-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(210, 43, 43, 0.5); }
+  50% { box-shadow: 0 0 0 5px rgba(210, 43, 43, 0); }
 }
 
 @media (max-width: 768px) {
-  .risk-light { padding: 2px 8px; font-size: 11px; }
-  .lamp { width: 8px; height: 8px; }
+  .lamp { width: 7px; height: 7px; }
 }
 </style>
