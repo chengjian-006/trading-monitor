@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.674',
+    date: '2026-07-18',
+    title: '股票池 MA20 弱势行底色调明显',
+    changes: [
+      {
+        text: '现价低于 MA20 的弱势行底色由过淡调整为清晰可辨的冷蓝灰（并加 hover 加深），一眼区分强弱。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.673',
     date: '2026-07-18',
     title: '界面英文全面中文化',

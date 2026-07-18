@@ -1163,9 +1163,12 @@ const columns = computed(() => allColumns.value
   color: var(--accent-fg) !important;
   font-weight: 700 !important;
 }
-/* 现价 < MA20 弱势行: 轻微冷灰底色示弱, 不与涨跌色抢戏 (v1.7.672) */
+/* 现价 < MA20 弱势行: 冷蓝灰底色示弱, 不与涨跌色抢戏 (v1.7.672, v1.7.674 调明显) */
 .row-below-ma20 td {
-  background: rgba(90, 100, 114, 0.06);
+  background: rgba(88, 104, 130, 0.13) !important;
+}
+.row-below-ma20:hover td {
+  background: rgba(88, 104, 130, 0.20) !important;
 }
 /* 列设置工具栏 + 菜单 (v1.7.672, 本 style 非 scoped, popover 内容可命中) */
 .col-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
