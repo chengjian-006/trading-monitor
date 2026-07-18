@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.675',
+    date: '2026-07-18',
+    title: '股票池表格批量操作',
+    changes: [
+      {
+        text: '股票池表格新增批量操作：勾选多只后弹出批量栏，可一键批量转持仓/转观察、批量设分组、批量删除，选择数量实时显示、支持取消选择。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.674',
     date: '2026-07-18',
     title: '股票池 MA20 弱势行底色调明显',

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox } from 'naive-ui'
+import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox, NInput } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
@@ -309,6 +309,40 @@ const groupOptions = computed(() =>
   [...new Set(props.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort())
 function onMetaChanged() { stockStore.loadStocks(true) }
 
+// 批量操作 (v1.7.675)
+const checkedKeys = ref<string[]>([])
+const batchBusy = ref(false)
+const batchGrp = ref('')
+function clearChecked() { checkedKeys.value = [] }
+async function batchSetStatus(status: 'hold' | 'watch') {
+  if (!checkedKeys.value.length) return
+  batchBusy.value = true
+  try {
+    await Promise.all(checkedKeys.value.map((code) => stockStore.updateStock(code, { status })))
+    message.success(`已将 ${checkedKeys.value.length} 只转为${status === 'hold' ? '持仓' : '观察'}`)
+    clearChecked(); await stockStore.loadStocks(true)
+  } catch { message.error('批量操作失败') } finally { batchBusy.value = false }
+}
+async function batchSetGroup() {
+  if (!checkedKeys.value.length) return
+  batchBusy.value = true
+  try {
+    await Promise.all(checkedKeys.value.map((code) => stockStore.updateStock(code, { grp: batchGrp.value.trim() })))
+    message.success(`已给 ${checkedKeys.value.length} 只设分组`)
+    batchGrp.value = ''; clearChecked(); await stockStore.loadStocks(true)
+  } catch { message.error('批量设分组失败') } finally { batchBusy.value = false }
+}
+async function batchDelete() {
+  if (!checkedKeys.value.length) return
+  batchBusy.value = true
+  try {
+    const { batchDeleteStocks } = await import('../../api/stocks')
+    const r = await batchDeleteStocks([...checkedKeys.value])
+    message.success(`已删除 ${r.deleted} 只`)
+    clearChecked(); await stockStore.loadStocks(true)
+  } catch { message.error('批量删除失败') } finally { batchBusy.value = false }
+}
+
 
 // 呼吸高亮(30分钟内有新信号)预聚合成 Set: 3s 行情刷新触发的每次重渲染
 // 不再逐行遍历该票全部信号算时间差, 只查表。窗口过期靠每分钟 tick 重算。
@@ -477,6 +511,7 @@ function sortOrder(key: string): false | 'ascend' | 'descend' {
 }
 
 const allColumns = computed(() => [
+  { type: 'selection' as const, width: 34, fixed: 'left' as const },
   {
     type: 'expand' as const,
     expandable: (row: Stock) => signalsByCode.value.has(row.code),
@@ -1069,6 +1104,22 @@ const columns = computed(() => allColumns.value
         </div>
       </NPopover>
     </div>
+
+    <!-- 批量操作栏 (v1.7.675): 勾选行后出现 -->
+    <div v-if="checkedKeys.length" class="batch-bar">
+      <span class="bb-count">已选 <b>{{ checkedKeys.length }}</b> 只</span>
+      <div class="bb-actions">
+        <NButton size="tiny" secondary type="info" :loading="batchBusy" @click="batchSetStatus('hold')">转持仓</NButton>
+        <NButton size="tiny" secondary :loading="batchBusy" @click="batchSetStatus('watch')">转观察</NButton>
+        <NInput v-model:value="batchGrp" size="tiny" placeholder="分组名" style="width: 96px" />
+        <NButton size="tiny" secondary type="primary" :loading="batchBusy" :disabled="!batchGrp.trim()" @click="batchSetGroup">设分组</NButton>
+        <NPopconfirm @positive-click="batchDelete">
+          <template #trigger><NButton size="tiny" secondary type="error" :loading="batchBusy">删除</NButton></template>
+          确认删除选中的 {{ checkedKeys.length }} 只? (逻辑删除, 历史信号仍保留)
+        </NPopconfirm>
+        <NButton size="tiny" quaternary @click="clearChecked">取消选择</NButton>
+      </div>
+    </div>
     <StrategyEditModal
       v-model:show="showStrategyModal"
       :code="strategyEditCode"
@@ -1100,14 +1151,16 @@ const columns = computed(() => allColumns.value
       size="small"
       :resizable-columns="true"
       :row-key="(row: Stock) => row.code"
-      :scroll-x="1452"
+      :scroll-x="1486"
       flex-height
       virtual-scroll
       style="flex: 1; min-height: 0"
       :expanded-row-keys="expandedKeys"
+      :checked-row-keys="checkedKeys"
       :row-props="rowProps"
       @update:sorter="handleSorterChange"
       @update:expanded-row-keys="handleExpandedKeysUpdate"
+      @update:checked-row-keys="(k: any) => checkedKeys = k as string[]"
     />
   </div>
 </template>
@@ -1175,6 +1228,11 @@ const columns = computed(() => allColumns.value
 .col-menu-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .col-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .col-menu-foot { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); }
+/* 批量操作栏 (v1.7.675) */
+.batch-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--accent-bg-muted); border: 1px solid rgba(22, 104, 220, 0.25); border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+.bb-count { font-size: 13px; color: var(--fg-default); white-space: nowrap; }
+.bb-count b { color: var(--accent-fg); font-family: var(--font-mono); }
+.bb-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 @keyframes signal-breathing {
   0%, 100% { background: transparent; }
   50% { background: rgba(255, 120, 0, 0.10); }
