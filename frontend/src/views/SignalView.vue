@@ -11,6 +11,7 @@ import MarketRiskBanner from '../components/common/MarketRiskBanner.vue'
 import ThemeHeatPanel from '../components/common/ThemeHeatPanel.vue'
 import SectorRotationPanel from '../components/common/SectorRotationPanel.vue'
 import NearBuyPanel from '../components/common/NearBuyPanel.vue'
+import WencaiOpinionPanel from '../components/common/WencaiOpinionPanel.vue'
 import MarketIndexOverview from '../components/common/MarketIndexOverview.vue'
 import { fetchTodayReports, fetchLatestReport, getSlotName, upsertReportFeedback, deleteReportFeedback, fetchReportFeedback, type MarketReport, type ReportFeedback } from '../api/market-report'
 
@@ -138,6 +139,9 @@ onMounted(() => {
         <NearBuyPanel />
       </div>
     </div>
+
+    <!-- 问财观点 (v1.7.663: 原独立菜单页折进看板做紧凑面板, 最近几条+查看全部跳详情) -->
+    <WencaiOpinionPanel />
 
     <!-- AI 市场分析 -->
     <NCard size="small" class="report-card" :bordered="true">

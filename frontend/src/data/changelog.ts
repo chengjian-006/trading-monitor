@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.663',
+    date: '2026-07-18',
+    title: '问财观点折进监控看板做面板',
+    changes: [
+      {
+        text: '「问财观点」从独立菜单页改为监控看板上的紧凑面板：展示最近几条投顾观点（提及个股/问题/结论要点），点「查看全部」进详情页；菜单不再单列，详情页仍可直达。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.662',
     date: '2026-07-18',
     title: '菜单信息架构整合：19 → 14 项，分组更清晰',

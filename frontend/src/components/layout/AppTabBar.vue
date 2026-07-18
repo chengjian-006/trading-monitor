@@ -23,7 +23,6 @@ const moreGroups = [
     items: [
       { key: 'signals', label: '监控看板', icon: '📊', path: '/' },
       { key: 'pool', label: '股票池', icon: '📋', path: '/pool' },
-      { key: 'wencai-opinion', label: '问财观点', icon: '💡', path: '/wencai-opinion' },
       { key: 'models', label: '模型策略', icon: '📖', path: '/models' },
     ],
   },
