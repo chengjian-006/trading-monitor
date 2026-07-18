@@ -822,6 +822,25 @@ SCHEMA_STATEMENTS = [
         KEY idx_paper_trade_sig (account_id, code, signal_id, trade_date)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     """,
+    # 交易日记 (v1.7.669): 手动记录每笔买卖的理由/心态/复盘, 事后回看决策模式, 与"交易分析(客观数据)"互补
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_trade_journal (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL DEFAULT 1,
+        code VARCHAR(8) NOT NULL DEFAULT '',
+        name VARCHAR(32) NOT NULL DEFAULT '',
+        side VARCHAR(12) NOT NULL DEFAULT '',
+        trade_date DATE NULL,
+        price DECIMAL(10,3) NULL,
+        qty INT NULL,
+        reason TEXT NULL,
+        emotion VARCHAR(24) NOT NULL DEFAULT '',
+        review TEXT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        KEY idx_journal_user_date (user_id, trade_date)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    """,
     """
     CREATE TABLE IF NOT EXISTS cfzy_biz_paper_equity (
         id INT AUTO_INCREMENT PRIMARY KEY,

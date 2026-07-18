@@ -20,6 +20,9 @@
 # 内部底层 helper (sub-module 之间共享, 也兼容旧调用方直接 import)
 from backend.models.database import get_pool  # noqa: F401
 from backend.models.repo._db import _execute, _executemany, _fetchall, _fetchone  # noqa: F401
+from backend.models.repo.trade_journal import (  # noqa: F401
+    list_journal, create_journal, update_journal, delete_journal,
+)
 
 # 按业务域聚合 re-export
 from backend.models.repo.stocks import (  # noqa: F401

@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.669',
+    date: '2026-07-18',
+    title: '新增 交易日记',
+    changes: [
+      {
+        text: '新增「交易日记」（策略绩效组）：手动记录每笔买卖的方向/标的/价格股数/理由/心态/复盘，支持编辑删除、按关键词与方向筛选。用来事后回看自己的决策模式，与「交易分析」的客观数据互补。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.668',
     date: '2026-07-18',
     title: '新增 仓位计算器 + 预警中心',

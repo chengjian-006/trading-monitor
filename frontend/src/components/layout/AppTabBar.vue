@@ -41,6 +41,7 @@ const moreGroups = [
       { key: 'review', label: '信号复盘', icon: '🔍', path: '/review' },
       { key: 'model-backtest', label: '模型回测', icon: '📊', path: '/model-backtest' },
       { key: 'trade-analysis', label: '交易分析', icon: '💰', path: '/trade-analysis' },
+      { key: 'trade-journal', label: '交易日记', icon: '📔', path: '/trade-journal' },
       { key: 'paper-trading', label: '模拟账户', icon: '💹', path: '/paper-trading' },
       { key: 'calculator', label: '仓位计算', icon: '🧮', path: '/calculator' },
     ],

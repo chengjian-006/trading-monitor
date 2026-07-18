@@ -17,7 +17,7 @@ from backend.models.database import init_db, close_db
 from backend.models.repository import purge_old_logs
 from backend.services import task_manager
 
-from backend.routers import stocks, signals, kline, search, config, scan, ws, ths, auth, users, logs, signal_config, popularity, market_report, scheduled_tasks, backtest, trade_analysis, substance, api_health as api_health_router, signal_executions, sector, emotion, market_breadth, near_buy, auction_pool, paper_trading, lark_templates, blogger, alerts, sector_rotation, quick, wencai, limit_up, apply
+from backend.routers import stocks, signals, kline, search, config, scan, ws, ths, auth, users, logs, signal_config, popularity, market_report, scheduled_tasks, backtest, trade_analysis, substance, api_health as api_health_router, signal_executions, sector, emotion, market_breadth, near_buy, auction_pool, paper_trading, lark_templates, blogger, alerts, sector_rotation, quick, wencai, limit_up, apply, trade_journal
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,6 +95,7 @@ app.include_router(market_breadth.router)
 app.include_router(near_buy.router)
 app.include_router(auction_pool.router)
 app.include_router(paper_trading.router)
+app.include_router(trade_journal.router)
 app.include_router(lark_templates.router)
 app.include_router(blogger.router)
 app.include_router(sector_rotation.router)
