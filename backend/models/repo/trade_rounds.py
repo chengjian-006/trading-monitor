@@ -12,9 +12,12 @@ _ROUND_COLS = (
     "close_date, close_time, entry_price, exit_price, peak_qty, is_scaled_in, "
     "is_scaled_out, total_buy_amount, total_sell_amount, total_fee, realized_pnl, "
     "realized_pnl_pct, entry_signal_pk, entry_signal_id, entry_model_name, "
-    "entry_deviation_pct, exit_reason"
+    "entry_deviation_pct, exit_reason, "
+    # v1.7.685: 建表时就留了这 6 列, 但插入列清单一直没带上 → 线上恒为 NULL,
+    # 回合表因此只是流水台账、出不了"买点准不准/卖点早不早"的结论。由 attach_excursions 回填。
+    "holding_days, mfe_pct, mfe_date, mae_pct, mae_date, max_drawdown_pct"
 )
-_ROUND_PH = ",".join(["%s"] * 25)
+_ROUND_PH = ",".join(["%s"] * 31)
 
 
 async def get_trades_for_rounds(user_id: int) -> list[dict]:
@@ -64,7 +67,28 @@ def _round_row(user_id: int, r: dict) -> tuple:
         r["total_fee"], r["realized_pnl"], r["realized_pnl_pct"],
         r.get("entry_signal_pk"), r.get("entry_signal_id"), r.get("entry_model_name"),
         r.get("entry_deviation_pct"), r.get("exit_reason"),
+        r.get("holding_days"), r.get("mfe_pct"), r.get("mfe_date"),
+        r.get("mae_pct"), r.get("mae_date"), r.get("max_drawdown_pct"),
     )
+
+
+async def get_daily_bars_for_codes(codes: list[str], start_date: str) -> dict[str, list[dict]]:
+    """一次取多票日线(high/low), 按 code 分组升序 — 给回合 MFE/MAE 回填用.
+
+    逐 code 查会 N+1(174 只 × 跨云 44ms ≈ 8 秒), 故一次 IN 查询 + Python 分组。
+    """
+    if not codes:
+        return {}
+    ph = ",".join(["%s"] * len(codes))
+    rows = await _fetchall(
+        f"SELECT code, trade_date, high, low FROM cfzy_sys_kline_cache "
+        f"WHERE code IN ({ph}) AND trade_date >= %s ORDER BY code, trade_date",
+        tuple(codes) + (start_date,),
+    )
+    grouped: dict[str, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r["code"], []).append(r)
+    return grouped
 
 
 async def replace_rounds_for_code(user_id: int, code: str, source: str, rounds: list[dict]):
@@ -97,7 +121,8 @@ async def replace_rounds_for_code(user_id: int, code: str, source: str, rounds: 
         await conn.commit()
 
 
-async def get_rounds(user_id: int, status: str | None = None) -> list[dict]:
+async def get_rounds(user_id: int, status: str | None = None,
+                     limit: int | None = None) -> list[dict]:
     """读回合头列表(供前端/分析), 可按 status 过滤."""
     sql = "SELECT * FROM cfzy_biz_trade_rounds WHERE user_id = %s"
     args: list = [user_id]
@@ -105,4 +130,23 @@ async def get_rounds(user_id: int, status: str | None = None) -> list[dict]:
         sql += " AND status = %s"
         args.append(status)
     sql += " ORDER BY open_date DESC, open_time DESC"
+    if limit:
+        sql += " LIMIT %s"
+        args.append(int(limit))
     return await _fetchall(sql, tuple(args))
+
+
+async def get_round_legs(round_ids: list[int]) -> dict[int, list[dict]]:
+    """批量取回合腿, 按 round_id 分组(给回合详情/K线标注用)."""
+    if not round_ids:
+        return {}
+    ph = ",".join(["%s"] * len(round_ids))
+    rows = await _fetchall(
+        f"SELECT * FROM cfzy_biz_round_legs WHERE round_id IN ({ph}) "
+        f"ORDER BY round_id, trade_date, trade_time",
+        tuple(round_ids),
+    )
+    grouped: dict[int, list[dict]] = {}
+    for r in rows:
+        grouped.setdefault(r["round_id"], []).append(r)
+    return grouped

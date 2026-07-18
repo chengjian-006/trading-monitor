@@ -207,3 +207,76 @@ async def compare(
     """实盘交割单 vs 模型买卖点 对比 (基于已导入的全量交割单, 回测重跑检测器)。"""
     signal_window = max(1, min(int(signal_window), 15))
     return await compare_trades_to_model(user["id"], signal_window)
+
+
+@router.get("/rounds")
+async def list_rounds(
+    user: Annotated[dict, Depends(get_current_user)],
+    status: str | None = None,
+    limit: int = 500,
+):
+    """交易回合列表 + 执行质量汇总 (v1.7.685 起回合表才有 MFE/MAE, 此前恒 NULL)。
+
+    执行质量三件套(口径见 trade_round_builder.attach_excursions):
+      入场效率 = MFE / (MFE + |MAE|)   低 → 买点位置偏(买完就套)
+      出场效率 = 已实现收益 / MFE      低 → 拿不住/砍太早, 行业基准 65-80% 为健康
+      持仓时长比 = 亏损单均持仓 / 盈利单均持仓   >1 → 截断利润、让亏损奔跑
+    """
+    from backend.models.repo.trade_rounds import get_rounds, get_round_legs
+
+    rows = await get_rounds(user["id"], status, limit=max(1, min(int(limit), 2000)))
+    legs = await get_round_legs([r["id"] for r in rows])
+    for r in rows:
+        r["legs"] = legs.get(r["id"], [])
+    return {"rounds": rows, "summary": _round_summary(rows)}
+
+
+def _round_summary(rows: list[dict]) -> dict:
+    """回合列表 → 执行质量汇总。样本不足的指标返回 None 而不是 0, 避免看着像"效率0%"。"""
+    closed = [r for r in rows if r.get("status") == "closed"]
+    graded = [r for r in closed
+              if r.get("mfe_pct") is not None and r.get("mae_pct") is not None]
+
+    def _avg(vals):
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals), 2) if vals else None
+
+    # 入场效率: MFE / (MFE + |MAE|), 只对 MFE>0 的回合算(买完就没涨过的没有"效率"可言)
+    entry_eff = _avg([
+        r["mfe_pct"] / (r["mfe_pct"] + abs(r["mae_pct"])) * 100
+        for r in graded
+        if (r["mfe_pct"] or 0) > 0 and (r["mfe_pct"] + abs(r["mae_pct"])) > 0
+    ])
+    # 出场效率: 只对盈利单算(亏损单的"吃到多少浮盈"无意义)
+    exit_eff = _avg([
+        r["realized_pnl_pct"] / r["mfe_pct"] * 100
+        for r in graded
+        if (r.get("realized_pnl_pct") or 0) > 0 and (r["mfe_pct"] or 0) > 0
+    ])
+    win_hold = [r["holding_days"] for r in closed
+                if (r.get("realized_pnl_pct") or 0) > 0 and r.get("holding_days")]
+    loss_hold = [r["holding_days"] for r in closed
+                 if (r.get("realized_pnl_pct") or 0) <= 0 and r.get("holding_days")]
+    avg_win_hold = _avg(win_hold)
+    avg_loss_hold = _avg(loss_hold)
+    hold_ratio = (round(avg_loss_hold / avg_win_hold, 2)
+                  if avg_win_hold and avg_loss_hold else None)
+
+    # 三区分布(对标 TradesViz MFE-vs-PnL 散点): 吃满 / 落袋太早 / 浮盈坐成亏损
+    good = sum(1 for r in graded if (r.get("realized_pnl_pct") or 0) > 0
+               and (r["mfe_pct"] or 0) > 0
+               and r["realized_pnl_pct"] >= r["mfe_pct"] * 0.6)
+    early = sum(1 for r in graded if (r.get("realized_pnl_pct") or 0) > 0
+                and (r["mfe_pct"] or 0) > 0
+                and r["realized_pnl_pct"] < r["mfe_pct"] * 0.6)
+    gaveback = sum(1 for r in graded if (r.get("realized_pnl_pct") or 0) <= 0
+                   and (r["mfe_pct"] or 0) >= 3)
+    return {
+        "total": len(rows), "closed": len(closed), "graded": len(graded),
+        "entry_efficiency": entry_eff, "exit_efficiency": exit_eff,
+        "avg_win_holding_days": avg_win_hold, "avg_loss_holding_days": avg_loss_hold,
+        "holding_ratio": hold_ratio,
+        "avg_mfe_pct": _avg([r.get("mfe_pct") for r in graded]),
+        "avg_mae_pct": _avg([r.get("mae_pct") for r in graded]),
+        "zone_good": good, "zone_sold_early": early, "zone_gave_back": gaveback,
+    }
