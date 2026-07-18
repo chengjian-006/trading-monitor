@@ -60,6 +60,10 @@
   .body p { margin: 6px 0; } .body p.num { margin: 10px 0 4px; color:#0f172a; }
   .body ul { margin: 4px 0; padding-left: 20px; } .body li { margin: 3px 0; }
   .body strong { color:#0f172a; font-weight: 700; } .body code { background:#f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12.5px; } .body .think { color:#94a3b8; }
+  .body .md-table { width:100%; border-collapse:collapse; margin:10px 0; font-size:12.5px; border:1px solid #e2e8f0; border-radius:8px; overflow:hidden; }
+  .body .md-table th { background:#eef4ff; color:#0f172a; font-weight:700; text-align:left; padding:7px 10px; border-bottom:1px solid #e2e8f0; }
+  .body .md-table td { padding:7px 10px; border-bottom:1px solid #eef2f7; vertical-align:top; } .body .md-table tr:last-child td { border-bottom:none; }
+  .body .md-table td:first-child { font-weight:700; color:#475569; white-space:nowrap; }
   .cursor { display:inline-block; width:7px; height:15px; background:#2563eb; margin-left:2px; vertical-align:-2px; animation: blink .8s steps(1) infinite; border-radius:1px; }
   .ft { padding: 11px 16px; border-top: 1px solid #eef2f7; font-size: 12.5px; color: #64748b; background: #fafbfc; } .ft .lbl { color:#94a3b8; }
   .chip { display:inline-block; padding: 3px 10px; margin: 3px 6px 3px 0; border-radius: 7px; font-size: 12.5px; background:#f1f5f9; color:#475569; border:1px solid #e2e8f0; cursor:pointer; } .chip:hover { filter:brightness(.96); }
@@ -81,6 +85,7 @@
     .q { background:#172033; color:#cbd5e1; border-color:#334155; } .q b { color:#e2e8f0; }
     .rz { background:#172033; border-color:#334155; } .rz-b { color:#94a3b8; }
     .body { color:#e2e8f0; } .body h1,.body h2,.body h3,.body h4,.body strong,.body p.num { color:#f1f5f9; } .body code { background:#334155; }
+    .body .md-table { border-color:#334155; } .body .md-table th { background:#16233f; color:#f1f5f9; border-color:#334155; } .body .md-table td { border-color:#26324a; } .body .md-table td:first-child { color:#a3b0c8; }
     .ft { background:#172033; border-color:#334155; color:#94a3b8; }
     .chip { background:#334155; color:#cbd5e1; border-color:#475569; } .chip.hot { background:#14532d; color:#86efac; border-color:#166534; }
     .btn.ghost { background:#1e293b; color:#e2e8f0; border-color:#475569; } .btn.ghost:hover { background:#334155; }

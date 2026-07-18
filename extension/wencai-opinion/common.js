@@ -47,11 +47,28 @@
     t = t.replace(/\n{3,}/g, '\n\n');
     return t.trim();
   }
+  // markdown 表格辅助: 判分隔行(|---|:--:|) / 拆单元格
+  const isTableSep = (s) => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(s || '');
+  const tableCells = (s) => String(s || '').replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((x) => x.trim());
   function mdRender(src) {
     const lines = stripEmbeds(src).split('\n'); let html = '', inList = false, m;
     const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
-    for (const raw of lines) {
-      const line = raw.replace(/\s+$/, '');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].replace(/\s+$/, '');
+      // 表格: 当前行含 | 且下一行是分隔线 → 吃掉整块渲染成 <table>
+      if (line.indexOf('|') >= 0 && isTableSep(lines[i + 1])) {
+        closeList();
+        const head = tableCells(line);
+        let rows = '';
+        i += 2;
+        for (; i < lines.length; i++) {
+          if (lines[i].indexOf('|') < 0 || !lines[i].trim()) { i--; break; }
+          const cs = tableCells(lines[i]);
+          rows += '<tr>' + cs.map((c) => '<td>' + inlineMd(c) + '</td>').join('') + '</tr>';
+        }
+        html += '<table class="md-table"><thead><tr>' + head.map((h) => '<th>' + inlineMd(h) + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table>';
+        continue;
+      }
       if (!line.trim()) { closeList(); continue; }
       if (/^```/.test(line)) { closeList(); continue; }                         // 残留的 ``` 标记行丢弃
       if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.replace(/\s/g, ''))) { closeList(); html += '<hr>'; continue; }  // 分隔线
@@ -77,12 +94,37 @@
     }
     return hit >= 3 ? out : null;
   }
+  // 从 markdown 表格里抽结论: 首列是「标的/买点/止盈/止损/周期/逻辑/风险」标签、次列是值。
+  // 问财常用「| 项目 | 执行建议 |」表输出结论, 直接读表得到的值最干净(无竖线/标签残留)。
+  function parseTableConc(text) {
+    const out = {}; let hit = 0;
+    for (const ln of String(text || '').split('\n')) {
+      if (ln.indexOf('|') < 0) continue;
+      const cs = tableCells(ln).map((x) => x.replace(/[*`]/g, '').trim());
+      if (cs.length < 2) continue;
+      const key = MK[cs[0]];
+      const val = cs[1];
+      if (key && val && !/^[-—]+$/.test(val) && out[key] === undefined) { out[key] = val.slice(0, 120); hit++; }
+    }
+    return hit >= 3 ? out : null;
+  }
+
+  // 结论值清洗(展示前): 去首尾竖线、去开头重复标签(如 "止盈 | 一周...")、中间竖线→空格。
+  function cleanConcVal(s, label) {
+    let v = String(s || '').replace(/[*`]/g, '').trim();
+    v = v.replace(/^\|+/, '').replace(/\|+$/, '').trim();
+    if (label) v = v.replace(new RegExp('^' + label + '\\s*[|｜:：]?\\s*'), '');
+    v = v.replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    return v;
+  }
+
   // 把结论小结那行从话术里去掉(卡片已单独展示, 正文不重复)
   function stripMarkerLine(text) { return (text || '').replace(/\n*【标的】[\s\S]*$/, '').trim(); }
 
   function clipC(s) { s = (s || '').replace(/\*\*/g, '').replace(/^[\s\-•·]+/, '').replace(/\s+/g, ' ').trim(); return s.length > 64 ? s.slice(0, 64) + '…' : s; }
   function sentenceOf(text, kw) {
-    const re = new RegExp('[^。\\n;；！]*(?:' + kw + ')[^。\\n;；！]*', 'g');
+    // 排除 | 作句界: 避免匹配跨到 markdown 表格单元格、把竖线也吞进来
+    const re = new RegExp('[^。\\n;；！|]*(?:' + kw + ')[^。\\n;；！|]*', 'g');
     const arr = text.match(re);
     if (!arr) return '';
     arr.sort((a, b) => (/[\d]/.test(b) ? 1 : 0) - (/[\d]/.test(a) ? 1 : 0));
@@ -92,6 +134,8 @@
     const stockStr = (stockItems && stockItems[0]) ? (stockItems[0].name + (stockItems[0].code ? ' (' + stockItems[0].code + ')' : '')) : '';
     const marked = parseMarkers(answer);
     if (marked) { if (!marked.stock) marked.stock = stockStr; return marked; }
+    const tbl = parseTableConc(answer);            // 表格源(问财结论表)最干净
+    if (tbl) { if (!tbl.stock) tbl.stock = stockStr; return tbl; }
     // 正则兜底
     const t = stripEmbeds(answer || '');
     const period = (t.match(/(?:持股|持有|周期)[^。\n]{0,12}?(一周|半个?月|\d+\s*(?:天|日|周|个月))/) || [])[0] || '';
@@ -110,7 +154,7 @@
   function buildStandaloneHtml(question, answerMd, stocks, meta) {
     const chips = (stocks && stocks.length) ? '<div class="stocks">识别个股：' + stocks.map((s, i) => '<span class="chip' + (i === 0 ? ' hot' : '') + '">' + esc(typeof s === 'string' ? s : s.name) + (i === 0 ? ' ·主推' : '') + '</span>').join('') + '</div>' : '';
     const sub = meta ? '<div class="sub">' + esc(meta) + '</div>' : '';
-    const css = 'body{margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1f2937}.page{max-width:820px;margin:28px auto;background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.08);overflow:hidden}.hd{background:linear-gradient(135deg,#1f2937,#111827);color:#fff;padding:16px 24px;font-weight:600}.q{padding:14px 24px;background:#f8fafc;border-bottom:1px solid #eef2f7;color:#334155;font-weight:600}.sub{padding:4px 24px 0;color:#94a3b8;font-size:12px}.ans{padding:18px 24px;font-size:15px;line-height:1.85}.ans h1,.ans h2,.ans h3,.ans h4{margin:18px 0 8px;color:#0f172a}.ans h2{font-size:17px}.ans p{margin:8px 0}.ans p.num{margin:12px 0 4px;color:#0f172a}.ans ul{padding-left:22px}.ans li{margin:4px 0}.ans strong{color:#0f172a}.ans code{background:#f1f5f9;padding:1px 5px;border-radius:4px}.stocks{padding:14px 24px;border-top:1px solid #eef2f7;background:#fafbfc}.chip{display:inline-block;padding:4px 12px;margin:3px 6px 3px 0;border-radius:8px;font-size:13px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}.chip.hot{background:#dcfce7;color:#15803d;border-color:#86efac;font-weight:600}@media(prefers-color-scheme:dark){body{background:#0f172a;color:#e2e8f0}.page{background:#1e293b}.q{background:#172033;color:#cbd5e1;border-color:#334155}.ans h1,.ans h2,.ans h3,.ans h4,.ans strong{color:#f1f5f9}.ans code{background:#334155}.stocks{background:#172033;border-color:#334155}.chip{background:#334155;color:#cbd5e1;border-color:#475569}}';
+    const css = 'body{margin:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1f2937}.page{max-width:820px;margin:28px auto;background:#fff;border-radius:16px;box-shadow:0 6px 24px rgba(0,0,0,.08);overflow:hidden}.hd{background:linear-gradient(135deg,#1f2937,#111827);color:#fff;padding:16px 24px;font-weight:600}.q{padding:14px 24px;background:#f8fafc;border-bottom:1px solid #eef2f7;color:#334155;font-weight:600}.sub{padding:4px 24px 0;color:#94a3b8;font-size:12px}.ans{padding:18px 24px;font-size:15px;line-height:1.85}.ans h1,.ans h2,.ans h3,.ans h4{margin:18px 0 8px;color:#0f172a}.ans h2{font-size:17px}.ans p{margin:8px 0}.ans p.num{margin:12px 0 4px;color:#0f172a}.ans ul{padding-left:22px}.ans li{margin:4px 0}.ans strong{color:#0f172a}.ans code{background:#f1f5f9;padding:1px 5px;border-radius:4px}.ans .md-table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13.5px;border:1px solid #e2e8f0;border-radius:10px;overflow:hidden}.ans .md-table th{background:#eef4ff;color:#0f172a;font-weight:700;text-align:left;padding:9px 12px;border-bottom:1px solid #e2e8f0}.ans .md-table td{padding:9px 12px;border-bottom:1px solid #eef2f7;vertical-align:top}.ans .md-table tr:last-child td{border-bottom:none}.ans .md-table td:first-child{font-weight:700;color:#475569;white-space:nowrap}.stocks{padding:14px 24px;border-top:1px solid #eef2f7;background:#fafbfc}.chip{display:inline-block;padding:4px 12px;margin:3px 6px 3px 0;border-radius:8px;font-size:13px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}.chip.hot{background:#dcfce7;color:#15803d;border-color:#86efac;font-weight:600}@media(prefers-color-scheme:dark){body{background:#0f172a;color:#e2e8f0}.page{background:#1e293b}.q{background:#172033;color:#cbd5e1;border-color:#334155}.ans h1,.ans h2,.ans h3,.ans h4,.ans strong{color:#f1f5f9}.ans code{background:#334155}.ans .md-table{border-color:#334155}.ans .md-table th{background:#16233f;color:#f1f5f9;border-color:#334155}.ans .md-table td{border-color:#26324a}.ans .md-table td:first-child{color:#a3b0c8}.stocks{background:#172033;border-color:#334155}.chip{background:#334155;color:#cbd5e1;border-color:#475569}}';
     return '<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>问财观点 · ' + esc(question).slice(0, 24) + '</title><style>' + css + '</style></head><body><div class="page"><div class="hd">💡 问财观点参考</div><div class="q">' + esc(question) + '</div>' + sub + '<div class="ans">' + mdRender(answerMd) + '</div>' + chips + '</div></body></html>';
   }
 
@@ -196,5 +240,5 @@
              deepResearch: d.deep_research_query_times, leftTime: d.left_time };
   }
 
-  root.WOP = { genSessionId, cmpVer, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, stripMarkerLine };
+  root.WOP = { genSessionId, cmpVer, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, cleanConcVal, stripMarkerLine };
 })(typeof self !== 'undefined' ? self : this);
