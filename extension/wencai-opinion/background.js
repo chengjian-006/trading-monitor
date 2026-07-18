@@ -118,12 +118,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 chrome.runtime.onInstalled.addListener((d) => {
   chrome.alarms.create('wop-tick', { periodInMinutes: 1 });
   chrome.alarms.create('wop-verchk', { periodInMinutes: 360 });   // 每6小时查一次新版
+  ensureContextMenu();
   checkExtVersion(false).catch(() => {});
   if (d && d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('wop-tick', { periodInMinutes: 1 });
   chrome.alarms.create('wop-verchk', { periodInMinutes: 360 });
+  ensureContextMenu();
   checkExtVersion(false).catch(() => {});
 });
 
@@ -148,14 +150,32 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
-// ---------- 快捷键 ----------
-chrome.commands.onCommand.addListener(async (cmd) => {
-  if (cmd !== 'ask-preset') return;
-  const s = await getSettings();
-  const q = (s.presets || [])[0];
+// 择优提问: 当前在问财页 → 走前台浮层(可看流式/追问); 否则后台静默跑 + 通知。
+async function askViaBestSurface(q) {
   if (!q) return;
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs && tabs[0];
   if (tab && /:\/\/www\.iwencai\.com\//.test(tab.url || '')) chrome.tabs.sendMessage(tab.id, { type: 'askForeground', question: q });
   else runBg(q, { silent: false }).catch((e) => notify('问财观点 · 失败', String(e.message || e)));
+}
+
+// ---------- 快捷键 ----------
+chrome.commands.onCommand.addListener(async (cmd) => {
+  if (cmd !== 'ask-preset') return;
+  const s = await getSettings();
+  await askViaBestSurface((s.presets || [])[0]);
+});
+
+// ---------- 右键菜单: 选中任意文字 → 用问财观点问它 ----------
+function ensureContextMenu() {
+  try {
+    chrome.contextMenus.removeAll(() => {
+      chrome.contextMenus.create({ id: 'wop-ask-sel', title: '用问财观点问：「%s」', contexts: ['selection'] });
+    });
+  } catch (e) { /* 无 contextMenus 权限/环境不支持则忽略 */ }
+}
+chrome.contextMenus && chrome.contextMenus.onClicked.addListener((info) => {
+  if (info.menuItemId !== 'wop-ask-sel') return;
+  const q = (info.selectionText || '').trim();
+  if (q) askViaBestSurface(q);
 });

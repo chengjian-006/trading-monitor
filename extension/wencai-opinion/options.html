@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>问财观点 · 完整设置</title>
+  <link rel="stylesheet" href="popup.css">
+  <style>
+    /* 覆盖 popup 的窄宽 body, 走宽屏文档流 */
+    body { width: auto; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 28px 20px 48px; }
+    .page-hd { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .page-hd .logo { width: 40px; height: 40px; border-radius: 11px; font-size: 20px; }
+    .page-hd h1 { font-size: 19px; margin: 0; font-weight: 800; letter-spacing: .02em; }
+    .page-hd .sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+    .card { margin-bottom: 14px; padding: 16px 18px; }
+    .card-title { font-size: 13px; margin-bottom: 12px; }
+    .field textarea { min-height: 84px; }
+    #presets { min-height: 128px; }
+    .privacy-line {
+      display: flex; align-items: center; gap: 7px; margin-top: 8px;
+      font-size: 12px; color: var(--ink-3);
+    }
+    .save-hint { color: var(--ok); font-weight: 600; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-hd">
+    <div class="logo">💡</div>
+    <div>
+      <h1>问财观点 · 完整设置</h1>
+      <div class="sub">宽屏编辑预置问题、定时与上报规则 · 改完自动保存 <span id="saveHint" class="save-hint"></span></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <div class="card-title">上报</div>
+      <div class="field">
+        <label for="uploader">我的昵称</label>
+        <input id="uploader" type="text" placeholder="选填，如：老王（留空自动用同花顺账号）">
+      </div>
+      <label class="sw-row">
+        <span class="sw-txt">问完自动上报<small>关掉 = 只看答案，手动点上报</small></span>
+        <span class="sw-wrap"><input id="autoUpload" type="checkbox"><span class="sw"></span></span>
+      </label>
+      <label class="sw-row">
+        <span class="sw-txt">仅识别出个股才上报<small>过滤纯观点类回答</small></span>
+        <span class="sw-wrap"><input id="onlyWithStock" type="checkbox"><span class="sw"></span></span>
+      </label>
+      <label class="sw-row">
+        <span class="sw-txt">深度研究<small>更深入，但每天约10次额度；普通约188次</small></span>
+        <span class="sw-wrap"><input id="deepResearch" type="checkbox"><span class="sw"></span></span>
+      </label>
+      <div class="privacy-line">🔒 用你自己的问财登录，数据只发往你的股小察服务器。</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">定时自动问 <span style="font-weight:400;color:var(--warn)">⚠️ 自动化封号风险相对高，谨慎开</span></div>
+      <label class="sw-row">
+        <span class="sw-txt">开启定时自动问</span>
+        <span class="sw-wrap"><input id="schedEnabled" type="checkbox"><span class="sw"></span></span>
+      </label>
+      <div id="schedBody" class="sched-body">
+        <div class="field">
+          <label for="schedTimes">时间点（逗号分隔）</label>
+          <input id="schedTimes" type="text" placeholder="09:35,13:05">
+        </div>
+        <div class="field">
+          <label for="schedQuestions">定时跑哪些问题（每行一条）</label>
+          <textarea id="schedQuestions" rows="3" placeholder="留空 = 跑第一条预置问题"></textarea>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">预置问题</div>
+    <div class="field">
+      <textarea id="presets" placeholder="每行一条口语问题"></textarea>
+      <div class="field-hint">显示在弹窗问答页和问财页 💡 悬浮菜单里，每行一条。</div>
+    </div>
+  </div>
+
+  <div class="ver-row">
+    <span class="ver-txt">版本 <b id="verNow"></b></span>
+    <button id="checkUpdate" class="btn ghost">检查更新</button>
+  </div>
+
+  <div id="toast" class="toast"></div>
+</div>
+<script src="options.js"></script>
+</body>
+</html>

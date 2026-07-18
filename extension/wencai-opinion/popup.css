@@ -279,6 +279,34 @@ input:checked + .sw::after { transform: translateX(16px); }
 .sched-body { margin-top: 9px; transition: opacity .2s; }
 .sched-body.off { opacity: .4; pointer-events: none; }
 
+/* ---------- 完整设置入口 ---------- */
+.options-entry {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 11px 13px; margin-bottom: 12px; cursor: pointer; font-family: inherit;
+  box-shadow: var(--shadow); transition: border-color .15s, transform .12s, box-shadow .15s;
+}
+.options-entry:hover { border-color: var(--brand-line); transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+.options-entry .oe-ic {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 9px; font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand-line);
+}
+.options-entry .oe-txt { flex: 1; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.options-entry .oe-txt small { display: block; font-size: 11px; font-weight: 400; color: var(--ink-3); margin-top: 1px; }
+.options-entry .oe-go { color: var(--ink-3); font-weight: 700; flex-shrink: 0; }
+
+/* ---------- 常驻隐私信号 ---------- */
+.privacy-bar {
+  flex-shrink: 0; text-align: center; padding: 5px 10px;
+  font-size: 10.5px; color: var(--ink-3);
+  background: var(--card); border-top: 1px solid var(--line-soft);
+}
+
+/* 可点的额度 pill(未登录跳登录) */
+.qpill.clickable { cursor: pointer; }
+.qpill.clickable:hover { filter: brightness(1.04); text-decoration: underline; }
+
 /* ---------- 底部 Tab ---------- */
 .tabbar {
   display: flex; background: var(--card); border-top: 1px solid var(--line); flex-shrink: 0;

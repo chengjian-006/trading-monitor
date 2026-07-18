@@ -240,9 +240,14 @@ function loadHistory() {
 function loadQuota() {
   chrome.runtime.sendMessage({ type: 'quota' }, (q) => {
     const el = $('quota'); el.innerHTML = '';
-    const pill = (txt, cls) => { const p = document.createElement('span'); p.className = 'qpill ' + (cls || ''); p.innerHTML = txt; el.appendChild(p); };
+    const pill = (txt, cls, onClick) => {
+      const p = document.createElement('span'); p.className = 'qpill ' + (cls || ''); p.innerHTML = txt;
+      if (onClick) { p.classList.add('clickable'); p.onclick = onClick; }
+      el.appendChild(p);
+    };
     if (chrome.runtime.lastError || !q || !q.ok) {
-      pill((q && q.error) === '未登录' ? '⚠️ 未登录问财，去 iwencai.com 登录一次' : '额度未知', 'warn');
+      if ((q && q.error) === '未登录') pill('⚠️ 未登录问财，点此去登录 →', 'warn', () => chrome.tabs.create({ url: 'https://www.iwencai.com/' }));
+      else pill('额度未知', 'warn');
       return;
     }
     if (q.normal != null) pill('普通剩 <b>' + q.normal + '</b>');
@@ -276,6 +281,12 @@ $('checkUpdate').onclick = () => {
     if (r.hasNew) { renderUpdateBar({ latest: r.latest, url: r.url }); toast('发现新版 v' + r.latest); }
     else { renderUpdateBar(null); toast('已是最新 v' + r.current); }
   });
+};
+
+// 打开完整设置页
+$('openOptions').onclick = () => {
+  if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
+  else chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
 };
 
 // ---------- 启动 ----------

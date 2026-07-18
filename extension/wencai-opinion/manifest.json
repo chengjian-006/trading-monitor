@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "问财观点 · 股小察",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "在同花顺问财用口语问一句, 把智能调度的投顾式推荐存进股小察「问财观点」。支持前台浮层/后台静默/定时。",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": {
@@ -9,6 +9,7 @@
     "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
     "default_title": "问财观点 · 设置与后台提问"
   },
+  "options_page": "options.html",
   "content_scripts": [
     {
       "matches": ["https://www.iwencai.com/*", "http://www.iwencai.com/*"],
@@ -23,7 +24,7 @@
       "description": "问财观点：问第一条预置问题（在问财页走前台浮层，否则后台跑）"
     }
   },
-  "permissions": ["storage", "alarms", "cookies", "notifications"],
+  "permissions": ["storage", "alarms", "cookies", "notifications", "contextMenus"],
   "host_permissions": [
     "https://www.iwencai.com/*",
     "http://www.iwencai.com/*",
