@@ -128,11 +128,18 @@ async def model_winrate(user: Annotated[dict, Depends(get_current_user)]):
 
 @router.get("/market-risk")
 async def market_risk_status(user: Annotated[dict, Depends(get_current_user)]):
-    """市场风险两级预警: 最新状态 + 近60交易日指标."""
+    """市场风险两级预警: 最新状态 + 近60交易日指标 + 当前状态连续段锚点.
+
+    since_at/since_days = 当前状态从哪天起、已连续几个交易日(v1.7.678)。顶栏横幅拿它渲染
+    「7月8日 16:40起 · 已8个交易日」; 不能用 latest.updated_at — EOD 每天 upsert 会刷新它。
+    """
     from backend.models.repo._db import _fetchall
+    from backend.services.market_risk_controller import streak_from_rows
     rows = await _fetchall(
         "SELECT * FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 60")
-    return {"latest": rows[0] if rows else None, "rows": rows}
+    _st, since_at, since_days = streak_from_rows(rows)
+    return {"latest": rows[0] if rows else None, "rows": rows,
+            "since_at": since_at, "since_days": since_days}
 
 
 @router.get("/matrix")

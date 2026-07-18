@@ -45,10 +45,17 @@ export interface MarketRiskRow {
   zha_rate: number | null        // 炸板率%
   state: string                  // GREEN/YELLOW/RED
   source: string                 // eod | intraday
-  updated_at?: string | null     // 状态行最后变更时刻(全局顶栏横幅「几点起」锚点)
+  updated_at?: string | null     // 该行最后写入时刻(EOD每日upsert会刷新, 别拿它当状态起始锚点)
 }
 
-export async function fetchMarketRisk(): Promise<{ latest: MarketRiskRow | null; rows: MarketRiskRow[] }> {
+export interface MarketRiskResp {
+  latest: MarketRiskRow | null
+  rows: MarketRiskRow[]
+  since_at?: string | null       // 当前状态连续段第一天的时刻(顶栏横幅「几点起」锚点)
+  since_days?: number            // 当前状态已连续几个交易日
+}
+
+export async function fetchMarketRisk(): Promise<MarketRiskResp> {
   const { data } = await client.get('/api/signals/market-risk')
   return data
 }

@@ -88,16 +88,18 @@ def test_get_risk_state_info_label(monkeypatch):
     monkeypatch.setattr(market_risk_controller, "_refresh_active_cache", _noop)
 
     now = datetime.now()
-    market_risk_controller._active_cache = (_time.monotonic(), "RED", now.replace(hour=13, minute=11))
+    market_risk_controller._active_cache = (_time.monotonic(), "RED", now.replace(hour=13, minute=11), 1)
     st, label = _run(market_risk_controller.get_risk_state_info())
     assert st == "RED" and label == "13:11"
 
     yesterday = now - timedelta(days=1)
-    market_risk_controller._active_cache = (_time.monotonic(), "YELLOW", yesterday.replace(hour=16, minute=40))
+    market_risk_controller._active_cache = (
+        _time.monotonic(), "YELLOW", yesterday.replace(hour=16, minute=40), 3)
     st, label = _run(market_risk_controller.get_risk_state_info())
     assert st == "YELLOW" and label == f"{yesterday.month}月{yesterday.day}日 16:40"
+    assert _run(market_risk_controller.get_risk_streak_days()) == 3
 
-    market_risk_controller._active_cache = (_time.monotonic(), "GREEN", now)
+    market_risk_controller._active_cache = (_time.monotonic(), "GREEN", now, 5)
     st, label = _run(market_risk_controller.get_risk_state_info())
     assert st == "GREEN" and label == ""
     market_risk_controller._invalidate_cache()

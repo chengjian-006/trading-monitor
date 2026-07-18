@@ -29,6 +29,38 @@ def test_state_machine_red_needs_all_three_to_exit():
     assert _run_state_machine("RED", today, breadth=20.0) == "RED"   # 广度20<25
 
 
+# ── 状态段锚点(v1.7.678): 横幅「几点起」必须指向连续段第一天, 不是最新行 updated_at ──
+
+def test_streak_from_rows_anchors_at_segment_start():
+    """连续 RED 段: 锚点=段内最早那天, 天数=段长。EOD 每日 upsert 刷新 updated_at 不应影响。"""
+    rows = [
+        {"state": "RED", "updated_at": "2026-07-17 16:40:31"},
+        {"state": "RED", "updated_at": "2026-07-16 16:40:25"},
+        {"state": "RED", "updated_at": "2026-07-15 16:40:26"},
+        {"state": "GREEN", "updated_at": "2026-07-14 16:40:27"},
+        {"state": "RED", "updated_at": "2026-07-13 16:40:27"},
+    ]
+    st, anchor, days = mrc.streak_from_rows(rows)
+    assert st == "RED"
+    assert anchor == "2026-07-15 16:40:26"   # 不是最新的 7/17
+    assert days == 3                         # GREEN 之前的那段 RED 不计入
+
+
+def test_streak_from_rows_breaks_on_state_change():
+    """RED→YELLOW→RED 按 state 值断段: 当前 RED 只算 1 天, 与横幅文案(空仓中)一致。"""
+    rows = [
+        {"state": "RED", "updated_at": "2026-07-17 16:40:31"},
+        {"state": "YELLOW", "updated_at": "2026-07-16 16:40:25"},
+        {"state": "RED", "updated_at": "2026-07-15 16:40:26"},
+    ]
+    st, anchor, days = mrc.streak_from_rows(rows)
+    assert (st, anchor, days) == ("RED", "2026-07-17 16:40:31", 1)
+
+
+def test_streak_from_rows_empty():
+    assert mrc.streak_from_rows([]) == ("GREEN", None, 0)
+
+
 # ── 历史指标: 脏 low=0 行不再炸整轮 EOD(v1.7.570 crash guard) ──
 
 def test_hist_indicators_no_crash_on_zero_low_rows():

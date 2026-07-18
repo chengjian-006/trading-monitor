@@ -10,13 +10,17 @@ import { useVisiblePolling } from '../../composables/useVisiblePolling'
 const router = useRouter()
 const route = useRoute()
 const latest = ref<MarketRiskRow | null>(null)
+const sinceAt = ref<string | null>(null)
+const sinceDays = ref(0)
 
 const state = computed(() => (latest.value?.state ?? '').toUpperCase())
 const active = computed(() => state.value === 'RED' || state.value === 'YELLOW')
 
-// 时间锚点: 今日→「13:11起」, 往日→「7月15日 16:40起」; 解析失败静默省略
+// 时间锚点: 今日→「13:11起」, 往日→「7月8日 16:40起 · 已8个交易日」; 解析失败静默省略。
+// v1.7.678: 锚点改用后端 since_at(当前状态连续段第一天), 不再用 latest.updated_at —
+// EOD 每天 upsert 会刷新 updated_at, 状态没变横幅也天天显示「昨天16:40起」, 掩盖了连续空仓多久。
 const since = computed(() => {
-  const raw = latest.value?.updated_at
+  const raw = sinceAt.value ?? latest.value?.updated_at
   if (!raw) return ''
   const s = String(raw).replace('T', ' ')
   const datePart = s.slice(0, 10)
@@ -27,7 +31,8 @@ const since = computed(() => {
   if (datePart === today) return `（${hm}起）`
   const m = parseInt(datePart.slice(5, 7), 10)
   const day = parseInt(datePart.slice(8, 10), 10)
-  return `（${m}月${day}日 ${hm}起）`
+  const tail = sinceDays.value >= 2 ? ` · 已${sinceDays.value}个交易日` : ''
+  return `（${m}月${day}日 ${hm}起${tail}）`
 })
 
 const text = computed(() =>
@@ -37,7 +42,10 @@ const text = computed(() =>
 
 async function load() {
   try {
-    latest.value = (await fetchMarketRisk()).latest
+    const resp = await fetchMarketRisk()
+    latest.value = resp.latest
+    sinceAt.value = resp.since_at ?? null
+    sinceDays.value = resp.since_days ?? 0
   } catch {
     /* 顶栏静默 */
   }

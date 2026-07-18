@@ -50,8 +50,11 @@ YELLOW_EXIT_ADVANCE = 42.0        # 涨跌比 > 42%
 RED_EXIT_BREADTH = 25.0           # 广度 > 25%
 RED_EXIT_ADVANCE = 40.0           # 涨跌比 > 40%
 
-# (monotonic时刻, 状态, 状态行updated_at) — updated_at 给推送横幅的"几点起"时间锚点用
-_active_cache: tuple[float, str, object] = (0.0, GREEN, None)
+# (monotonic时刻, 状态, 段起锚点updated_at, 已持续交易日数) — 锚点给横幅的"几点起"用。
+# v1.7.678: 锚点取「当前状态连续段的第一天」而非最新行。EOD 每天都会 upsert 重写最新行,
+#   updated_at 天天刷新, 哪怕状态一动没动 → 横幅永远显示「昨天16:40起」, 看不出已连续空仓
+#   一周多(实测 7/08 起连续 RED, 横幅却写「7月17日 16:40起」)。
+_active_cache: tuple[float, str, object, int] = (0.0, GREEN, None, 0)
 _ACTIVE_TTL = 120.0
 
 
@@ -264,23 +267,41 @@ def _run_state_machine(prev_state: str, today: dict, breadth: float | None) -> s
 
 def _invalidate_cache() -> None:
     global _active_cache
-    _active_cache = (0.0, GREEN, None)
+    _active_cache = (0.0, GREEN, None, 0)
+
+
+def streak_from_rows(rows: list) -> tuple[str, object, int]:
+    """风险行(按 trade_date 倒序) → (当前状态, 当前状态连续段第一天的 updated_at, 连续交易日数)。
+
+    纯函数, 路由层也复用(它已有整套行, 不必再查库)。rows 为空 → (GREEN, None, 0)。
+    注意按「同一 state 值」断段: RED→YELLOW→RED 会重新计时, 与横幅文案(空仓中/谨慎中)一致。
+    """
+    if not rows:
+        return GREEN, None, 0
+    st = str(rows[0]["state"])
+    anchor, days = rows[0].get("updated_at"), 0
+    for r in rows:
+        if str(r["state"]) != st:
+            break
+        anchor = r.get("updated_at")
+        days += 1
+    return st, anchor, days
 
 
 async def _refresh_active_cache() -> None:
-    """2分钟缓存刷新: 最新风险行的 state + updated_at(状态时间锚点)。"""
+    """2分钟缓存刷新: 最新状态 + 当前状态连续段的起始锚点/已持续交易日数。"""
     global _active_cache
     now = time.monotonic()
     if now - _active_cache[0] < _ACTIVE_TTL:
         return
     try:
         rows = await _fetchall(
-            "SELECT state, updated_at FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 1")
-        st = str(rows[0]["state"]) if rows else GREEN
-        up = rows[0].get("updated_at") if rows else None
+            "SELECT state, updated_at FROM cfzy_biz_market_risk "
+            "ORDER BY trade_date DESC LIMIT 60")
+        st, up, days = streak_from_rows(rows)
     except Exception:
-        st, up = GREEN, None
-    _active_cache = (now, st, up)
+        st, up, days = GREEN, None, 0
+    _active_cache = (now, st, up, days)
 
 
 async def is_risk_active() -> bool:
@@ -295,9 +316,15 @@ async def get_risk_state() -> str:
     return _active_cache[1]
 
 
+async def get_risk_streak_days() -> int:
+    """当前状态已连续持续的交易日数(GREEN 也计数, 调用方自行取舍)。"""
+    await _refresh_active_cache()
+    return _active_cache[3]
+
+
 async def get_risk_state_info() -> tuple[str, str]:
-    """(状态, 时间锚点标签)。锚点=状态行最后变更时刻: 今日→'13:11', 往日→'7月15日 16:40';
-    GREEN/无锚点返回 ''。给推送横幅的「几点起」用(对标状态页 since 模式)。"""
+    """(状态, 时间锚点标签)。锚点=当前状态连续段的第一天(非最新行, 见 _active_cache 注释):
+    今日→'13:11', 往日→'7月15日 16:40'; GREEN/无锚点返回 ''。给推送横幅的「几点起」用。"""
     await _refresh_active_cache()
     st, up = _active_cache[1], _active_cache[2]
     label = ""
