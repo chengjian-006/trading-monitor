@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.677',
+    date: '2026-07-18',
+    title: '股票池行操作按钮收进「⋯」菜单',
+    changes: [
+      {
+        text: '股票池每行原本 7 个操作小按钮（预警/标签/置顶/置底/关注/持仓/删除）太密，精简为「预警 · 关注 · 更多⋯ · 删除」——分组/标签/备注、置顶置底、转持仓收进「⋯」下拉，操作列更清爽。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.676',
     date: '2026-07-18',
     title: '股票池工具栏重排',

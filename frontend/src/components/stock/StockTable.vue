@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox, NInput } from 'naive-ui'
+import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox, NInput, NDropdown } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
-import { StarOutline, Star, CartOutline, Cart, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, ArrowUpOutline, ArrowDownOutline, NotificationsOutline, Notifications, PricetagsOutline, OptionsOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, NotificationsOutline, Notifications, OptionsOutline, EllipsisHorizontalOutline } from '@vicons/ionicons5'
 import type { Stock, Signal } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -332,6 +332,22 @@ async function batchSetGroup() {
     batchGrp.value = ''; clearChecked(); await stockStore.loadStocks(true)
   } catch { message.error('批量设分组失败') } finally { batchBusy.value = false }
 }
+// 行操作 ⋯ 菜单 (v1.7.677): 次要操作收进下拉减少噪音
+function rowMenuOptions(row: Stock) {
+  return [
+    { label: (row.grp || row.tags || row.note) ? '编辑 分组/标签/备注' : '设 分组/标签/备注', key: 'meta' },
+    { label: '置顶', key: 'top', disabled: !!sortState.value },
+    { label: '置底', key: 'bottom', disabled: !!sortState.value },
+    { label: row.status === 'hold' ? '标记为观察' : '标记为持仓', key: 'hold' },
+  ]
+}
+function rowMenuSelect(key: string, row: Stock) {
+  if (key === 'meta') openMetaModal(row)
+  else if (key === 'top') stockStore.moveToEdge(row.code, 'top')
+  else if (key === 'bottom') stockStore.moveToEdge(row.code, 'bottom')
+  else if (key === 'hold') handleToggleHold(row)
+}
+
 async function batchDelete() {
   if (!checkedKeys.value.length) return
   batchBusy.value = true
@@ -958,7 +974,7 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    width: 200,
+    width: 132,
     fixed: 'right' as const,
     render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
       (() => {
@@ -981,36 +997,6 @@ const allColumns = computed(() => [
       })(),
       h(NButton, {
         size: 'tiny',
-        quaternary: true,
-        type: (row.grp || row.tags || row.note) ? 'primary' : 'default',
-        title: (row.grp || row.tags || row.note) ? `分组/标签/备注: ${[row.grp, row.tags, row.note].filter(Boolean).join(' · ')}` : '设分组/标签/备注',
-        'aria-label': '分组标签备注',
-        onClick: (e: Event) => { e.stopPropagation(); openMetaModal(row) },
-      }, {
-        icon: () => h(NIcon, { size: 14 }, { default: () => h(PricetagsOutline) }),
-      }),
-      h(NButton, {
-        size: 'tiny',
-        quaternary: true,
-        disabled: !!sortState.value,
-        title: sortState.value ? '点了列排序时不可用, 先「重置排序」' : '置顶',
-        'aria-label': '置顶',
-        onClick: (e: Event) => { e.stopPropagation(); stockStore.moveToEdge(row.code, 'top') },
-      }, {
-        icon: () => h(NIcon, { size: 14 }, { default: () => h(ArrowUpOutline) }),
-      }),
-      h(NButton, {
-        size: 'tiny',
-        quaternary: true,
-        disabled: !!sortState.value,
-        title: sortState.value ? '点了列排序时不可用, 先「重置排序」' : '置底',
-        'aria-label': '置底',
-        onClick: (e: Event) => { e.stopPropagation(); stockStore.moveToEdge(row.code, 'bottom') },
-      }, {
-        icon: () => h(NIcon, { size: 14 }, { default: () => h(ArrowDownOutline) }),
-      }),
-      h(NButton, {
-        size: 'tiny',
         type: 'warning',
         secondary: !row.focused,
         title: row.focused ? '取消关注' : '关注',
@@ -1019,15 +1005,15 @@ const allColumns = computed(() => [
       }, {
         icon: () => h(NIcon, { size: 14 }, { default: () => h(row.focused ? Star : StarOutline) }),
       }),
-      h(NButton, {
-        size: 'tiny',
-        type: row.status === 'hold' && row.hold_source === 'trade' ? 'info' : 'error',
-        secondary: row.status !== 'hold',
-        title: row.status === 'hold' ? '标记为观察' : '标记为持仓',
-        'aria-label': row.status === 'hold' ? '标记为观察' : '标记为持仓',
-        onClick: () => handleToggleHold(row),
+      h(NDropdown, {
+        trigger: 'click',
+        options: rowMenuOptions(row),
+        onSelect: (key: string) => rowMenuSelect(key, row),
       }, {
-        icon: () => h(NIcon, { size: 14 }, { default: () => h(row.status === 'hold' ? Cart : CartOutline) }),
+        default: () => h(NButton, {
+          size: 'tiny', quaternary: true, title: '更多: 分组标签/置顶置底/持仓', 'aria-label': '更多操作',
+          onClick: (e: Event) => e.stopPropagation(),
+        }, { icon: () => h(NIcon, { size: 16 }, { default: () => h(EllipsisHorizontalOutline) }) }),
       }),
       h(NPopconfirm, {
         onPositiveClick: () => handleDelete(row.code, row.name),
@@ -1151,7 +1137,7 @@ const columns = computed(() => allColumns.value
       size="small"
       :resizable-columns="true"
       :row-key="(row: Stock) => row.code"
-      :scroll-x="1486"
+      :scroll-x="1418"
       flex-height
       virtual-scroll
       style="flex: 1; min-height: 0"
