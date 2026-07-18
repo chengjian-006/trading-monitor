@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         问财观点上报 (chat智能调度)
 // @namespace    guxiaocha-wencai-opinion
-// @version      1.4
+// @version      1.5
 // @description  在 www.iwencai.com 登录态下, 口语问一句(chat 智能调度 aime stream-query SSE), Shadow DOM 浮层实时渲染答案(可折叠思考/真markdown/打字光标/可拖动最小化), 抽个股后上报股小察落「问财观点」。
 // @match        https://www.iwencai.com/*
 // @match        http://www.iwencai.com/*
@@ -10,6 +10,8 @@
 // @connect      124.71.75.5
 // @connect      localhost
 // @run-at       document-idle
+// @updateURL    http://124.71.75.5/api/wencai/userscript.user.js
+// @downloadURL  http://124.71.75.5/api/wencai/userscript.user.js
 // ==/UserScript==
 
 (function () {

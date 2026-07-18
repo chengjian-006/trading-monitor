@@ -19,6 +19,13 @@
     <div id="quota" class="quota"><span class="qpill ghost">额度加载中…</span></div>
   </header>
 
+  <!-- ===== 新版提醒横幅 ===== -->
+  <a id="updateBar" class="update-bar hide" href="#" target="_blank">
+    <span class="ub-ic">⬆</span>
+    <span class="ub-txt">发现新版 <b id="ubVer"></b>，点此下载更新</span>
+    <span class="ub-go">下载 →</span>
+  </a>
+
   <!-- ===== 主体：三个面板 ===== -->
   <main class="panels">
 
@@ -102,6 +109,11 @@
             <textarea id="schedQuestions" rows="2" placeholder="留空 = 跑第一条预置问题"></textarea>
           </div>
         </div>
+      </div>
+
+      <div class="ver-row">
+        <span class="ver-txt">版本 <b id="verNow"></b></span>
+        <button id="checkUpdate" class="btn ghost">检查更新</button>
       </div>
 
     </section>

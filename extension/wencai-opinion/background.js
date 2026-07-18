@@ -31,6 +31,38 @@ async function uploadTo(serverUrl, payload) {
 // 运行状态写进 storage.local：弹窗关掉重开也能恢复进度/结果
 const setRunState = (st) => chrome.storage.local.set({ runState: st });
 
+// ---------- 版本检查：拉服务器「最新可用版」比对本地 manifest → 有新版打红点 + 系统通知（每版一次） ----------
+async function checkExtVersion(manual) {
+  const cur = chrome.runtime.getManifest().version;
+  const s = await getSettings();
+  let latest = '';
+  try {
+    const r = await fetch(s.serverUrl + '/api/wencai/ext/version', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    latest = String(j.ext_version || '');
+  } catch (e) {
+    if (manual) notify('问财观点 · 检查更新', '连不上服务器，稍后再试：' + (e.message || e));
+    return { ok: false, current: cur, error: String(e && e.message || e) };
+  }
+  const hasNew = latest && WOP.cmpVer(latest, cur) > 0;
+  const url = s.serverUrl + '/api/wencai/ext/download';
+  if (hasNew) {
+    chrome.storage.local.set({ updateInfo: { latest, current: cur, url, ts: Date.now() } });
+    try { chrome.action.setBadgeBackgroundColor({ color: '#d13438' }); chrome.action.setBadgeText({ text: 'NEW' }); } catch (e) {}
+    const seen = await new Promise((res) => chrome.storage.local.get(['verNotified'], (o) => res(o.verNotified)));
+    if (seen !== latest || manual) {
+      chrome.storage.local.set({ verNotified: latest });
+      notify('问财观点 · 有新版 v' + latest, '当前 v' + cur + '。点扩展图标 💡 → 顶部「下载新版」，或直接访问下载地址更新。');
+    }
+  } else {
+    chrome.storage.local.remove('updateInfo');
+    try { chrome.action.setBadgeText({ text: '' }); } catch (e) {}
+    if (manual) notify('问财观点 · 已是最新', '当前 v' + cur + ' 已是最新版。');
+  }
+  return { ok: true, current: cur, latest, hasNew, url };
+}
+
 async function runBg(question, opts) {
   opts = opts || {};
   const s = await getSettings();
@@ -76,17 +108,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     WOP.fetchQuota(() => cookieVal('v')).then((q) => sendResponse(q)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
+  if (msg.type === 'checkUpdate') {
+    checkExtVersion(true).then((r) => sendResponse(r)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
+    return true;
+  }
 });
 
 // ---------- 定时触发 ----------
 chrome.runtime.onInstalled.addListener((d) => {
   chrome.alarms.create('wop-tick', { periodInMinutes: 1 });
+  chrome.alarms.create('wop-verchk', { periodInMinutes: 360 });   // 每6小时查一次新版
+  checkExtVersion(false).catch(() => {});
   if (d && d.reason === 'install') chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
 });
-chrome.runtime.onStartup.addListener(() => chrome.alarms.create('wop-tick', { periodInMinutes: 1 }));
+chrome.runtime.onStartup.addListener(() => {
+  chrome.alarms.create('wop-tick', { periodInMinutes: 1 });
+  chrome.alarms.create('wop-verchk', { periodInMinutes: 360 });
+  checkExtVersion(false).catch(() => {});
+});
 
 function hhmm(d) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
 chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name === 'wop-verchk') { checkExtVersion(false).catch(() => {}); return; }
   if (alarm.name !== 'wop-tick') return;
   const s = await getSettings();
   if (!s.schedule || !s.schedule.enabled) return;

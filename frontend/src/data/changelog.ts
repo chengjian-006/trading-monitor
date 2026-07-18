@@ -12,6 +12,25 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.681',
+    date: '2026-07-18',
+    title: '问财观点扩展：新版红点提醒 + 油猴自动更新',
+    changes: [
+      {
+        text: '「问财观点」浏览器扩展新增自动版本检查：后台每6小时（及启动时）向服务器查最新版，发现新版即在扩展图标打红点角标 + 弹系统通知，打开弹窗顶部显示「下载新版」横幅一键取包；设置页底部加「检查更新」按钮和当前版本号。解决开发者模式安装无自动更新、朋友版本漂移的问题。',
+        tag: 'new',
+      },
+      {
+        text: '后端新增扩展分发接口：/api/wencai/ext/version（读已部署 manifest 与油猴 @version 作最新版真源，零漂移）、/api/wencai/ext/download（现场打包扩展 zip）、/api/wencai/userscript.user.js（托管油猴脚本原文）。',
+        tag: 'new',
+      },
+      {
+        text: '问财观点油猴脚本补 @updateURL/@downloadURL 自动更新头（版本升至 1.5），装过篡改猴的用户之后能像商店扩展一样自动收到脚本更新。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.680',
     date: '2026-07-18',
     title: '股票池筛选区合并 + 密度对齐机构风',

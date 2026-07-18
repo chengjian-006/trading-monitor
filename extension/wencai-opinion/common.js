@@ -9,6 +9,19 @@
     return s;
   }
 
+  // 版本比较: a>b→1, a<b→-1, 相等→0(按点分段数值比, 缺段补0, 非数字段忽略)。
+  function cmpVer(a, b) {
+    const pa = String(a || '0').split('.').map((x) => parseInt(x, 10) || 0);
+    const pb = String(b || '0').split('.').map((x) => parseInt(x, 10) || 0);
+    const n = Math.max(pa.length, pb.length);
+    for (let i = 0; i < n; i++) {
+      const x = pa[i] || 0, y = pb[i] || 0;
+      if (x > y) return 1;
+      if (x < y) return -1;
+    }
+    return 0;
+  }
+
   function buildBody(question, sessionId, userId, deep) {
     const events = [{ event_name: 'auto_agent', event_type: 'user_input' }];
     if (deep) events.push({ event_name: 'ab_test', event_type: 'front_trigger', content: { deep_research: 1 } });
@@ -183,5 +196,5 @@
              deepResearch: d.deep_research_query_times, leftTime: d.left_time };
   }
 
-  root.WOP = { genSessionId, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, stripMarkerLine };
+  root.WOP = { genSessionId, cmpVer, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, stripMarkerLine };
 })(typeof self !== 'undefined' ? self : this);

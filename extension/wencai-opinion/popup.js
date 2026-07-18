@@ -83,6 +83,7 @@ chrome.storage.onChanged.addListener((ch, area) => {
   if (area === 'sync' && ch.deepResearch) { saving = true; $('deepResearch').checked = !!ch.deepResearch.newValue; saving = false; }
   if (area === 'local' && ch.runState) renderRunState(ch.runState.newValue);
   if (area === 'local' && ch.history) loadHistory();
+  if (area === 'local' && ch.updateInfo) renderUpdateBar(ch.updateInfo.newValue);
 });
 
 // ---------- 问答页 ----------
@@ -250,6 +251,33 @@ function loadQuota() {
   });
 }
 
+// ---------- 版本 / 更新 ----------
+function renderUpdateBar(info) {
+  const bar = $('updateBar');
+  if (info && info.latest && info.url) {
+    $('ubVer').textContent = 'v' + info.latest;
+    bar.href = info.url;
+    bar.classList.remove('hide');
+  } else {
+    bar.classList.add('hide');
+  }
+}
+function initUpdateUI() {
+  $('verNow').textContent = 'v' + chrome.runtime.getManifest().version;
+  chrome.storage.local.get({ updateInfo: null }, (o) => renderUpdateBar(o.updateInfo));
+  // 打开弹窗即视为已看到红点，清掉角标
+  try { chrome.action.setBadgeText({ text: '' }); } catch (e) {}
+}
+$('checkUpdate').onclick = () => {
+  const btn = $('checkUpdate'); btn.disabled = true; btn.textContent = '检查中…';
+  chrome.runtime.sendMessage({ type: 'checkUpdate' }, (r) => {
+    btn.disabled = false; btn.textContent = '检查更新';
+    if (chrome.runtime.lastError || !r || !r.ok) { toast('检查失败，稍后再试'); return; }
+    if (r.hasNew) { renderUpdateBar({ latest: r.latest, url: r.url }); toast('发现新版 v' + r.latest); }
+    else { renderUpdateBar(null); toast('已是最新 v' + r.current); }
+  });
+};
+
 // ---------- 启动 ----------
-loadSettings(); loadHistory(); loadQuota();
+loadSettings(); loadHistory(); loadQuota(); initUpdateUI();
 chrome.storage.local.get({ runState: null }, (o) => renderRunState(o.runState));

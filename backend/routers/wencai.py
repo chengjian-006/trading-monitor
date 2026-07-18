@@ -9,12 +9,17 @@
   DELETE /api/wencai/queries/{id} 删除语句及其候选榜
   POST   /api/wencai/ingest       本地油猴代跑上报: 浏览器登录态查问财→归一化→POST结果落库(共享密钥鉴权, 免JWT)
 """
+import io
+import json
 import re
 import time
+import zipfile
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
@@ -30,6 +35,69 @@ _SEARCH_MIN_INTERVAL = 3.0
 _last_search: dict[int, float] = {}
 _SCAN_MIN_INTERVAL = 8.0
 _last_scan: dict[int, float] = {}
+
+
+# ── 扩展/油猴 分发与自更新 (v1.7.681) ──
+# 「问财观点」浏览器扩展目前只能开发者模式装(无商店、无自更新), 朋友版本会漂移。
+# 部署把整个项目目录随包上服务器(deploy.ps1 tar 全量), 故 extension/ 与 docs/ 在生产可直接读:
+#   /ext/version   读已部署的 manifest.json + 油猴 @version 作「最新版真源」(零漂移, 部署即同步)
+#   /ext/download  现场把 extension/wencai-opinion/ 打包成 zip 供下载(永远是刚部署那版)
+#   /userscript.user.js  托管油猴脚本原文, 供 @updateURL/@downloadURL 自动更新
+# 均免鉴权: 纯静态自身分发内容, 无用户输入、无路径穿越(读固定路径)。
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_EXT_DIR = _REPO_ROOT / "extension" / "wencai-opinion"
+_USERSCRIPT_FILE = _REPO_ROOT / "docs" / "tampermonkey-wencai-opinion.user.js"
+
+
+def _read_dist_versions() -> dict:
+    """读已部署扩展 manifest 版本 + 油猴脚本 @version 作为「最新可用版」真源。读不到给空串。"""
+    ext_ver = ""
+    try:
+        mf = json.loads((_EXT_DIR / "manifest.json").read_text(encoding="utf-8"))
+        ext_ver = str(mf.get("version", "")).strip()
+    except Exception:
+        pass
+    us_ver = ""
+    try:
+        head = _USERSCRIPT_FILE.read_text(encoding="utf-8")[:2000]
+        m = re.search(r"@version\s+([0-9][0-9.]*)", head)
+        if m:
+            us_ver = m.group(1)
+    except Exception:
+        pass
+    return {"ext_version": ext_ver, "userscript_version": us_ver}
+
+
+@router.get("/ext/version")
+async def ext_version():
+    """给扩展/油猴查「最新可用版本」: 扩展读它比对本地 manifest 版本 → 有新版就红点提醒。"""
+    return _read_dist_versions()
+
+
+@router.get("/ext/download")
+async def ext_download():
+    """现场把 extension/wencai-opinion/ 打包成 zip 下载(顶层保留 wencai-opinion/ 便于解压加载)。"""
+    if not _EXT_DIR.is_dir():
+        raise HTTPException(status_code=404, detail="扩展目录不存在")
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for p in sorted(_EXT_DIR.rglob("*")):
+            if p.is_file() and "__pycache__" not in p.parts:
+                z.write(p, p.relative_to(_EXT_DIR.parent))   # 归档名含顶层 wencai-opinion/
+    ver = _read_dist_versions()["ext_version"] or "latest"
+    return Response(
+        content=buf.getvalue(), media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="wencai-opinion-{ver}.zip"'},
+    )
+
+
+@router.get("/userscript.user.js")
+async def userscript():
+    """托管油猴脚本原文: 供篡改猴 @updateURL/@downloadURL 拉取自动更新(路径 .user.js 便于点开即装)。"""
+    if not _USERSCRIPT_FILE.is_file():
+        raise HTTPException(status_code=404, detail="油猴脚本不存在")
+    text = _USERSCRIPT_FILE.read_text(encoding="utf-8")
+    return Response(content=text, media_type="text/javascript; charset=utf-8")
 
 
 def _result_limit() -> int:

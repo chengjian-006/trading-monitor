@@ -4,6 +4,9 @@
 覆盖: 无 token 也放行(已去鉴权) / 从投顾话术里撞出个股(6位代码 + 全名命中) / 主推排序 / 落库参数。
 """
 import asyncio
+import io
+import re
+import zipfile
 
 import pytest
 from fastapi import HTTPException
@@ -121,3 +124,30 @@ def test_only_with_stock_inserts_when_matched(monkeypatch):
     r = _ingest(_req(answer_text="**浪潮信息** 值得关注。", only_with_stock=True))
     assert r["ok"] is True and r.get("skipped") is None
     assert any(s["code"] == "000977" for s in cap["stocks"])
+
+
+# ── 扩展/油猴 分发与自更新接口 (v1.7.681) ──
+
+def test_ext_version_reads_real_manifest():
+    """/ext/version 应读到已部署扩展 manifest 的版本(形如 x.y.z)与油猴 @version。"""
+    r = asyncio.run(wc.ext_version())
+    assert re.match(r"^\d+\.\d+", r["ext_version"] or "")       # 扩展版本非空且像版本号
+    assert re.match(r"^\d+\.\d+", r["userscript_version"] or "")  # 油猴 @version 非空
+
+
+def test_userscript_served_with_update_headers():
+    """/userscript.user.js 返回油猴原文, 且带自动更新头(@downloadURL)。"""
+    r = asyncio.run(wc.userscript())
+    body = bytes(r.body).decode("utf-8")
+    assert "==UserScript==" in body
+    assert "@downloadURL" in body and "@updateURL" in body
+    assert r.media_type.startswith("text/javascript")
+
+
+def test_ext_download_is_loadable_zip():
+    """/ext/download 返回 zip, 顶层含 wencai-opinion/ 且有 manifest.json。"""
+    r = asyncio.run(wc.ext_download())
+    assert r.media_type == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(bytes(r.body))).namelist()
+    assert any(n.endswith("wencai-opinion/manifest.json") for n in names)
+    assert all(n.startswith("wencai-opinion/") for n in names)
