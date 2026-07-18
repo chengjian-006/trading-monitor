@@ -3,10 +3,10 @@ import { ref, computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NIcon } from 'naive-ui'
 import {
-  PulseOutline, LayersOutline, TimeOutline,
+  PulseOutline, LayersOutline,
   ReaderOutline, SettingsOutline, PeopleOutline,
-  OptionsOutline, RocketOutline, TrendingUpOutline,
-  TimerOutline, BarChartOutline,
+  RocketOutline, TrendingUpOutline,
+  BarChartOutline,
   WalletOutline, ListOutline, BulbOutline,
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
@@ -30,6 +30,8 @@ interface MenuGroup {
   children: MenuItem[]
 }
 
+// v1.7.662 菜单信息架构整合: 19→14 项。合并=信号历史并入信号复盘/策略配置并入模型策略/
+// 定时任务+推送模版并入系统设置; 复盘拆成 市场复盘 vs 策略绩效; 版本更新挪到侧栏页脚。
 const menuGroups: MenuGroup[] = [
   {
     key: 'trading',
@@ -39,20 +41,25 @@ const menuGroups: MenuGroup[] = [
       { key: 'signals', label: '监控看板', path: '/', icon: PulseOutline },
       { key: 'pool', label: '股票池', path: '/pool', icon: LayersOutline },
       { key: 'wencai-opinion', label: '问财观点', path: '/wencai-opinion', icon: BulbOutline },
-      { key: 'history', label: '信号历史', path: '/history', icon: TimeOutline },
-      { key: 'models', label: '模型图鉴', path: '/models', icon: ReaderOutline },
-      { key: 'signal-config', label: '策略配置', path: '/signal-config', icon: OptionsOutline },
+      { key: 'models', label: '模型策略', path: '/models', icon: ReaderOutline },
     ],
   },
   {
-    key: 'review',
-    label: '复盘',
+    key: 'market-review',
+    label: '市场复盘',
     icon: '🔍',
     children: [
-      { key: 'win-rate', label: '买卖胜率', path: '/review', icon: TrendingUpOutline },
-      { key: 'alert-overview', label: '预警总览', path: '/alert-overview', icon: ListOutline },
       { key: 'limit-up', label: '涨停复盘', path: '/limit-up', icon: BarChartOutline },
       { key: 'popularity', label: '人气分析', path: '/popularity', icon: TrendingUpOutline },
+      { key: 'alert-overview', label: '预警总览', path: '/alert-overview', icon: ListOutline },
+    ],
+  },
+  {
+    key: 'performance',
+    label: '策略绩效',
+    icon: '📈',
+    children: [
+      { key: 'review', label: '信号复盘', path: '/review', icon: TrendingUpOutline },
       { key: 'model-backtest', label: '模型回测', path: '/model-backtest', icon: BarChartOutline },
       { key: 'trade-analysis', label: '交易分析', path: '/trade-analysis', icon: WalletOutline },
       { key: 'paper-trading', label: '模拟账户', path: '/paper-trading', icon: BarChartOutline },
@@ -65,17 +72,15 @@ const menuGroups: MenuGroup[] = [
     children: [
       { key: 'logs', label: '操作日志', path: '/logs', icon: ReaderOutline },
       { key: 'config', label: '系统设置', path: '/config', icon: SettingsOutline, admin: true },
-      { key: 'scheduled-tasks', label: '定时任务', path: '/scheduled-tasks', icon: TimerOutline, admin: true },
       { key: 'users', label: '用户管理', path: '/users', icon: PeopleOutline, admin: true },
-      { key: 'lark-templates', label: '推送模版', path: '/lark-templates', icon: ListOutline, admin: true },
-      { key: 'changelog', label: '版本更新', path: '/changelog', icon: RocketOutline },
     ],
   },
 ]
 
 const expandedGroups = ref<Record<string, boolean>>({
   trading: true,
-  review: true,
+  'market-review': true,
+  performance: true,
   system: true,
 })
 
@@ -119,6 +124,14 @@ const activeKey = computed(() => (route.name as string) || 'signals')
         </a>
       </div>
     </div>
+
+    <!-- 版本更新: 非工作区, 挪到页脚小链接 (v1.7.662) -->
+    <a :class="['sidebar-footer', { active: activeKey === 'changelog' }]"
+       role="link" tabindex="0"
+       @click="router.push('/changelog')" @keydown.enter="router.push('/changelog')">
+      <NIcon :component="RocketOutline" :size="14" aria-hidden="true" />
+      版本更新
+    </a>
   </aside>
 </template>
 
@@ -136,7 +149,26 @@ const activeKey = computed(() => (route.name as string) || 'signals')
   align-self: flex-start;
   height: calc(100vh - var(--navbar-height));
   z-index: 10;
+  display: flex;
+  flex-direction: column;
 }
+
+/* 版本更新页脚: 钉在侧栏底部, 与工作区菜单区隔开 */
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 18px;
+  font-size: 12px;
+  color: var(--fg-subtle);
+  text-decoration: none;
+  cursor: pointer;
+  border-top: 1px solid var(--border-muted);
+  transition: color 0.15s, background 0.15s;
+}
+.sidebar-footer:hover { color: var(--accent-fg); background: rgba(9, 105, 218, 0.06); }
+.sidebar-footer.active { color: var(--accent-fg); }
 
 .menu-group {
   margin-bottom: 6px;

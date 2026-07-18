@@ -8,15 +8,15 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
-// 底栏常用 5 个; 其余进「更多」抽屉
+// 底栏常用 4 个; 其余进「更多」抽屉 (v1.7.662 对齐新菜单结构)
 const primaryTabs = [
   { key: 'signals', label: '看板', icon: '📊', path: '/' },
   { key: 'pool', label: '股票池', icon: '📋', path: '/pool' },
-  { key: 'history', label: '历史', icon: '🕐', path: '/history' },
   { key: 'review', label: '复盘', icon: '🔍', path: '/review' },
+  { key: 'limit-up', label: '涨停', icon: '📈', path: '/limit-up' },
 ]
 
-// 「更多」抽屉: 按分组列全部页面
+// 「更多」抽屉: 按分组列全部页面 (与侧栏 4 组一致)
 const moreGroups = [
   {
     label: '交易监控',
@@ -24,28 +24,33 @@ const moreGroups = [
       { key: 'signals', label: '监控看板', icon: '📊', path: '/' },
       { key: 'pool', label: '股票池', icon: '📋', path: '/pool' },
       { key: 'wencai-opinion', label: '问财观点', icon: '💡', path: '/wencai-opinion' },
-      { key: 'history', label: '信号历史', icon: '🕐', path: '/history' },
-      { key: 'signal-config', label: '策略配置', icon: '🎯', path: '/signal-config' },
+      { key: 'models', label: '模型策略', icon: '📖', path: '/models' },
     ],
   },
   {
-    label: '复盘',
+    label: '市场复盘',
     items: [
-      { key: 'review', label: '买卖胜率', icon: '🔍', path: '/review' },
-      { key: 'alert-overview', label: '预警总览', icon: '📑', path: '/alert-overview' },
+      { key: 'limit-up', label: '涨停复盘', icon: '📈', path: '/limit-up' },
       { key: 'popularity', label: '人气分析', icon: '🔥', path: '/popularity' },
+      { key: 'alert-overview', label: '预警总览', icon: '📑', path: '/alert-overview' },
+    ],
+  },
+  {
+    label: '策略绩效',
+    items: [
+      { key: 'review', label: '信号复盘', icon: '🔍', path: '/review' },
+      { key: 'model-backtest', label: '模型回测', icon: '📊', path: '/model-backtest' },
       { key: 'trade-analysis', label: '交易分析', icon: '💰', path: '/trade-analysis' },
+      { key: 'paper-trading', label: '模拟账户', icon: '💹', path: '/paper-trading' },
     ],
   },
   {
     label: '系统',
     items: [
-      { key: 'changelog', label: '版本更新', icon: '📰', path: '/changelog' },
       { key: 'logs', label: '操作日志', icon: '📝', path: '/logs' },
       { key: 'config', label: '系统设置', icon: '⚙️', path: '/config', admin: true },
-      { key: 'scheduled-tasks', label: '定时任务', icon: '⏰', path: '/scheduled-tasks', admin: true },
       { key: 'users', label: '用户管理', icon: '👤', path: '/users', admin: true },
-      { key: 'lark-templates', label: '推送模版', icon: '📨', path: '/lark-templates', admin: true },
+      { key: 'changelog', label: '版本更新', icon: '📰', path: '/changelog' },
     ],
   },
 ]
