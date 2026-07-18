@@ -5,7 +5,7 @@ import {
   NDataTable, NIcon, NStatistic, NSpin, NTag, NSpace, NInputNumber, NDatePicker, NSelect,
   type DataTableColumns,
 } from 'naive-ui'
-import { CloudUploadOutline, RefreshOutline, SearchOutline } from '@vicons/ionicons5'
+import { CloudUploadOutline, RefreshOutline } from '@vicons/ionicons5'
 import {
   importText, importHistory, importExcel, compareToModel,
   type AnalysisResult, type CompareResult, type PairedTrade,
@@ -86,10 +86,6 @@ const records = computed(() => result.value?.records || [])
 const recKeyword = ref('')
 const recDirection = ref<'buy' | 'sell' | null>(null)
 const recDateRange = ref<[number, number] | null>(null)
-// 待应用的草稿态：改控件不立即过滤，点「查询」才落地（与日志页一致）
-const appliedRecFilter = ref<{ keyword: string; direction: 'buy' | 'sell' | null; range: [number, number] | null }>({
-  keyword: '', direction: null, range: null,
-})
 const recDirectionOptions = [
   { label: '买入', value: 'buy' },
   { label: '卖出', value: 'sell' },
@@ -98,9 +94,11 @@ function tsToDay(ts: number): string {
   const d = new Date(ts)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+// 实时过滤：控件 v-model 一改, computed 立即重算(无草稿态/无查询按钮)
 const filteredRecords = computed(() => {
-  const { keyword, direction, range } = appliedRecFilter.value
-  const kw = keyword.trim().toLowerCase()
+  const kw = recKeyword.value.trim().toLowerCase()
+  const direction = recDirection.value
+  const range = recDateRange.value
   const from = range ? tsToDay(range[0]) : null
   const to = range ? tsToDay(range[1]) : null
   return records.value.filter((r: any) => {
@@ -117,14 +115,10 @@ const filteredRecords = computed(() => {
     return true
   })
 })
-function applyRecFilter() {
-  appliedRecFilter.value = { keyword: recKeyword.value, direction: recDirection.value, range: recDateRange.value }
-}
 function resetRecFilter() {
   recKeyword.value = ''
   recDirection.value = null
   recDateRange.value = null
-  appliedRecFilter.value = { keyword: '', direction: null, range: null }
 }
 
 const winsArr = computed(() => trades.value.filter(t => t.profit > 0))
@@ -430,7 +424,6 @@ const summary = computed(() => result.value?.summary)
                       size="small"
                       clearable
                       placeholder="代码/名称"
-                      @keyup.enter="applyRecFilter"
                     />
                   </div>
                   <div class="filter-item">
@@ -460,10 +453,6 @@ const summary = computed(() => result.value?.summary)
                   <NButton size="small" type="primary" @click="resetRecFilter">
                     <template #icon><NIcon><RefreshOutline /></NIcon></template>
                     重置
-                  </NButton>
-                  <NButton size="small" type="primary" @click="applyRecFilter">
-                    <template #icon><NIcon><SearchOutline /></NIcon></template>
-                    查询
                   </NButton>
                 </div>
               </div>

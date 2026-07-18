@@ -438,4 +438,42 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
   display: flex;
   gap: 8px;
 }
+
+/* ── 移动端适配 (≤768px) ── */
+@media (max-width: 768px) {
+  .scheduled-task-page {
+    max-width: 100%;
+  }
+  /* 多列网格改单列, 分组纵向堆叠, 卡片全宽不溢出 */
+  .groups-container {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .task-card {
+    padding: 12px 14px;
+  }
+  /* 卡片头: 标题 + 开关一行, 开关不被挤压; 触摸目标放大 */
+  .task-card-header {
+    gap: 10px;
+  }
+  .task-card-header .n-switch {
+    flex: none;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+  }
+  /* 信息行允许换行, 避免窄屏横向溢出 */
+  .task-meta,
+  .task-run-info {
+    flex-wrap: wrap;
+  }
+  /* 操作按钮纵向不挤: 两颗按钮均分整行, 触摸目标≥40px */
+  .task-actions {
+    gap: 10px;
+  }
+  .task-actions .n-button {
+    flex: 1 1 0;
+    min-height: 40px;
+  }
+}
 </style>

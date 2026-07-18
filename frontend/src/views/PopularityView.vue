@@ -18,9 +18,8 @@ const dates = ref<string[]>([])
 const activeDate = ref('')
 const updatedAt = ref('')
 
-// ── 个股查询区 (纯前端过滤已加载数据) ──
-const filterKeyword = ref('')                          // draft: 代码/名称关键词
-const appliedKeyword = ref('')                         // 点「查询」/回车后才生效
+// ── 个股查询区 (纯前端实时过滤已加载数据) ──
+const filterKeyword = ref('')                           // 代码/名称关键词, 输入即过滤
 const filterDirection = ref<'up' | 'down' | null>(null) // 当日涨跌方向 (按 pct_change 正负)
 const filterConcept = ref<string | null>(null)          // 题材/概念
 
@@ -194,7 +193,7 @@ const conceptOptions = computed(() =>
 
 // 单只股是否命中当前筛选条件
 function matchStock(s: PopularityStock): boolean {
-  const kw = appliedKeyword.value.trim().toLowerCase()
+  const kw = filterKeyword.value.trim().toLowerCase()
   if (kw) {
     const hit = (s.code || '').toLowerCase().includes(kw) || (s.name || '').toLowerCase().includes(kw)
     if (!hit) return false
@@ -216,7 +215,7 @@ function matchStock(s: PopularityStock): boolean {
 }
 
 const hasActiveFilter = computed(() =>
-  !!appliedKeyword.value.trim() || !!filterDirection.value || !!filterConcept.value,
+  !!filterKeyword.value.trim() || !!filterDirection.value || !!filterConcept.value,
 )
 
 // 过滤后的题材分组: 组内个股按条件过滤, 过滤后为空的组隐藏
@@ -231,13 +230,8 @@ const filteredGroups = computed<ConceptGroup[]>(() => {
   return out
 })
 
-function applyFilter() {
-  appliedKeyword.value = filterKeyword.value.trim()
-}
-
 function handleFilterReset() {
   filterKeyword.value = ''
-  appliedKeyword.value = ''
   filterDirection.value = null
   filterConcept.value = null
 }
@@ -406,8 +400,6 @@ onMounted(async () => {
             clearable
             placeholder="代码/名称"
             :input-props="{ id: 'pop-keyword', name: 'keyword', type: 'search' }"
-            @keyup.enter="applyFilter"
-            @clear="applyFilter"
           />
         </div>
         <div class="filter-item">
@@ -436,10 +428,6 @@ onMounted(async () => {
         <NButton size="small" type="primary" @click="handleFilterReset">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>
           重置
-        </NButton>
-        <NButton size="small" type="primary" @click="applyFilter">
-          <template #icon><NIcon><SearchOutline /></NIcon></template>
-          查询
         </NButton>
       </div>
     </div>

@@ -4,7 +4,7 @@
 // 明确定位: 这是 LLM 投顾观点, 非回测背书的信号。点股弹K线, 可一键加自选。
 import { ref, onMounted, computed } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NTag, NPopconfirm, NCollapse, NCollapseItem, NInput, NDatePicker, NSelect } from 'naive-ui'
-import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline, SearchOutline } from '@vicons/ionicons5'
+import { RefreshOutline, TrashOutline, BulbOutline, AddCircleOutline } from '@vicons/ionicons5'
 import { listWencaiOpinions, deleteWencaiOpinion, addWencaiToPool, type WencaiOpinion, type WencaiConclusion } from '../api/wencai'
 import { useUiStore } from '../stores/ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -212,10 +212,6 @@ onMounted(load)
         <NButton size="small" secondary @click="resetFilters">
           <template #icon><NIcon :component="RefreshOutline" /></template>
           重置
-        </NButton>
-        <NButton size="small" type="primary">
-          <template #icon><NIcon :component="SearchOutline" /></template>
-          查询
         </NButton>
       </div>
     </div>

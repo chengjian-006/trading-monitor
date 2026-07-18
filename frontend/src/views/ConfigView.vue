@@ -643,4 +643,29 @@ async function handleTestLark() {
   width: 100%;
   justify-content: space-between;
 }
+
+/* ── 移动端适配 (≤768px): 配置行纵向堆叠、控件全宽、提示换行、触摸目标≥40px ──
+ * 全局 mobile.css 已处理 field-inline 换行/输入全宽/控件封顶宽度; 这里补该页特有的:
+ * 1) 长提示文字去 nowrap 换行防溢出  2) 按钮铺满行 + 触摸目标  3) 换行后顶对齐 */
+@media (max-width: 768px) {
+  /* 行内控件容器换行时顶对齐, 避免开关/按钮与多行文字错位 */
+  .field-inline {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  /* 长说明文字在窄屏允许换行, 独占一行, 不再横向撑破 viewport */
+  .config-hint {
+    white-space: normal;
+    flex: 1 1 100%;
+  }
+  /* 测试 / 保存等操作按钮: 换行后并排铺开, 触摸目标≥40px */
+  .field-inline .n-button {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+  /* 推送偏好卡片(已纵向堆叠)内的撤销按钮保证可点 */
+  .pref-item .n-button {
+    min-height: 32px;
+  }
+}
 </style>

@@ -7,7 +7,7 @@ import {
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { useResponsive } from '../composables/useResponsive'
 import { h } from 'vue'
-import { PersonAddOutline, KeyOutline, TrashOutline, CheckmarkOutline, SearchOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
+import { PersonAddOutline, KeyOutline, TrashOutline, CheckmarkOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
 import { listUsers, createUser, deleteUser, resetPassword, updateUser } from '../api/auth'
 import type { User } from '../types'
 
@@ -218,10 +218,6 @@ const columns = computed(() => {
     <div class="page-header">
       <span class="page-title">用户管理</span>
       <NSpace size="small">
-        <NButton type="primary" size="small" :loading="loading" @click="loadUsers">
-          <template #icon><NIcon><SearchOutline /></NIcon></template>
-          查询
-        </NButton>
         <NButton type="primary" size="small" @click="showAddModal = true">
           <template #icon><NIcon><PersonAddOutline /></NIcon></template>
           新增用户
@@ -256,10 +252,6 @@ const columns = computed(() => {
         <NButton size="small" type="primary" @click="handleResetFilter">
           <template #icon><NIcon><RefreshOutline /></NIcon></template>
           重置
-        </NButton>
-        <NButton size="small" type="primary" :loading="loading" @click="loadUsers">
-          <template #icon><NIcon><SearchOutline /></NIcon></template>
-          查询
         </NButton>
       </div>
     </div>

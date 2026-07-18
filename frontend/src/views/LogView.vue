@@ -378,4 +378,58 @@ onMounted(() => {
   background: var(--success-bg-muted);
   font-weight: 600;
 }
+
+/* ── 移动端适配 (≤768px) ── */
+@media (max-width: 768px) {
+  /* 过滤栏改单列堆叠, 取消 sticky 防遮挡内容 */
+  .filter-bar {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px;
+    position: static;
+    top: auto;
+  }
+  .filter-fields {
+    flex-direction: column;
+    gap: 10px;
+  }
+  /* 各控件全宽; 覆盖时间段项的 inline min-width:220px 防横向溢出 */
+  .filter-item {
+    width: 100%;
+    flex: 1 1 100%;
+    min-width: 0 !important;
+  }
+  .filter-item :deep(.n-input),
+  .filter-item :deep(.n-select),
+  .filter-item :deep(.n-date-picker) {
+    width: 100%;
+  }
+  /* 触摸目标 ≥40px: 输入类控件 */
+  .filter-item :deep(.n-input),
+  .filter-item :deep(.n-base-selection),
+  .filter-item :deep(.n-date-picker .n-input) {
+    min-height: 40px;
+  }
+  /* 重置/查询按钮排到下面并等分, 触摸目标 ≥40px */
+  .filter-actions {
+    justify-content: stretch;
+    gap: 10px;
+  }
+  .filter-actions :deep(.n-button) {
+    flex: 1;
+    min-height: 40px;
+  }
+  /* 汇总条左对齐更省空间 */
+  .table-summary {
+    text-align: left;
+  }
+  /* 详情弹窗内 meta 单列排列, 表格允许自身横向滚动不撑破页面 */
+  .detail-meta {
+    gap: 8px 16px;
+  }
+  .diff-table {
+    display: block;
+    overflow-x: auto;
+  }
+}
 </style>

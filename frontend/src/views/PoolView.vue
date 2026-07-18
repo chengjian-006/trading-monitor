@@ -1116,4 +1116,136 @@ async function handleThsImport(groupId: string) {
 .cmp-count b {
   color: var(--primary);
 }
+
+/* ====================================================================
+ * 移动端适配 (手机 < 768px)
+ * 只做窄屏覆盖: 宽表已由 isPhone 切 StockList 卡片版; 这里处理双层筛选区
+ * 的单列/全宽堆叠 + 胶囊横向滚动 + 触摸目标≥40px, 保证无横向溢出。
+ * 不改桌面布局与任何筛选逻辑。
+ * ================================================================== */
+@media (max-width: 768px) {
+  .pool-view {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  /* ── 添加/操作条: 不吸顶(省小屏纵向空间), 控件全宽换行 ── */
+  .filter-bar {
+    position: static;
+    padding: 12px 14px;
+    gap: 10px 12px;
+    align-items: stretch;
+  }
+  .filter-fields {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  .filter-item {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .filter-item[style] {
+    flex: 1 1 100% !important;
+    min-width: 0 !important;
+  }
+  .filter-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    align-items: stretch;
+    gap: 8px;
+  }
+  /* 添加条里的下拉不再固定 80px, 跟随内容; 按钮触摸目标≥40px */
+  .filter-actions :deep(.n-base-selection) {
+    min-height: 40px;
+  }
+  .filter-bar :deep(.n-button),
+  .filter-bar :deep(.n-input .n-input__input-el),
+  .filter-bar :deep(.n-base-selection) {
+    min-height: 40px;
+  }
+
+  /* ── 股票池筛选: 单列堆叠, 每个控件占满整行 ── */
+  .pool-filter {
+    padding: 10px 14px;
+  }
+  .pf-row {
+    gap: 10px;
+  }
+  .pf-search {
+    flex: 1 1 100%;
+    min-width: 0;
+    width: 100%;
+  }
+  /* 状态/涨跌 分段单选占满整行, 按钮等分 */
+  .pf-row :deep(.n-radio-group) {
+    display: flex;
+    width: 100%;
+  }
+  .pf-row :deep(.n-radio-group .n-radio-button) {
+    flex: 1 1 0;
+    text-align: center;
+  }
+  /* 胶囊组横向滚动, 不换行不撑破 */
+  .pf-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    width: 100%;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+  .pf-chips :deep(.n-button) {
+    flex: 0 0 auto;
+  }
+  /* 高级筛选/清空 等按钮全宽起排 */
+  .pf-row > :deep(.n-button) {
+    flex: 1 1 auto;
+  }
+
+  /* 触摸目标≥40px: 筛选区所有可点控件 */
+  .pool-filter :deep(.n-button),
+  .pool-filter :deep(.n-input .n-input__input-el),
+  .pool-filter :deep(.n-radio-button),
+  .pool-filter :deep(.n-base-selection),
+  .pool-filter :deep(.n-input-number) {
+    min-height: 40px;
+  }
+  .pool-filter :deep(.n-radio-button__state-border),
+  .pool-filter :deep(.n-radio-group) {
+    min-height: 40px;
+  }
+
+  /* ── 高级筛选面板: 每项占整行, 标签左/控件右 ── */
+  .pf-advanced {
+    gap: 10px 12px;
+  }
+  .pf-adv-item {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+  .pf-adv-item label {
+    flex: 0 0 auto;
+  }
+  /* 面板里内联固定宽度控件在窄屏自适应, 不溢出 */
+  .pf-adv-item :deep(.n-select),
+  .pf-adv-item :deep(.n-input) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* 统计/计数行: 计数靠左顺排, 避免右对齐挤成竖条 */
+  .table-summary,
+  .pool-summary-row .table-summary {
+    justify-content: flex-start;
+  }
+
+  /* 弹窗内长内容各自横向滚动, 不撑破页面 */
+  .cmp-list,
+  .ocr-stock-list {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
 </style>
