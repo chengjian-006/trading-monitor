@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.676',
+    date: '2026-07-18',
+    title: '股票池工具栏重排',
+    changes: [
+      {
+        text: '股票池顶部一排挤了 9 个按钮，重排为分组布局：添加组（类型+添加+导入下拉，自选/截图导入合并成「导入▾」）| 刷新 | 视图工具组（走势/策略总览/导出/重置排序），用分隔线隔开，操作更清晰。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.675',
     date: '2026-07-18',
     title: '股票池表格批量操作',

@@ -4,11 +4,11 @@ import {
   NInput, NButton, NSpace, NSpin, NModal,
   NList, NListItem, NTag, NIcon, NProgress, NSkeleton,
   NUpload, NUploadDragger, NSelect, NTabs, NTabPane, NPopconfirm,
-  NRadioGroup, NRadioButton, NInputNumber,
+  NRadioGroup, NRadioButton, NInputNumber, NDropdown,
 } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
-import { AddOutline, SearchOutline, CloudDownloadOutline, DownloadOutline, SwapVerticalOutline, ImageOutline, DocumentTextOutline } from '@vicons/ionicons5'
+import { AddOutline, SearchOutline, CloudDownloadOutline, DownloadOutline, SwapVerticalOutline, ImageOutline, DocumentTextOutline, RefreshOutline } from '@vicons/ionicons5'
 import { useStockStore } from '../stores/stock'
 import { useSignalStore } from '../stores/signal'
 import { useResponsive } from '../composables/useResponsive'
@@ -45,6 +45,16 @@ const pf = usePoolFilter(() => stockStore.stocks, signalsByCode)
 const groupOptions = computed(() =>
   [...new Set(stockStore.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort()
     .map((g) => ({ label: g, value: g })))
+
+// 工具栏重排 (v1.7.676): 导入合并成下拉
+const importOptions = [
+  { label: '自选导入（同花顺）', key: 'ths' },
+  { label: '截图导入（OCR 识别）', key: 'ocr' },
+]
+function onImportSelect(key: string) {
+  if (key === 'ths') openThsImport()
+  else if (key === 'ocr') openOcrImport()
+}
 
 const searchText = ref('')
 const searchResults = ref<{ code: string; name: string }[]>([])
@@ -351,42 +361,39 @@ async function handleThsImport(groupId: string) {
         </div>
       </div>
       <div class="filter-actions">
+        <!-- 添加组 -->
         <NSelect
           v-model:value="tradeType"
           :options="[{ label: '短线', value: 'short' }, { label: '中线', value: 'mid' }, { label: '指数', value: 'index' }]"
           size="small"
-          style="width: 80px"
+          style="width: 78px"
         />
         <NButton type="primary" size="small" @click="handleAdd">
-          <template #icon><NIcon><AddOutline /></NIcon></template>
-          添加
+          <template #icon><NIcon><AddOutline /></NIcon></template>添加
         </NButton>
-        <NButton size="small" type="primary" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
-          <template #icon><NIcon><SearchOutline /></NIcon></template>
-          查询
+        <NDropdown trigger="click" :options="importOptions" @select="onImportSelect">
+          <NButton size="small" secondary>
+            <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>导入
+          </NButton>
+        </NDropdown>
+        <span class="fa-divider" />
+        <!-- 数据组 -->
+        <NButton size="small" secondary circle title="刷新行情/数据" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
+          <template #icon><NIcon><RefreshOutline /></NIcon></template>
         </NButton>
-        <NButton size="small" type="primary" secondary @click="openThsImport">
-          <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>
-          自选导入
-        </NButton>
-        <NButton size="small" type="info" secondary @click="openOcrImport">
-          <template #icon><NIcon><ImageOutline /></NIcon></template>
-          截图导入
-        </NButton>
-        <NButton v-if="stockTableRef?.sortState" size="small" type="warning" @click="stockTableRef?.resetSort()">
-          <template #icon><NIcon><SwapVerticalOutline /></NIcon></template>
-          重置排序
-        </NButton>
-        <NButton v-if="!isPhone" size="small" type="success" secondary :disabled="stockStore.stocks.length === 0" @click="stockTableRef?.exportXlsx()">
-          <template #icon><NIcon><DownloadOutline /></NIcon></template>
-          导出
-        </NButton>
-        <NButton size="small" type="info" secondary @click="showStrategyDrawer = true">
-          <template #icon><NIcon><DocumentTextOutline /></NIcon></template>
-          策略总览
-        </NButton>
-        <NButton size="small" :type="showSparkline ? 'success' : 'default'" secondary @click="showSparkline = !showSparkline">
+        <span class="fa-divider" />
+        <!-- 视图 · 工具组 -->
+        <NButton size="small" :type="showSparkline ? 'success' : 'default'" secondary title="走势迷你图" @click="showSparkline = !showSparkline">
           走势{{ showSparkline ? '开' : '关' }}
+        </NButton>
+        <NButton size="small" secondary @click="showStrategyDrawer = true">
+          <template #icon><NIcon><DocumentTextOutline /></NIcon></template>策略总览
+        </NButton>
+        <NButton v-if="!isPhone" size="small" secondary :disabled="stockStore.stocks.length === 0" title="导出 Excel" @click="stockTableRef?.exportXlsx()">
+          <template #icon><NIcon><DownloadOutline /></NIcon></template>导出
+        </NButton>
+        <NButton v-if="stockTableRef?.sortState" size="small" type="warning" secondary @click="stockTableRef?.resetSort()">
+          <template #icon><NIcon><SwapVerticalOutline /></NIcon></template>重置排序
         </NButton>
       </div>
     </div>
@@ -764,8 +771,17 @@ async function handleThsImport(groupId: string) {
 .filter-actions {
   display: flex;
   gap: 8px;
-  align-items: flex-end;
+  align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+/* 工具栏分组分隔线 (v1.7.676) */
+.fa-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-default);
+  margin: 0 2px;
+  flex-shrink: 0;
 }
 .search-wrapper {
   position: relative;
