@@ -41,6 +41,10 @@ const { signalsByCode } = useSignalGrouping(() => signalStore.signals)
 // 股票池客户端即时筛选 (v1.7.419)
 import { usePoolFilter } from '../composables/usePoolFilter'
 const pf = usePoolFilter(() => stockStore.stocks, signalsByCode)
+// 自选分组下拉选项 (v1.7.670): 从池内已有分组去重
+const groupOptions = computed(() =>
+  [...new Set(stockStore.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort()
+    .map((g) => ({ label: g, value: g })))
 
 const searchText = ref('')
 const searchResults = ref<{ code: string; name: string }[]>([])
@@ -404,6 +408,8 @@ async function handleThsImport(groupId: string) {
           <NRadioButton value="up">上涨</NRadioButton>
           <NRadioButton value="down">下跌</NRadioButton>
         </NRadioGroup>
+        <NSelect v-if="groupOptions.length" v-model:value="pf.fGroup.value" :options="groupOptions"
+          size="small" clearable placeholder="全部分组" class="pf-group" style="width:130px" />
         <div class="pf-chips">
           <NButton size="tiny" round :type="pf.fHasBuy.value ? 'primary' : 'default'" :tertiary="!pf.fHasBuy.value" @click="pf.fHasBuy.value = !pf.fHasBuy.value">今日有买点</NButton>
           <NButton size="tiny" round :type="pf.fHasSell.value ? 'warning' : 'default'" :tertiary="!pf.fHasSell.value" @click="pf.fHasSell.value = !pf.fHasSell.value">今日有卖点</NButton>

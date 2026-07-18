@@ -3,7 +3,7 @@ import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm } from 'naive
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
-import { StarOutline, Star, CartOutline, Cart, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, ArrowUpOutline, ArrowDownOutline, NotificationsOutline, Notifications } from '@vicons/ionicons5'
+import { StarOutline, Star, CartOutline, Cart, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, ArrowUpOutline, ArrowDownOutline, NotificationsOutline, Notifications, PricetagsOutline } from '@vicons/ionicons5'
 import type { Stock, Signal } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -18,6 +18,7 @@ import { resonanceLevel } from '../../utils/poolFormat'
 import StrategyText from './StrategyText.vue'
 import StrategyEditModal from './StrategyEditModal.vue'
 import StockAlertModal from './StockAlertModal.vue'
+import StockMetaModal from './StockMetaModal.vue'
 import { useStockAlerts } from '../../composables/useStockAlerts'
 
 const stockStore = useStockStore()
@@ -296,6 +297,17 @@ function openAlertModal(row: Stock) {
   alertRow.value = row
   showAlertModal.value = true
 }
+
+// 分组/标签/备注 编辑 (v1.7.670)
+const showMetaModal = ref(false)
+const metaRow = ref<Stock | null>(null)
+function openMetaModal(row: Stock) {
+  metaRow.value = row
+  showMetaModal.value = true
+}
+const groupOptions = computed(() =>
+  [...new Set(props.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort())
+function onMetaChanged() { stockStore.loadStocks(true) }
 
 
 // 呼吸高亮(30分钟内有新信号)预聚合成 Set: 3s 行情刷新触发的每次重渲染
@@ -930,6 +942,16 @@ const allColumns = computed(() => [
       h(NButton, {
         size: 'tiny',
         quaternary: true,
+        type: (row.grp || row.tags || row.note) ? 'primary' : 'default',
+        title: (row.grp || row.tags || row.note) ? `分组/标签/备注: ${[row.grp, row.tags, row.note].filter(Boolean).join(' · ')}` : '设分组/标签/备注',
+        'aria-label': '分组标签备注',
+        onClick: (e: Event) => { e.stopPropagation(); openMetaModal(row) },
+      }, {
+        icon: () => h(NIcon, { size: 14 }, { default: () => h(PricetagsOutline) }),
+      }),
+      h(NButton, {
+        size: 'tiny',
+        quaternary: true,
         disabled: !!sortState.value,
         title: sortState.value ? '点了列排序时不可用, 先「重置排序」' : '置顶',
         'aria-label': '置顶',
@@ -1009,6 +1031,16 @@ const columns = computed(() => allColumns.value.map((c: any) =>
       :code="alertRow?.code || ''"
       :name="alertRow?.name || ''"
       @changed="reloadAlerts"
+    />
+    <StockMetaModal
+      v-model:show="showMetaModal"
+      :code="metaRow?.code || ''"
+      :name="metaRow?.name || ''"
+      :grp="metaRow?.grp || ''"
+      :tags="metaRow?.tags || ''"
+      :note="metaRow?.note || ''"
+      :group-options="groupOptions"
+      @changed="onMetaChanged"
     />
     <!-- v1.7.643: virtual-scroll — 187行只渲染视口内~25行, 盘中每3s行情tick的重渲成本降一个量级 -->
     <NDataTable

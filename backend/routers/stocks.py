@@ -30,6 +30,9 @@ class StockUpdateRequest(BaseModel):
     status: Optional[str] = None
     focused: Optional[int] = None
     strategy: Optional[str] = None
+    grp: Optional[str] = None       # 分组 (v1.7.670)
+    tags: Optional[str] = None      # 标签, 逗号分隔
+    note: Optional[str] = None      # 备注
 
 
 class StockReorderRequest(BaseModel):

@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.670',
+    date: '2026-07-18',
+    title: '自选股 分组 / 标签 / 备注',
+    changes: [
+      {
+        text: '股票池新增「分组 / 标签 / 备注」：每只自选股可设分组、打标签、写备注（表格行与手机卡片都有「标签」按钮编辑，卡片直接展示）；股票池筛选新增「按分组」下拉，按题材/策略把自选池组织起来。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.669',
     date: '2026-07-18',
     title: '新增 交易日记',

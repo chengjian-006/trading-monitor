@@ -6,6 +6,9 @@ export interface Stock {
   added_at: string
   focused?: number
   hold_source?: string
+  grp?: string                      // 自选分组 (v1.7.670)
+  tags?: string                     // 标签, 逗号分隔
+  note?: string                     // 备注
   price?: number | null
   pct_change?: number | null
   pct_5d?: number | null            // 5日涨幅(%): 最新价 vs 5个交易日前收盘

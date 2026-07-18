@@ -36,6 +36,7 @@ export function usePoolFilter(
   const fBoardRankMax = ref<number | null>(null)  // 板块内名次 ≤ N(越小越强)
   const fPopRankMax = ref<number | null>(null)    // 人气榜名次 ≤ N
   const fIndustry = ref('')                        // 行业/题材包含
+  const fGroup = ref('')                            // 自选分组 (v1.7.670, 空=不限)
   const fKeyword = ref('')                         // 代码/名称包含
 
   const hasActiveFilter = computed(() =>
@@ -46,7 +47,7 @@ export function usePoolFilter(
     fPctMin.value != null || fPctMax.value != null ||
     fTurnoverMin.value != null || fVolRatioMin.value != null ||
     fBoardRankMax.value != null || fPopRankMax.value != null ||
-    fIndustry.value.trim() !== '' || fKeyword.value.trim() !== '',
+    fIndustry.value.trim() !== '' || fKeyword.value.trim() !== '' || fGroup.value !== '',
   )
 
   function reset() {
@@ -68,6 +69,7 @@ export function usePoolFilter(
     fBoardRankMax.value = null
     fPopRankMax.value = null
     fIndustry.value = ''
+    fGroup.value = ''
     fKeyword.value = ''
   }
 
@@ -80,10 +82,13 @@ export function usePoolFilter(
   const filteredStocks = computed(() => {
     const kw = fKeyword.value.trim().toLowerCase()
     const ind = fIndustry.value.trim().toLowerCase()
+    const grp = fGroup.value
     return stocksGetter().filter((s) => {
       // 状态: 持仓=status hold; 关注=focused(与池顶部统计口径一致)
       if (fStatus.value === 'hold' && s.status !== 'hold') return false
       if (fStatus.value === 'watch' && !s.focused) return false
+      // 自选分组
+      if (grp && (s.grp || '') !== grp) return false
 
       const pct = s.pct_change ?? null
       // 涨跌
@@ -139,7 +144,7 @@ export function usePoolFilter(
     fStatus, fUpDown, fHasBuy, fHasSell, fLimitUp, fLianBan,
     fAboveMa20, fBelowMa20, fNearMa10, fNearMa60,
     advancedOpen, fTradeTypes, fPctMin, fPctMax, fTurnoverMin, fVolRatioMin,
-    fBoardRankMax, fPopRankMax, fIndustry, fKeyword,
+    fBoardRankMax, fPopRankMax, fIndustry, fGroup, fKeyword,
     hasActiveFilter, filteredStocks, reset,
   }
 }

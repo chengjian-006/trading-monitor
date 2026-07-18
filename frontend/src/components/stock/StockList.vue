@@ -3,13 +3,14 @@ import { computed, h, ref } from 'vue'
 import { NTag, NButton, NIcon, NPopconfirm } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
-import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications, PricetagsOutline } from '@vicons/ionicons5'
 import type { Stock } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
 // v1.7.x: SignalSummaryBar 移到 PoolView 顶部, 此处不再引入
 import SubstanceCheckDrawer from './SubstanceCheckDrawer.vue'
 import StockAlertModal from './StockAlertModal.vue'
+import StockMetaModal from './StockMetaModal.vue'
 import { useUiStore } from '../../stores/ui'
 import { useStockAlerts } from '../../composables/useStockAlerts'
 import { onMounted } from 'vue'
@@ -39,7 +40,7 @@ function signalCounts(code: string): { buy: number; sell: number; other: number 
   return { buy, sell, other: list.length - buy - sell }
 }
 
-defineProps<{ stocks: Stock[] }>()
+const props = defineProps<{ stocks: Stock[] }>()
 
 // AI 核查抽屉状态
 const substanceShow = ref(false)
@@ -99,6 +100,12 @@ function openAlert(s: Stock) {
   alertStock.value = s
   showAlertModal.value = true
 }
+// 分组/标签/备注 (v1.7.670)
+const showMetaModal = ref(false)
+const metaStock = ref<Stock | null>(null)
+function openMeta(s: Stock) { metaStock.value = s; showMetaModal.value = true }
+const groupOptions = computed(() =>
+  [...new Set(props.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort())
 onMounted(() => { loadAlerts() })
 </script>
 
@@ -156,6 +163,11 @@ onMounted(() => { loadAlerts() })
         <span v-if="s.sector_rank === 1" class="sector-leader-badge">板块最强</span>
         <span v-if="s.amount" class="stock-amount">{{ formatAmount(s.amount) }}</span>
       </div>
+      <div v-if="s.grp || s.tags || s.note" class="stock-meta-row">
+        <span v-if="s.grp" class="grp-tag">{{ s.grp }}</span>
+        <span v-for="t in (s.tags || '').split(',').filter(Boolean)" :key="t" class="m-tag">{{ t }}</span>
+        <span v-if="s.note" class="m-note">{{ s.note }}</span>
+      </div>
       <div class="stock-bottom">
         <NTag size="tiny" :type="s.status === 'hold' ? 'success' : 'default'" :bordered="false">
           {{ s.status === 'hold' ? '持仓' : '观察' }}
@@ -169,6 +181,10 @@ onMounted(() => { loadAlerts() })
           <NButton size="small" :type="summaryFor(s.code) ? (summaryFor(s.code)!.triggered > 0 ? 'warning' : 'primary') : 'default'" secondary @click="openAlert(s)">
             <template #icon><NIcon><component :is="summaryFor(s.code) ? Notifications : NotificationsOutline" /></NIcon></template>
             预警<span v-if="summaryFor(s.code)">{{ summaryFor(s.code)!.triggered > 0 ? '!' : summaryFor(s.code)!.active }}</span>
+          </NButton>
+          <NButton size="small" :type="(s.grp || s.tags || s.note) ? 'primary' : 'default'" secondary @click="openMeta(s)">
+            <template #icon><NIcon><PricetagsOutline /></NIcon></template>
+            标签
           </NButton>
           <NButton size="small" :type="s.focused ? 'warning' : 'primary'" :secondary="!s.focused" @click="handleToggleFocus(s)">
             <template #icon><NIcon><component :is="s.focused ? Star : StarOutline" /></NIcon></template>
@@ -202,6 +218,16 @@ onMounted(() => { loadAlerts() })
       :code="alertStock?.code || ''"
       :name="alertStock?.name || ''"
       @changed="reloadAlerts"
+    />
+    <StockMetaModal
+      v-model:show="showMetaModal"
+      :code="metaStock?.code || ''"
+      :name="metaStock?.name || ''"
+      :grp="metaStock?.grp || ''"
+      :tags="metaStock?.tags || ''"
+      :note="metaStock?.note || ''"
+      :group-options="groupOptions"
+      @changed="stockStore.loadStocks(true)"
     />
   </div>
 </template>
@@ -341,6 +367,11 @@ onMounted(() => { loadAlerts() })
   color: var(--text2);
   font-variant-numeric: tabular-nums;
 }
+/* 分组/标签/备注 (v1.7.670) */
+.stock-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.stock-meta-row .grp-tag { font-size: 11px; font-weight: 600; color: var(--accent-fg); background: var(--accent-bg-muted); border-radius: 4px; padding: 1px 8px; }
+.stock-meta-row .m-tag { font-size: 11px; color: var(--tide-deep); background: var(--tide-bg-muted); border-radius: 4px; padding: 1px 7px; }
+.stock-meta-row .m-note { font-size: 11px; color: var(--fg-subtle); }
 .sector-leader-badge {
   padding: 0 4px;
   font-size: 10px;

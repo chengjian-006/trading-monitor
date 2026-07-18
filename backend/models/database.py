@@ -960,6 +960,10 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN industry VARCHAR(50) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN volume_ratio DOUBLE DEFAULT NULL",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN free_cap DOUBLE DEFAULT NULL",
+    # 自选分组/标签/备注 (v1.7.670)
+    "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN grp VARCHAR(24) NOT NULL DEFAULT ''",
+    "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN tags VARCHAR(120) NOT NULL DEFAULT ''",
+    "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN note VARCHAR(255) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN turnover DOUBLE DEFAULT NULL",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN popularity_rank INT DEFAULT NULL",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN sort_order INT NOT NULL DEFAULT 0",

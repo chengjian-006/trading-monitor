@@ -57,7 +57,7 @@ async def get_latest_popularity_rank(code: str) -> int | None:
 
 
 async def update_stock(code: str, user_id: int = 1, **kwargs):
-    allowed = {"name", "trade_type", "status", "focused", "strategy"}
+    allowed = {"name", "trade_type", "status", "focused", "strategy", "grp", "tags", "note"}
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
         return
