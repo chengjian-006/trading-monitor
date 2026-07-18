@@ -330,6 +330,7 @@ async function handleThsImport(groupId: string) {
 
 <template>
   <div :class="['pool-view', { 'pool-view--fixed': !isPhone }]">
+    <div class="pool-controls">
     <div class="filter-bar">
       <div class="filter-fields">
         <div class="filter-item" style="flex: 2; min-width: 200px;">
@@ -466,6 +467,7 @@ async function handleThsImport(groupId: string) {
           <NInput v-model:value="pf.fIndustry.value" size="small" style="width: 130px" placeholder="包含..." clearable />
         </div>
       </div>
+    </div>
     </div>
 
     <NSkeleton v-if="stockStore.loading && stockStore.stocks.length === 0" :repeat="6" text style="margin-bottom: 16px" />
@@ -692,26 +694,35 @@ async function handleThsImport(groupId: string) {
   display: flex;
   flex-direction: column;
 }
-.filter-bar {
-  background: var(--surface);
+/* 合并添加区+筛选区为一个卡片 (v1.7.680): 外卡机构描边, 内两行发丝线隔开, 收紧密度 */
+.pool-controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  padding: 16px 20px;
-  margin-bottom: 16px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px 24px;
-  align-items: end;
+  margin-bottom: 12px;
+  overflow: hidden;
   position: sticky;
   top: 0;
   z-index: 50;
 }
+.filter-bar {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 10px 14px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--border-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 20px;
+  align-items: end;
+}
 .pool-filter {
-  background: var(--surface);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  padding: 10px 20px;
-  margin-bottom: 16px;
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 10px 14px;
+  margin-bottom: 0;
 }
 .pf-search {
   flex: 0 1 300px;

@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.680',
+    date: '2026-07-18',
+    title: '股票池筛选区合并 + 密度对齐机构风',
+    changes: [
+      {
+        text: '股票池顶部「添加区」和「筛选区」原本是两个各带阴影的独立卡片、占竖向空间；合并为一个描边卡片，内部添加行与筛选行用发丝线隔开、内边距收紧，投影改为机构风描边，更紧凑清爽。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.679',
     date: '2026-07-18',
     title: '预警总览：模型战绩参考默认折叠，矩阵成首屏',
