@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.672',
+    date: '2026-07-18',
+    title: '股票池表格：自定义显示列 + MA20 以下弱势行底色',
+    changes: [
+      {
+        text: '股票池表格新增「列设置」：可勾选自定义显示哪些列（人气/成交额/量比/换手/行业/概念等 16 列随意开关，序号/代码/名称/操作固定显示），选择记住下次进来还在。',
+        tag: 'new',
+      },
+      {
+        text: '股票池表格：现价低于 MA20（20 日线）的弱势个股整行加轻微冷灰底色，一眼区分强弱。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.671',
     date: '2026-07-18',
     title: '临近买点新增「匹配度」',

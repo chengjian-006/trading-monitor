@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm } from 'naive-ui'
+import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
-import { StarOutline, Star, CartOutline, Cart, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, ArrowUpOutline, ArrowDownOutline, NotificationsOutline, Notifications, PricetagsOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, CartOutline, Cart, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, ArrowUpOutline, ArrowDownOutline, NotificationsOutline, Notifications, PricetagsOutline, OptionsOutline } from '@vicons/ionicons5'
 import type { Stock, Signal } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -341,6 +341,11 @@ function rowProps(row: Stock) {
   }
   if (hasSignal) {
     classes.push('row-clickable')
+  }
+  // 现价 < MA20: 弱势, 轻微行底色标示 (v1.7.672); 不叠加持仓/信号行(它们已有更重要的底色)
+  if (!isHold && !recentSignalCodes.value.has(row.code)
+      && row.price != null && row.ma20 != null && row.price < row.ma20) {
+    classes.push('row-below-ma20')
   }
   return {
     class: classes.join(' ') || undefined,
@@ -1013,12 +1018,57 @@ const allColumns = computed(() => [
 
 // 机构级 (v1.7.650): 数字列打等宽 mono className, 盘口质感; 中文名/信号列不受影响
 const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'volume_ratio', 'free_cap', 'turnover'])
-const columns = computed(() => allColumns.value.map((c: any) =>
-  NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
+
+// 列自定义 (v1.7.672): 可勾选隐藏的列(结构列 序号/代码/名称/操作 恒显不可关); 选择存 localStorage
+const HIDEABLE: { key: string; label: string }[] = [
+  { key: 'popularity_rank', label: '人气' }, { key: 'amount_rank', label: '成交额排名' },
+  { key: 'sparkline', label: '走势图' }, { key: 'price', label: '现价' },
+  { key: 'pct_change', label: '涨幅' }, { key: 'pct_5d', label: '5日涨幅' },
+  { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
+  { key: 'volume_ratio', label: '量比' }, { key: 'free_cap', label: '流通市值' },
+  { key: 'turnover', label: '换手' }, { key: 'ma20', label: '≥MA20' },
+  { key: 'industry', label: '行业' }, { key: 'concepts', label: '概念' },
+  { key: 'board_rank', label: '板块内强弱' }, { key: 'strategy', label: '策略' },
+]
+const LS_HIDDEN = 'pool_hidden_cols'
+function loadHidden(): Set<string> {
+  try { return new Set(JSON.parse(localStorage.getItem(LS_HIDDEN) || '[]')) } catch { return new Set() }
+}
+const hiddenCols = ref<Set<string>>(loadHidden())
+function isColShown(key: string) { return !hiddenCols.value.has(key) }
+function toggleCol(key: string, show: boolean) {
+  const next = new Set(hiddenCols.value)
+  if (show) next.delete(key); else next.add(key)
+  hiddenCols.value = next
+  localStorage.setItem(LS_HIDDEN, JSON.stringify([...next]))
+}
+function resetCols() { hiddenCols.value = new Set(); localStorage.removeItem(LS_HIDDEN) }
+
+const columns = computed(() => allColumns.value
+  .filter((c: any) => !hiddenCols.value.has(c.key))
+  .map((c: any) => NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
 </script>
 
 <template>
   <div class="stock-table-wrap">
+    <!-- 列自定义 (v1.7.672): 勾选要显示的列, 选择记住 -->
+    <div class="col-toolbar">
+      <NPopover trigger="click" placement="bottom-end" :width="300">
+        <template #trigger>
+          <NButton size="tiny" quaternary title="自定义显示哪些列">
+            <template #icon><NIcon><OptionsOutline /></NIcon></template>列设置
+          </NButton>
+        </template>
+        <div class="col-menu">
+          <div class="col-menu-head"><span>显示列</span><NButton size="tiny" text type="primary" @click="resetCols">全部显示</NButton></div>
+          <div class="col-menu-grid">
+            <NCheckbox v-for="c in HIDEABLE" :key="c.key" :checked="isColShown(c.key)"
+                       @update:checked="(v: boolean) => toggleCol(c.key, v)">{{ c.label }}</NCheckbox>
+          </div>
+          <div class="col-menu-foot">序号 / 代码 / 名称 / 操作 列固定显示</div>
+        </div>
+      </NPopover>
+    </div>
     <StrategyEditModal
       v-model:show="showStrategyModal"
       :code="strategyEditCode"
@@ -1113,6 +1163,15 @@ const columns = computed(() => allColumns.value.map((c: any) =>
   color: var(--accent-fg) !important;
   font-weight: 700 !important;
 }
+/* 现价 < MA20 弱势行: 轻微冷灰底色示弱, 不与涨跌色抢戏 (v1.7.672) */
+.row-below-ma20 td {
+  background: rgba(90, 100, 114, 0.06);
+}
+/* 列设置工具栏 + 菜单 (v1.7.672, 本 style 非 scoped, popover 内容可命中) */
+.col-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+.col-menu-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.col-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.col-menu-foot { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); }
 @keyframes signal-breathing {
   0%, 100% { background: transparent; }
   50% { background: rgba(255, 120, 0, 0.10); }
