@@ -13,7 +13,9 @@ const ui = useUiStore()
 const snap = ref<NearBuySnapshot | null>(null)
 const loading = ref(false)
 
-const items = computed<NearBuyItem[]>(() => snap.value?.items ?? [])
+// 按匹配度降序: 最接近触发的浮到最前 (v1.7.671)
+const items = computed<NearBuyItem[]>(() =>
+  [...(snap.value?.items ?? [])].sort((a, b) => matchPct(b) - matchPct(a)))
 const triggered = computed(() => items.value.filter(i => i.tier >= 2))
 const near = computed(() => items.value.filter(i => i.tier < 2))
 
@@ -47,6 +49,24 @@ function condLabel(h?: NearBuyHit): string {
   if (!m.length) return '条件全满足'
   const names = m.map(s => s.split('(')[0]).join('·')
   return `还差${m.length}项: ${names}`
+}
+// 匹配度 (v1.7.671): 越接近触发买点分越高, 100%=已触发。
+// 无行业统一公式; 本质=量化里的 setup 完成度评分 = 入场条件满足度×65% + 贴线度×35%
+// (条件是硬性 AND 门槛, 权重更高; 贴线度作精修), 接近档封顶 95(没真触发到不了100)。取该股所有买点里最高的一档。
+function hitMatch(h: NearBuyHit): number {
+  if (h.kind === '触发') return 100
+  const cond = (h.total ?? 0) > 0 ? (h.met ?? 0) / (h.total as number) : 1
+  const prox = lineFill(h)
+  return Math.min(95, Math.max(1, Math.round(cond * 65 + prox * 35)))
+}
+function matchPct(it: NearBuyItem): number {
+  if (it.tier >= 2) return 100
+  if (!it.hits?.length) return 0
+  return Math.max(...it.hits.map(hitMatch))
+}
+function matchLevel(it: NearBuyItem): string {
+  const m = matchPct(it)
+  return m >= 100 ? 'm-trig' : m >= 80 ? 'm-hot' : m >= 60 ? 'm-warm' : 'm-cool'
 }
 async function load() {
   loading.value = true
@@ -111,6 +131,13 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
               </span>
             </div>
             <div v-if="primaryHit(it)" class="gap-viz">
+              <!-- 匹配度: 头条汇总, 越接近触发越高, 100%=已触发 (v1.7.671) -->
+              <div class="viz-row match-row" :class="matchLevel(it)"
+                   :title="`匹配度 ${matchPct(it)}% — 入场条件满足度×65% + 贴线度×35%, 100%=已触发。越接近触发买点越高。`">
+                <span class="viz-tag">匹配</span>
+                <span class="bar-track"><span class="bar-fill match-fill" :style="{ width: matchPct(it) + '%' }" /></span>
+                <span class="viz-val match-val">{{ matchPct(it) }}%</span>
+              </div>
               <!-- 贴线度: 越满=越贴近均线/上沿(触发=满格) -->
               <div class="viz-row" :title="primaryHit(it)?.note">
                 <span class="viz-tag">贴线</span>
@@ -190,6 +217,17 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .bar-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 4px; transition: width 0.3s; }
 .bar-fill.f-near { background: linear-gradient(90deg, #f7c873, var(--warn-fg)); }
 .bar-fill.f-trig { background: linear-gradient(90deg, #f0708d, var(--up-fg)); }
+/* 匹配度头条行 (v1.7.671): 分档配色 */
+.match-row .viz-tag { color: var(--fg-muted); font-weight: 600; }
+.match-val { font-weight: 700; }
+.match-row.m-trig .match-fill { background: var(--up-fg); }
+.match-row.m-trig .match-val { color: var(--up-fg); }
+.match-row.m-hot .match-fill { background: linear-gradient(90deg, #f0708d, var(--up-fg)); }
+.match-row.m-hot .match-val { color: var(--up-fg); }
+.match-row.m-warm .match-fill { background: linear-gradient(90deg, #f7c873, var(--warn-fg)); }
+.match-row.m-warm .match-val { color: var(--warn-fg); }
+.match-row.m-cool .match-fill { background: var(--fg-subtle); }
+.match-row.m-cool .match-val { color: var(--fg-subtle); }
 .viz-val { flex-shrink: 0; color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .viz-val.miss-val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--warn-fg); font-weight: 600; }
 .dots { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; }

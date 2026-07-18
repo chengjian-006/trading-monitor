@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.671',
+    date: '2026-07-18',
+    title: '临近买点新增「匹配度」',
+    changes: [
+      {
+        text: '临近买点每只票新增「匹配度%」：越接近触发买点分越高，100% = 已触发。口径参考量化里的 setup 完成度评分 = 入场条件满足度×65% + 贴线度×35%（条件是硬性门槛权重更高），接近档封顶 95%。列表按匹配度从高到低排序，分档配色一眼看谁最近。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.670',
     date: '2026-07-18',
     title: '自选股 分组 / 标签 / 备注',
