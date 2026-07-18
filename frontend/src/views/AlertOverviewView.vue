@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, h, ref, onMounted } from 'vue'
-import { NRadioGroup, NRadioButton, NSelect, NDrawer, NDrawerContent, NSpin, NEmpty, NTag, NDataTable, NTooltip } from 'naive-ui'
+import { NRadioGroup, NRadioButton, NSelect, NDrawer, NDrawerContent, NSpin, NEmpty, NTag, NDataTable, NTooltip, NCollapse, NCollapseItem } from 'naive-ui'
 import type { DataTableColumns } from 'naive-ui'
 import {
   fetchSignalMatrix,
@@ -410,11 +410,15 @@ function rateBadge(sid: string) {
       </div>
     </div>
 
-    <!-- 各买入模型 全市场半年回测(含资金成本) — 厚样本判断当前行情适合哪个模型 -->
-    <ModelBacktestPanel style="margin: 12px 0;" />
-
-    <!-- 各买点模型 按周真实成功率(自选真实信号, 样本小) -->
-    <ModelWeeklyPanel style="margin: 12px 0;" />
+    <!-- 模型战绩参考: 默认折叠, 让预警矩阵成首屏焦点 (v1.7.678 渐进披露) -->
+    <NCollapse class="model-collapse" style="margin: 12px 0;">
+      <NCollapseItem title="模型战绩参考 · 全市场回测 + 按周真实胜率" name="model">
+        <!-- 各买入模型 全市场半年回测(含资金成本) — 厚样本判断当前行情适合哪个模型 -->
+        <ModelBacktestPanel />
+        <!-- 各买点模型 按周真实成功率(自选真实信号, 样本小) -->
+        <ModelWeeklyPanel style="margin-top: 12px;" />
+      </NCollapseItem>
+    </NCollapse>
 
     <!-- 矩阵 -->
     <NSpin :show="loading">

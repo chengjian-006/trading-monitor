@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.679',
+    date: '2026-07-18',
+    title: '预警总览：模型战绩参考默认折叠，矩阵成首屏',
+    changes: [
+      {
+        text: '预警总览页把两个「模型战绩参考」面板（全市场回测 + 按周真实胜率）改为默认折叠、需要时展开，让核心的预警触发矩阵成为首屏焦点，减少下拉。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.678',
     date: '2026-07-18',
     title: '风险横幅「几点起」时间锚点修正',
