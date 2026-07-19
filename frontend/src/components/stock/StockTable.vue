@@ -629,22 +629,23 @@ const allColumns = computed(() => [
       if (prefix) {
         children.push(h('span', { style: { position: 'absolute', right: '100%', marginRight: '2px' } }, prefix))
       }
-      // 双榜共振火苗: 人气排名 与 成交额排名 同时进前100, 颜色随强弱(深红/橙/浅红)
+      // 双榜共振: 人气排名 与 成交额排名 同时进前100, 等级颜色随强弱
       const popR = row.popularity_rank
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
+      // 名称先放(左对齐), 红点/标签一律排在名称后面
+      children.push(row.name)
       if (resoLevel) {
-        // 双榜共振: 低调小圆点(颜色随强弱), 取代原扎眼的火苗色块
+        // 双榜共振: 低调小圆点(颜色随强弱), 取代原扎眼的火苗色块; 放名称后面
         const dot = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
         children.push(h('span', {
           title: `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`,
           style: {
             display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
-            background: dot, marginRight: '5px', verticalAlign: 'middle', flexShrink: 0,
+            background: dot, marginLeft: '5px', verticalAlign: 'middle', flexShrink: 0,
           },
         }))
       }
-      children.push(row.name)
       // 涨停 / 跌停: 实心高对比徽章, 一眼可辨 (按板块/ST 阈值判定)
       if (isLimitUp(row)) {
         children.push(h('span', {
@@ -1060,6 +1061,8 @@ function resetCols() { hiddenCols.value = new Set(); localStorage.removeItem(LS_
 const columns = computed(() => allColumns.value
   .filter((c: any) => !hiddenCols.value.has(c.key))
   .map((c: any) => NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
+// 横向滚动宽度 = 当前可见列宽总和(动态: 加/删/隐藏列自动跟随, 避免写死值偏小导致最右列滚不到)
+const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum + (Number(c.width) || 120), 0) + 40)
 </script>
 
 <template>
