@@ -63,6 +63,7 @@ const menuGroups: MenuGroup[] = [
       { key: 'model-backtest', label: '模型回测', path: '/model-backtest', icon: BarChartOutline },
       { key: 'trade-analysis', label: '交易分析', path: '/trade-analysis', icon: WalletOutline },
       { key: 'trade-journal', label: '交易日记', path: '/trade-journal', icon: JournalOutline },
+      { key: 'trade-coach', label: '交易复盘', path: '/trade-coach', icon: TrendingUpOutline },
       { key: 'paper-trading', label: '模拟账户', path: '/paper-trading', icon: BarChartOutline },
       { key: 'calculator', label: '仓位计算', path: '/calculator', icon: CalculatorOutline },
     ],

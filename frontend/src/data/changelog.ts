@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.696',
+    date: '2026-07-19',
+    title: '新增「交易复盘」页：AI 交易教练',
+    changes: [
+      {
+        text: 'AI 交易复盘：按你真实交割单算成绩规律（听模型对比/模型归因/盈亏周期/习惯）+ AI 大白话复盘，每周日自动推一份，也可页面按需生成。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.695',
     date: '2026-07-19',
     title: '股票池「100名外」统一改为「100+」',

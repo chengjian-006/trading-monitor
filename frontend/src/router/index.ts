@@ -22,6 +22,7 @@ const router = createRouter({
     { path: '/paper-trading', name: 'paper-trading', component: () => import('../views/PaperTradingView.vue') },
     { path: '/calculator', name: 'calculator', component: () => import('../views/CalculatorView.vue') },
     { path: '/trade-journal', name: 'trade-journal', component: () => import('../views/TradeJournalView.vue') },
+    { path: '/trade-coach', name: 'trade-coach', component: () => import('../views/TradeCoachView.vue') },
     { path: '/logs', name: 'logs', component: () => import('../views/LogView.vue') },
     { path: '/changelog', name: 'changelog', component: () => import('../views/ChangelogView.vue') },
     { path: '/config', name: 'config', component: () => import('../views/SystemConfigView.vue'), meta: { admin: true } },
