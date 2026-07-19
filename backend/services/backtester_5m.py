@@ -518,6 +518,21 @@ def eod_trades(model, ind, start, end, code="", name=""):
     return trades
 
 
+# 候选日但缺 5分钟bar 覆盖 → 该笔本该评估却被丢, 原来静默 continue、系统性偏差胜率分母。
+# 用模块级计数把它变可见: 胜率重算(model_winrate_refresher)跑前 reset、跑后读 → 覆盖缺口高就告警。
+_MISSED_5M = {"cand": 0, "missing": 0}
+
+
+def reset_missed_5m():
+    _MISSED_5M["cand"] = 0
+    _MISSED_5M["missing"] = 0
+
+
+def missed_5m_stats() -> dict:
+    """{cand: 候选日总数, missing: 其中缺5分钟bar被丢的天数}。missing/cand 高=覆盖不全, 胜率有采样偏差。"""
+    return dict(_MISSED_5M)
+
+
 def scan_trades_5m(model, ind, day5m, start, end, code="", name=""):
     """一只票单模型 5分钟诚实口径扫描 → 交易明细列表(与 run_model_backtest trades 同构)。
 
@@ -537,10 +552,12 @@ def scan_trades_5m(model, ind, day5m, start, end, code="", name=""):
         dstr = dates[i][:10]
         if dstr < start or dstr > end:
             continue
+        if not _candidate_day(m, cfg, i, h_arr, l_arr, c_arr, m10, m20, m60):
+            continue
+        _MISSED_5M["cand"] += 1
         bars = day5m.get(dstr)
         if not bars:
-            continue
-        if not _candidate_day(m, cfg, i, h_arr, l_arr, c_arr, m10, m20, m60):
+            _MISSED_5M["missing"] += 1   # 候选日但无5分钟bar: 记账(原静默丢, 致胜率采样偏差不可见)
             continue
         sub = ind.iloc[:i + 1]
         prev_close = float(c_arr[i - 1]) if i > 0 else 0.0

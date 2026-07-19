@@ -248,6 +248,9 @@ async def _run_refresh_resumable():
     todo = [c for c in codes if c not in already]
     logger.info(f"[model_winrate] 断点续算: 已算{len(already)}/{len(codes)}, 待算{len(todo)} 窗口{cut6}~{anchor}")
 
+    from backend.services.backtester_5m import reset_missed_5m, missed_5m_stats
+    reset_missed_5m()   # 统计本轮5分钟覆盖缺口(候选日无5m bar被丢=胜率采样偏差), 跑后告警
+
     sem = asyncio.Semaphore(_CONCURRENCY)
     prog = [0]
 
@@ -272,6 +275,13 @@ async def _run_refresh_resumable():
                 logger.info(f"[model_winrate] {prog[0]}/{len(todo)}")
 
     await asyncio.gather(*[work(c) for c in todo])
+
+    # 5分钟覆盖缺口告警: 候选日缺5m bar被丢会系统性偏移胜率分母, 缺口>5%时提醒(原静默)。
+    _cov = missed_5m_stats()
+    if _cov["cand"] > 0 and _cov["missing"] / _cov["cand"] > 0.05:
+        logger.warning(
+            f"[model_winrate] 5分钟覆盖缺口: {_cov['missing']}/{_cov['cand']}候选日无5m bar被丢"
+            f"({_cov['missing']/_cov['cand']*100:.1f}%), 胜率有采样偏差, 需补5分钟回填")
 
     # 完整性闸: 暂存覆盖数 < 全部票 → 本轮被打断或有票失败, 暂不写正式表, 等下轮/重启续算。
     staged = await repository.staged_model_winrate_count(anchor)

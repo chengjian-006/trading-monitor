@@ -124,7 +124,12 @@ def _sim_rally20(entry, o, h, c, m20, i, n, cap=15, hard=-0.07, target=0.15):
 
 
 async def _build_universe(client) -> list:
-    """全A列表(剔北交所/ST/退市), 返回 [(code, sina_sym)]。"""
+    """全A列表(剔北交所; 不再按当前名称剔ST/退市—见下), 返回 [(code, sina_sym)]。
+
+    幸存者偏差修(v1.7.x): 原按【当前】名称剔 ST/退/* 是前视——一只票现在 ST 不代表回测窗口内就 ST,
+    剔掉=系统性抹掉"后来变差个股"的亏损样本、抬高胜率/PF。改为纳入仍在市的 ST/退市整理期票的
+    窗口历史(更代表真实可交易样本)。残留偏差: 已【彻底退市】从 hs_a 名单消失的票无法从当前名单
+    找回, 需 point-in-time 历史成分名单才能补, 本次未做(工程量大); 但纳入"仍在市 ST"已修掉大头。"""
     out, page = [], 1
     url = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
            "Market_Center.getHQNodeData")
@@ -148,8 +153,7 @@ async def _build_universe(client) -> list:
             sym, name = it.get("symbol", ""), it.get("name", "")
             if not (sym.startswith("sh") or sym.startswith("sz")):
                 continue
-            if any(t in name for t in ("ST", "退")) or name.startswith("*"):
-                continue
+            # 不按当前名称剔 ST/退/*: 幸存者偏差(前视)——见函数 docstring
             out.append((sym[2:], sym))
         page += 1
     return out
