@@ -756,7 +756,7 @@ const allColumns = computed(() => [
     render: (row: Stock) => {
       const rank = row.popularity_rank
       if (rank == null) return '-'
-      if (rank > 100) return h('span', { style: { color: 'var(--text3)', fontSize: '12px', whiteSpace: 'nowrap' } }, '100名外')
+      if (rank > 100) return h('span', { style: { color: 'var(--text3)', fontSize: '12px', whiteSpace: 'nowrap' } }, '100+')
       const color = rank <= 20 ? 'var(--red)' : rank <= 50 ? 'var(--warn-fg)' : 'var(--text2)'
       const fontWeight = rank <= 20 ? 700 : 'normal'
       return h('span', { style: { color, fontWeight } }, `${rank}`)
@@ -774,7 +774,7 @@ const allColumns = computed(() => [
         const color = r <= 20 ? 'var(--up-fg)' : r <= 50 ? 'var(--warn-fg)' : 'var(--fg-muted)'
         return h('b', { style: { color, fontVariantNumeric: 'tabular-nums' }, title: '全市场成交额第 ' + r + ' 名' }, String(r))
       }
-      return h('span', { style: { color: 'var(--fg-subtle)', fontSize: '11px' } }, '100名外')
+      return h('span', { style: { color: 'var(--fg-subtle)', fontSize: '11px' } }, '100+')
     },
   },
   {

@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.695',
+    date: '2026-07-19',
+    title: '股票池「100名外」统一改为「100+」',
+    changes: [
+      {
+        text: '股票池表格「人气」「成交额排名」列的「100名外」统一改为更简洁的「100+」（表格显示与 xlsx 导出一致），与板块预警等处口径统一。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.694',
     date: '2026-07-19',
     title: '看板布局收拾：消除右栏空白 + AI市场分析先隐藏 + 股票池数字列单行',
