@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.689',
+    date: '2026-07-19',
+    title: '问财观点油猴版拉齐扩展：决策卡 + 表格 + 距现价% + 零配置',
+    changes: [
+      {
+        text: '问财观点油猴脚本(篡改猴自动更新那条线)整体升级到与扩展一致：完成后出「研判速览」决策卡（主推 hero + 买入/止盈/止损价位磁贴 + 距现价% + 逻辑/风险色块），markdown 表格正常渲染，改现代财富 App 配色。',
+        tag: 'improve',
+      },
+      {
+        text: '油猴版去掉过时的 INGEST_TOKEN 强制门槛（观点接口早已不校验 token），装上即用零配置；追加结论格式后缀让抽取更稳、上报时带上结论。@version 升至 1.6，旧版会自动更新。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.688',
     date: '2026-07-19',
     title: '模型胜率静默停写修复：断点续算 + 启动自愈补算',
