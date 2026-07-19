@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.707',
+    date: '2026-07-20',
+    title: 'AI 个股研判卡',
+    changes: [
+      {
+        text: 'AI 个股研判卡：点一只票，把它的信号历史/同形态胜率/财务红旗/板块强弱/持仓成本综合成一段大白话研判，摆事实不预测。个股详情弹窗新增「AI 研判」按钮，按需触发，每日次数有上限。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.706',
     date: '2026-07-19',
     title: '复测批修：全站502隐患 + 12项健壮性/安全/前端缺陷',

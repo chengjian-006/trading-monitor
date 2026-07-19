@@ -6,6 +6,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { NModal, NButton, NInput, NTag } from 'naive-ui'
 import StockCharts from './StockCharts.vue'
+import StockReviewCard from '../stock/StockReviewCard.vue'
 import { thsStockUrl, emStockUrl, openExternal } from '../../utils/stockLinks'
 import type { StockSummary } from '../../api/kline'
 import { useUiStore } from '../../stores/ui'
@@ -81,8 +82,11 @@ function openFullPage() {
   router.push({ path: '/intraday', query: { code: code.value, name: name.value } })
 }
 
+// AI 个股研判卡(按需触发, 独立弹窗叠在详情弹窗之上)
+const reviewShow = ref(false)
+
 // 切换股票时重置内联策略编辑
-watch(code, () => { stratOpen.value = false; summary.value = null })
+watch(code, () => { stratOpen.value = false; summary.value = null; reviewShow.value = false })
 </script>
 
 <template>
@@ -123,10 +127,13 @@ watch(code, () => { stratOpen.value = false; summary.value = null })
       </div>
     </div>
 
+    <StockReviewCard v-model:show="reviewShow" :code="code" :name="name" />
+
     <template #footer>
       <div class="dm-foot">
         <NButton v-if="!inPool" size="small" type="primary" :loading="adding" @click="addToPool">+ 加自选</NButton>
         <NButton v-if="inPool" size="small" :type="stratOpen ? 'primary' : 'default'" @click="toggleStrategy">设策略</NButton>
+        <NButton size="small" type="info" secondary @click="reviewShow = true">AI 研判</NButton>
         <span class="dm-ext">
           <NButton size="small" tertiary title="在同花顺网页版看分时/K线" @click="openExternal(thsStockUrl(code))">同花顺 ↗</NButton>
           <NButton size="small" tertiary title="在东方财富网页版看分时/K线" @click="openExternal(emStockUrl(code))">东财 ↗</NButton>
