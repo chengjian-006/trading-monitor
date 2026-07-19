@@ -74,6 +74,7 @@ from backend.services.holding_brief import refresh_holding_state_fwd, run_holdin
 from backend.services.system_health import run_system_health_digest
 from backend.services.morning_focus import run_morning_focus
 from backend.services.push_health_report import run_push_health_report
+from backend.services.ai_advisor.trade_coach import run_trade_coach_weekly
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,7 @@ TASK_HANDLERS: dict[str, object] = {
     "run_earnings_forecast_scan": run_earnings_forecast_scan,
     "run_morning_focus": run_morning_focus,
     "run_push_health_report": run_push_health_report,
+    "run_trade_coach_weekly": run_trade_coach_weekly,
 }
 
 

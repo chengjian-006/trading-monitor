@@ -1362,6 +1362,11 @@ async def _run_migrations(conn):
             ("push_health_weekly", "推送健康度周报·周五17:10",
              "每周五 17:10 统计本周(近5个交易日) cfzy_biz_push_pref 用户动作(静音/关模型/已处理/已卖出/到线订阅), 推一张系统灰卡: KPI三栏+动作分布+建议(被关最多的模型点名去模型图鉴); 数据不足一周也发并注明口径起始日",
              "cron", _json.dumps({"day_of_week": "fri", "hour": 17, "minute": 10}), "run_push_health_report"),
+            # AI交易教练 Phase1 T5: 每周日22:30给交易者本人(user_id=1, 交割单所在)生成近一月复盘
+            # (听模型对比/模型归因/盈亏周期/习惯), 单渠道全局推送只发一张卡, 无平仓不打扰
+            ("trade_coach_weekly", "交易复盘·周日22:30",
+             "每周日22:30给交易者生成近一月AI交易复盘(听模型对比/模型归因/盈亏周期/习惯)并推送, 无平仓不推",
+             "cron", _json.dumps({"day_of_week": "sun", "hour": 22, "minute": 30}), "run_trade_coach_weekly"),
         ]
         for task in migration_tasks:
             try:

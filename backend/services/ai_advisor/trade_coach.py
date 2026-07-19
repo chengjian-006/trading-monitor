@@ -70,3 +70,35 @@ async def generate_coach_report(user_id: int, start: str, end: str, *, use_cache
         logger.warning(f"[ai_advisor] 复盘缓存写入失败(忽略): {e}")
 
     return {"facts": facts, "narrative": narrative, "as_of": str(today), "cached": False}
+
+
+# ── 每周日定时推送 ─────────────────────────────────────────────────────────
+OWNER_USER_ID = 1   # 交易者本人(交割单所在); 单渠道个人工具, 只给本人推
+
+
+async def _send_coach_card(report: dict):
+    """把复盘事实清单+叙述组装成一张自由文本卡, 走全局单渠道推送(send_wechat_text)。"""
+    from backend.services.notifier import send_wechat_text
+    facts, narrative = report["facts"], report.get("narrative")
+    lines = [f"📋 本月交易复盘（{report['as_of']}）", f"已平仓 {facts['n_closed']} 笔"]
+    lvs = facts["listen_vs_self"]
+    lines.append(f"听模型 {lvs['listen']['n']}笔 胜率{lvs['listen']['win_rate']}% / "
+                 f"自作主张 {lvs['self']['n']}笔 胜率{lvs['self']['win_rate']}%")
+    if narrative:
+        lines += ["", narrative]
+    lines += ["", "客观历史数据 + AI 归纳，非投资建议、不预测涨跌"]
+    await send_wechat_text("\n".join(lines))
+
+
+async def run_trade_coach_weekly():
+    """每周日晚: 给交易者本人(user_id=1)生成近一月复盘, 有平仓才推一张卡; 无平仓不打扰。"""
+    from datetime import timedelta
+    end = date.today()
+    start = end - timedelta(days=30)
+    try:
+        report = await generate_coach_report(OWNER_USER_ID, str(start), str(end))
+        if report["facts"].get("n_closed", 0) <= 0:
+            return
+        await _send_coach_card(report)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[ai_advisor] 周复盘推送失败: {e}")
