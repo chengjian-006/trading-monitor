@@ -45,3 +45,28 @@ def test_open_rounds_excluded_from_closed_stats():
 def test_empty_rounds_safe():
     f = build_coach_facts([], {}, "s", "e")
     assert f["n_closed"] == 0 and f["by_model"] == []
+
+
+def test_none_pnl_closed_round_counted_but_not_scored():
+    rounds = [_r(None, None, status="closed"), _r(5.0, 3, status="closed")]
+    f = build_coach_facts(rounds, {}, "s", "e")
+    assert f["n_closed"] == 2
+    assert f["n_scored"] == 1
+
+
+def test_loser_holds_longer_none_when_no_winners():
+    rounds = [_r(-5.0, 15), _r(-3.0, 25)]
+    f = build_coach_facts(rounds, {}, "s", "e")
+    assert f["habits"]["loser_holds_longer"] is None
+
+
+def test_stop_discipline_counts_stop_exits():
+    rounds = [
+        _r(-6.0, 10), _r(-4.0, 5), _r(8.0, 2),
+    ]
+    rounds[0]["exit_reason"] = "SELL_WEAK_STOP"
+    rounds[1]["exit_reason"] = "SELL_TIME_STOP"
+    rounds[2]["exit_reason"] = "SELL_TARGET"
+    f = build_coach_facts(rounds, {}, "s", "e")
+    assert f["habits"]["stop_discipline"]["stop_exit_rounds"] == 2
+    assert f["habits"]["stop_discipline"]["stop_exit_ratio"] == round(2 / 3 * 100, 1)
