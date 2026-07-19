@@ -141,16 +141,19 @@ async def compare_trades_to_model(user_id: int, signal_window: int = 5) -> dict:
     loaded = dict(await asyncio.gather(*[_load_indicators(c, cfg, sem) for c in codes]))
 
     model: dict[str, dict] = {}
-    no_kline: list[str] = []
-    for code in codes:
-        ind = loaded.get(code)
-        if ind is None:
-            no_kline.append(code)
-            continue
+    valid_codes = [c for c in codes if loaded.get(c) is not None]
+    no_kline: list[str] = [c for c in codes if loaded.get(c) is None]
+    # CPU 重活(逐票逐日重跑3个买点检测器)卸到线程池并发跑, 绝不在单 worker 事件循环上同步跑——
+    # 否则交割单多时几秒 CPU 焊死事件循环, 全站请求排队 502(0719 冒烟实测无参调用挂死后端约2分钟)。
+    hits_list = await asyncio.gather(
+        *[asyncio.to_thread(_run_buy_detectors, loaded[c], cfg) for c in valid_codes]
+    )
+    for code, buy_hits in zip(valid_codes, hits_list):
+        ind = loaded[code]
         model[code] = {
             "ind": ind,
             "date_idx": {str(d): i for i, d in enumerate(ind["date"])},
-            "buy_hits": _run_buy_detectors(ind, cfg),
+            "buy_hits": buy_hits,
         }
 
     # ── 买点对比 ──
