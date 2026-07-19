@@ -684,8 +684,10 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     # 下降」—— 实测 YELLOW -1.8% vs GREEN -0.5%, 是显著下降的。均已按 OOS 实测更正。
     if direction == "buy":
         try:
-            from backend.services.market_risk_controller import get_risk_state, risk_buy_note
-            note = risk_buy_note(await get_risk_state(), signal_id or "")
+            from backend.services.market_risk_controller import (
+                get_risk_state, risk_buy_note_async,
+            )
+            note = await risk_buy_note_async(await get_risk_state(), signal_id or "")
             if note:
                 detail = f"{note}\n{detail}"
         except Exception:

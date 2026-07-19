@@ -662,12 +662,12 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
     if has_buy:
         try:
             from backend.services.market_risk_controller import (
-                get_risk_state, risk_buy_note, _RED_FRAGILE,
+                get_risk_state, risk_buy_note_async, _RED_FRAGILE,
             )
             # 合并推送含多个买点 → 取代表: 只要有一个是 RED 档的脆弱模型(平台突破),
             # 就用它的强警示, 否则用第一个(通用文案对非分流模型都一样)。
             rep = next((i for i in buy_ids if i in _RED_FRAGILE), buy_ids[0])
-            risk_line = risk_buy_note(await get_risk_state(), rep)
+            risk_line = await risk_buy_note_async(await get_risk_state(), rep)
         except Exception:
             pass
     # 多买点合并推送也带上各买点历史胜率(与单条推送口径一致)
