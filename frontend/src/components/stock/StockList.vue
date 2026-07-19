@@ -298,10 +298,10 @@ onMounted(() => { loadAlerts() })
   font-size: 11px;
 }
 .signal-tag.tag-buy {
-  background: var(--up-fg);
+  background: var(--up-bg-muted); color: var(--up-fg); border: 1px solid color-mix(in srgb, var(--up-fg) 40%, transparent);
 }
 .signal-tag.tag-sell {
-  background: var(--down-fg);
+  background: var(--down-bg-muted); color: var(--down-fg); border: 1px solid color-mix(in srgb, var(--down-fg) 40%, transparent);
 }
 .stock-star {
   color: var(--red);
@@ -392,16 +392,19 @@ onMounted(() => { loadAlerts() })
   flex: 0 0 auto;
 }
 .badge-limit-up {
-  background: var(--red);
-  color: var(--on-emphasis);
+  background: var(--up-bg-muted);
+  color: var(--up-fg);
+  border: 1px solid color-mix(in srgb, var(--up-fg) 40%, transparent);
 }
 .badge-limit-down {
-  background: var(--green);
-  color: var(--on-emphasis);
+  background: var(--down-bg-muted);
+  color: var(--down-fg);
+  border: 1px solid color-mix(in srgb, var(--down-fg) 40%, transparent);
 }
 .badge-lianban {
-  background: linear-gradient(135deg, #ff6b00, #ff2d00);
-  color: var(--on-emphasis);
+  background: var(--warn-bg-muted);
+  color: var(--warn-fg);
+  border: 1px solid color-mix(in srgb, var(--warn-fg) 40%, transparent);
 }
 .badge-shouban {
   background: var(--up-bg-muted);
