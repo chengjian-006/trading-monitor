@@ -1,5 +1,6 @@
 """个股研判事实清单构造器(纯函数, 不连库不碰LLM): 把已gather的各源数据组装成结构化真数字。
 摆事实不预测: 同形态胜率是历史客观分布, 非涨跌预测。"""
+import json
 import re
 
 _SUFFIX = re.compile(r"（[左右]侧）$")
@@ -47,8 +48,11 @@ def build_stock_facts(code, name, *, signals, winrate, fin_risk, sector, holding
 
     # 3) Financial risk flags
     if fin_risk:
-        risk = {"has_data": True, "score": fin_risk.get("score"),
-                "flags": fin_risk.get("flags") or fin_risk.get("flag_list") or []}
+        try:
+            _flags = json.loads(fin_risk.get("flags_json") or "[]")
+        except (ValueError, TypeError):
+            _flags = []
+        risk = {"has_data": True, "score": fin_risk.get("score"), "flags": _flags}
     else:
         risk = {"has_data": False}
 

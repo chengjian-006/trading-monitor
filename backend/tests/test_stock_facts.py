@@ -32,3 +32,27 @@ def test_model_winrate_backfilled_from_signal_history():
         holding=None, near_buy=None)
     names = [m["model_name"] for m in f["model_winrate"]]
     assert "回踩MA10" in names
+
+
+def test_risk_flags_parsed_from_flags_json():
+    """Test that flags are correctly parsed from flags_json column (JSON string)."""
+    fin_risk = {"score": 55, "flags_json": '["商誉过高", "存贷双高"]'}
+    f = build_stock_facts("300085", "银之杰",
+        signals=[], winrate={}, fin_risk=fin_risk,
+        sector={"board_strength": None, "sector_rank": None, "theme_heat": []},
+        holding=None, near_buy=None)
+    assert f["risk_flags"]["has_data"] is True
+    assert f["risk_flags"]["score"] == 55
+    assert f["risk_flags"]["flags"] == ["商誉过高", "存贷双高"]
+
+
+def test_risk_flags_dirty_data_does_not_crash():
+    """Test that invalid JSON in flags_json does not crash and returns empty list."""
+    fin_risk = {"score": 50, "flags_json": "not json"}
+    f = build_stock_facts("300085", "银之杰",
+        signals=[], winrate={}, fin_risk=fin_risk,
+        sector={"board_strength": None, "sector_rank": None, "theme_heat": []},
+        holding=None, near_buy=None)
+    assert f["risk_flags"]["has_data"] is True
+    assert f["risk_flags"]["score"] == 50
+    assert f["risk_flags"]["flags"] == []
