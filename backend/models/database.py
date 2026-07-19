@@ -1000,6 +1000,18 @@ SCHEMA_STATEMENTS = [
         PRIMARY KEY (user_id, period_key, gen_date)
     )
     """,
+    # AI 个股研判缓存 (Phase2 T2) — 同用户+同票+同天命中缓存, 免得每次点开都重调LLM。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_stock_review (
+        user_id     INT NOT NULL,
+        code        VARCHAR(10) NOT NULL,
+        gen_date    DATE NOT NULL,
+        facts_json  MEDIUMTEXT NOT NULL,
+        narrative   MEDIUMTEXT NULL,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, code, gen_date)
+    )
+    """,
 ]
 
 

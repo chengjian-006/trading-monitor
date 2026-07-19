@@ -126,10 +126,14 @@ async def count_quote_health(stale_seconds: int = 360) -> dict:
 
 
 async def get_pool_row(code: str) -> dict | None:
-    """读自选票已落库的速览字段(quote_refresher 存价/涨跌/换手/量比, stock_tag_refresher 存题材)。
-    非自选/已删 → None。给个股弹窗 summary 做"读库优先", 离线/东财被封时也有值。"""
+    """读自选票已落库的速览字段(quote_refresher 存价/涨跌/换手/量比, stock_tag_refresher 存题材,
+    sector_strength_scanner 存持仓在最热题材内的板块名次 board_name/board_rank/board_total)。
+    非自选/已删 → None。给个股弹窗 summary / AI 个股研判 板块段 做"读库优先", 离线/东财被封时也有值。
+    board_rank/board_total 仅持仓票有值(该 scanner 只算持仓); sector_rank 列长期未回填(遗留字段,
+    见 v1.7.13 refresh_sector_leaders 停用), 恒为 NULL。"""
     return await _fetchone(
-        "SELECT name, price, pct_change, turnover, volume_ratio, concepts, limit_up_days "
+        "SELECT name, price, pct_change, turnover, volume_ratio, concepts, limit_up_days, "
+        "sector_rank, board_name, board_rank, board_total "
         "FROM cfzy_biz_stock_pool WHERE code = %s AND deleted_at IS NULL LIMIT 1",
         (code,),
     )

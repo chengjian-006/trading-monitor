@@ -182,3 +182,6 @@ from backend.models.repo.paper_trading import (  # noqa: F401
     model_stats as paper_model_stats,
 )
 from backend.models.repo.coach_report import save_coach_report, get_coach_report  # noqa: F401
+from backend.models.repo.stock_review import (  # noqa: F401
+    save_stock_review, get_stock_review, count_reviews_today,
+)
