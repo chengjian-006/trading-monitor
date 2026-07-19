@@ -687,8 +687,10 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     risk_note = ""
     if direction == "buy":
         try:
-            from backend.services.market_risk_controller import get_risk_state, risk_buy_note
-            risk_note = risk_buy_note(await get_risk_state(), signal_id or "") or ""
+            from backend.services.market_risk_controller import get_risk_state, risk_buy_note_async
+            # 合并: 用并行会话新的异步版 risk_buy_note_async + 保留本次去污染修复(抽 risk_note,
+            # 不再拼进 detail 污染首条触发条件; 下游作独立横幅并替掉通用横幅去重)
+            risk_note = await risk_buy_note_async(await get_risk_state(), signal_id or "") or ""
         except Exception:
             pass
 

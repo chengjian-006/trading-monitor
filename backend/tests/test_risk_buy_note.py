@@ -14,9 +14,14 @@ def test_green_adds_no_line():
 
 
 def test_red_platform_breakout_gets_strongest_warning():
-    """平台突破是 RED 档唯一双段同向垫底的模型(OOS 均-5.1% PF0.31), 要单独强警示。"""
+    """平台突破是 RED 档唯一双段同向垫底的模型, 要单独强警示。
+
+    v1.7.711 起具体数字搬进登记表 cfzy_sys_backtest_claims(硬编码结论会过期且没人发现),
+    兜底文案只留定性 —— 故这里断言"强警示措辞"而非具体数值; 数值链路由
+    test_backtest_claims.py 覆盖(登记表命中时用表里的文案)。
+    """
     note = risk_buy_note(RED, "BUY_PLATFORM_BREAKOUT")
-    assert "-5.1%" in note and "强烈建议不做" in note
+    assert "强烈建议不做" in note and "最脆" in note
 
 
 def test_red_neutral_models_get_softer_wording():
@@ -27,15 +32,18 @@ def test_red_neutral_models_get_softer_wording():
         assert "停开新仓" not in note
 
 
-def test_red_generic_uses_measured_numbers():
+def test_red_generic_gives_stop_advice():
     note = risk_buy_note(RED, "BUY_VOL_BREAKOUT")
-    assert "-2.3%" in note and "停开新仓" in note
+    assert "停开新仓" in note and "空仓档" in note
 
 
 def test_yellow_no_longer_claims_quality_undamaged():
-    """旧文案说 YELLOW「信号质量未显著下降」; 实测 -1.8% vs 正常档 -0.5%, 是显著下降。"""
+    """旧文案说 YELLOW「信号质量未显著下降」; 实测 -1.8% vs 正常档 -0.5%, 是显著下降。
+
+    这条断言的是"不再说反话", 与数字搬不搬家无关, 必须一直守住。
+    """
     note = risk_buy_note(YELLOW, "BUY_RALLY_MA20")
-    assert "-1.8%" in note and "控制仓位" in note
+    assert "控制仓位" in note and "弱于正常档" in note
     assert "未显著下降" not in note
 
 

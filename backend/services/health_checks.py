@@ -329,6 +329,23 @@ async def _chk_eod_audit_effective():
     return pct < 30, f"unverified {unv}/{tot}({pct:.0f}%)", "<30%"
 
 
+async def _chk_claim_stale():
+    """回测结论是否过期未复核。
+
+    体检的其余项查的是"数据新不新""接口通不通", 查不了**"这句话还对不对"** —— 而系统
+    对外宣称的战绩数字(推送警示语/看板/模型图鉴)正是靠这类断言。0719 实测三处都已失效
+    却无人知(推送里的胜率30%来自带前视偏差的旧回测, 每天推给用户看)。
+    登记表 cfzy_sys_backtest_claims 给每条结论标了产地+样本区间+ttl, 本项到期即报。
+    """
+    from backend.services import backtest_claims
+    stale = await backtest_claims.stale_claims()
+    if not stale:
+        allc = await backtest_claims.all_claims()
+        return True, f"0 条过期(共登记 {len(allc)} 条)", "0 条"
+    names = [f"{r['claim_key']}({r['age_days']}天/限{r['ttl_days']})" for r in stale]
+    return False, f"{len(stale)}条: {', '.join(names[:3])}", "0 条"
+
+
 async def _chk_rounds_synced():
     """交易回合应跟得上成交流水。
 
@@ -379,6 +396,7 @@ CHECKS: list[Check] = [
           only_trading_day=True),
     Check("rule_eod_audit", "EOD复核有效性", "规则", WARN, _chk_eod_audit_effective),
     Check("rule_rounds_synced", "回合与成交单同步", "规则", WARN, _chk_rounds_synced),
+    Check("rule_claim_stale", "回测结论时效", "规则", WARN, _chk_claim_stale),
 ]
 
 

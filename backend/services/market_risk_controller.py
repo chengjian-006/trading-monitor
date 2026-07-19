@@ -323,24 +323,49 @@ _RED_FRAGILE = {"BUY_PLATFORM_BREAKOUT"}
 _RED_NEUTRAL = {"BUY_RALLY_MA10", "BUY_RALLY_MA60"}
 
 
-def risk_buy_note(state: str, signal_id: str = "") -> str:
-    """买点推送要加的风险档警示行; GREEN/未知档返回 ''(不加行)。
+# 各档警示语的登记表 key → 兜底文案。数字**不写死在这里**: 运行时从
+# cfzy_sys_backtest_claims 取(见 backtest_claims 模块 docstring —— 硬编码结论会过期
+# 且没人发现, 推送里那句"胜率30%均值-3.6%"就这么用了很久)。兜底只在登记表缺条目或
+# 读库失败时用, 绝不让推送因此变哑。
+_NOTE_KEYS = {
+    ("RED", "fragile"): ("risk_note_red_fragile",
+                         "🔴 大盘空仓档 · 平台突破在此档最脆，样本内外同向 —— 强烈建议不做"),
+    ("RED", "neutral"): ("risk_note_red_neutral",
+                         "🔴 大盘空仓档 · 大盘整体走弱，但该模型在此档历史上接近打平，若做务必轻仓"),
+    ("RED", "generic"): ("risk_note_red", "🔴 大盘空仓档 · 明显劣于正常档，建议停开新仓"),
+    ("YELLOW", "generic"): ("risk_note_yellow", "⚡ 大盘谨慎档 · 弱于正常档，控制仓位、别追高"),
+}
 
-    signal_id 可空(合并推送场景由调用方挑代表)。文案刻意短 —— 这是推送正文首行。
-    """
+
+def _note_slot(state: str, signal_id: str) -> tuple | None:
     if state == RED:
         if signal_id in _RED_FRAGILE:
-            return ("🔴 大盘空仓档 · 平台突破在此档最脆：独立样本实测单笔均 -5.1%"
-                    "(PF0.31，全买点最差) —— 强烈建议不做")
+            return _NOTE_KEYS[("RED", "fragile")]
         if signal_id in _RED_NEUTRAL:
-            return ("🔴 大盘空仓档 · 大盘整体走弱，但该模型在此档历史上接近打平"
-                    "(PF≈1.0)，若做务必轻仓")
-        return ("🔴 大盘空仓档 · 独立样本实测此档买点单笔均 -2.3%(正常档 -0.5%)，"
-                "建议停开新仓")
+            return _NOTE_KEYS[("RED", "neutral")]
+        return _NOTE_KEYS[("RED", "generic")]
     if state == YELLOW:
-        return ("⚡ 大盘谨慎档 · 独立样本实测此档买点单笔均 -1.8%(正常档 -0.5%)，"
-                "控制仓位、别追高")
-    return ""
+        return _NOTE_KEYS[("YELLOW", "generic")]
+    return None
+
+
+async def risk_buy_note_async(state: str, signal_id: str = "") -> str:
+    """买点推送的风险档警示行(数字走登记表)。GREEN/未知档返回 ''。"""
+    slot = _note_slot(state, signal_id)
+    if not slot:
+        return ""
+    key, fallback = slot
+    try:
+        from backend.services import backtest_claims
+        return await backtest_claims.text_of(key, fallback)
+    except Exception:
+        return fallback
+
+
+def risk_buy_note(state: str, signal_id: str = "") -> str:
+    """同步版(兜底文案, 不含具体数字)。新调用一律用 risk_buy_note_async。"""
+    slot = _note_slot(state, signal_id)
+    return slot[1] if slot else ""
 
 
 async def get_risk_state() -> str:

@@ -144,6 +144,42 @@ SCHEMA_STATEMENTS = [
         INDEX idx_dt (dt)
     )
     """,
+    # 回测结论登记表 (v1.7.711) — 系统对外宣称的每一个战绩数字都必须登记在此, 代码/前端
+    # 只引用 claim_key, 不写字面量。
+    # 起因: 0719 全库扫描发现约 50 处硬编码战绩数字, 它们来自某次一次性分析, 写进代码后
+    # 与来源彻底断链 —— 源头脚本改了/样本过期了/结论被证伪了, 代码里的数字纹丝不动。实例:
+    # 推送里「胜率30%均值-3.6%」用了很久其实来自带前视偏差的旧回测; 模型图鉴写「实测胜率
+    # 74%」而同页实时表是 54%。
+    # kind=auto: 有数据源可定时重算, 永不过期; kind=manual: 一次性研究结论, 到期提醒复验。
+    # 体检项 claim_stale 扫本表, computed_at 超 ttl_days 即报"结论待复验"。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_backtest_claims (
+        claim_key    VARCHAR(64)  NOT NULL PRIMARY KEY,
+        value_json   TEXT         NULL,
+        text         VARCHAR(500) NOT NULL DEFAULT '',
+        src          VARCHAR(120) NOT NULL DEFAULT '',
+        window_desc  VARCHAR(64)  NOT NULL DEFAULT '',
+        kind         VARCHAR(10)  NOT NULL DEFAULT 'manual',
+        ttl_days     INT          NOT NULL DEFAULT 180,
+        computed_at  DATETIME     NOT NULL,
+        updated_at   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """,
+    # 告警去重/冷却状态 (v1.7.699) — 统一六套并行的进程内冷却计时器。
+    # 原来 data_sanity(30min) / task_registry(60min每job) / cross_check(按日) /
+    # data_health(按日) / wencai(12h) / alert_throttle(15min每类) 各自用模块级 dict 记时,
+    # 服务一重启全部归零 —— 而近14天重启约97次(约7次/天, 主要来自部署), 于是"持续成立"
+    # 的问题(如行情陈旧)每次重启后都会重新推一遍, 同一问题一天能轰炸五六条。
+    # 落库后冷却期跨重启生效。alert_key 为调用方自定的稳定键(如 task_fail:job_id)。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_alert_dedup (
+        alert_key    VARCHAR(96) NOT NULL PRIMARY KEY,
+        last_sent_at DATETIME    NOT NULL,
+        sent_count   INT         NOT NULL DEFAULT 1,
+        updated_at   TIMESTAMP   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_sent (last_sent_at)
+    )
+    """,
     # 系统体检结果 (v1.7.698) — 每轮体检把**每一项**的判定结果落库, 再推报告。
     # 为什么必须落库: system_health 的旧做法是进程内累积 + 21:00 推送 + finally 无条件清空,
     # 推送失败 = 当日全部故障记录永久蒸发, 且重启即丢。落库后推送只是"展示层",
