@@ -140,8 +140,9 @@ async def backfill_channel(channel: str, disabled_at, now: datetime | None = Non
 
     cfg = load_config()
     title = "📮 错过消息回顾"
+    # pushplus=False: 补发只补飞书(它被关过才有漏), PushPlus 无开关一直实时收着, 再fanout=微信端重复
     ok = await notifier.send_dual_card_to(
         text, lark_title=title, elements=elements,
-        lark_webhook=cfg.get("lark_webhook", ""), lark_on=True)
+        lark_webhook=cfg.get("lark_webhook", ""), lark_on=True, pushplus=False)
     logger.info(f"[push_backfill] {channel} 补发 {len(kept)}/{len(kept)+dropped} 条关键信号, 发送={ok}")
     return ok

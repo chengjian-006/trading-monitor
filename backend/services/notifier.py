@@ -95,11 +95,25 @@ MODEL_RULES: dict[str, str] = {
     "缩量后放量突破（右侧）": "昨量<均量×0.8 → 今放量≥昨量×2且≥均量×1.5 → 突破昨高×1.02 · 站上MA10/20 · 成交额≥10亿",
     "回踩20MA缩量后突破昨高": "近30日主升≥15% · 回踩MA20±3% · 昨缩量<均量×0.8 → 突破昨高×1.025 · 成交额≥10亿",
     "回踩10MA缩量后突破昨高": "近30日主升≥15% · 回踩MA10±1% · 昨缩量<均量×0.8 → 突破昨高×1.025 · 成交额≥10亿",
+    "回踩60MA缩量后突破昨高": "主升浪深回踩MA60±2%(中线六二法60日档) · 昨缩量<均量×0.8 → 突破昨高×1.025 · 成交额≥10亿",
     "强势起点": "前置弱势极限地量 → 放量≥近期×2 · 涨幅≥2% · 站上MA10/20 · 成交额≥10亿",
     "弱势极限": "近30日主升≥15% · 贴MA10/20±2% → 地量≤近10日最低×1.1且≤均量×0.70",
     "中继平台突破": "前12日横盘振幅≤15% · 缓升台阶 → 收盘≥上沿×1.005 · 放量≥均量×1.2 · 成交额≥10亿",
-    "竞价弱转强": "昨缩量≤均×0.8 → 竞价高开3-9% · 竞价成交额≥5000万 · 大盘红盘≥3500或绿盘≥3500",
+    "竞价高开弱转强": "昨缩量≤均×0.8 → 竞价高开3-9% · 竞价成交额≥5000万 · 大盘红盘≥3500或绿盘≥3500",
 }
+
+
+def _model_rule(signal_name: str) -> str:
+    """按 signal_name 取模型规则文案。真实 signal_name 可能带 （左侧）/（右侧） 后缀
+    (强势起点（右侧）/弱势极限（左侧）/中继平台突破（右侧）), 精确 .get 撞不上 → 先直撞、
+    再去后缀撞, 修复这几个模型「📐模型规则」行静默缺失(价格槽用子串匹配照常出现口径不一致)。"""
+    if not signal_name:
+        return ""
+    r = MODEL_RULES.get(signal_name)
+    if r:
+        return r
+    base = re.sub(r"（[左右]侧）$", "", signal_name)
+    return MODEL_RULES.get(base, "")
 ACTION_HINT = {
     "buy":    "建议跟随入场",
     "sell":   "建议清仓离场",
@@ -409,7 +423,7 @@ def _build_signal_elements(code: str, name: str, signal_name: str, direction: st
         body.append("🎯 个股实情：" + " · ".join(_bold_nums(c) for c in body_conds))
     if amount and direction != "buy":     # 买入成交额已前置到 headline, body 不重复
         body.append(f"💰 {_bold_nums(amount)}")
-    rule = MODEL_RULES.get(signal_name, "")
+    rule = _model_rule(signal_name)
     if rule:
         body.append(f"📐 模型规则：{rule}")
     if reso:
@@ -500,7 +514,7 @@ def _build_text(code: str, name: str, signal_name: str,
         body.append(f"🎯 个股实情：{' · '.join(body_conds)}")
     if amount and direction != "buy":
         body.append(f"💰 {amount}")
-    rule = MODEL_RULES.get(signal_name, "")
+    rule = _model_rule(signal_name)
     if rule:
         body.append(f"📐 模型规则：{rule}")
     if plan:
@@ -551,7 +565,7 @@ def _build_lark_signal(code: str, name: str, signal_name: str, direction: str,
         lines.append("\n🎯 个股实情：" + " · ".join(_bold_nums(c) for c in conds))
     if amount:
         lines.append(f"💰 {_bold_nums(amount)}")
-    rule = MODEL_RULES.get(signal_name, "")
+    rule = _model_rule(signal_name)
     if rule:
         lines.append(f"\n📐 模型规则：{rule}")
     if plan:
@@ -946,9 +960,11 @@ async def send_card(card) -> bool:
 
 async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
                             lark_webhook: str = "", lark_on: bool = False,
-                            link_url: str = "", link_text: str = "") -> bool:
+                            link_url: str = "", link_text: str = "", pushplus: bool = True) -> bool:
     """与 send_dual_card 同, 但飞书推送目标由调用方显式指定(多用户场景)。
-    飞书原生表格卡(失败回退纯文本卡) + PushPlus(个人微信, 全局)。非生产环境(IP 网关)一律跳过。"""
+    飞书原生表格卡(失败回退纯文本卡) + PushPlus(个人微信, 全局)。非生产环境(IP 网关)一律跳过。
+    pushplus=False: 只发飞书不发PushPlus——补发场景用(只关了飞书的通道要补, PushPlus当时已实时收过,
+    再fanout会让用户在微信端收到重复的「错过消息回顾」)。"""
     if not await is_production():
         ip = await get_outbound_ip()
         logger.info(f"[send_dual_card_to] 非生产环境 IP={ip}，跳过推送: {lark_title}")
@@ -969,7 +985,7 @@ async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
         if not lark_ok:
             lark_ok = await _fanout_lark(lark_webhook, True, body, title=lark_title)
 
-    pp_ok = await _fanout_pushplus(lark_title, body)
+    pp_ok = await _fanout_pushplus(lark_title, body) if pushplus else False
     return lark_ok or pp_ok
 
 
