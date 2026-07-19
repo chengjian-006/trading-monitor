@@ -2,8 +2,23 @@
 import backend.services.ai_advisor.trade_coach as tc
 
 
+async def test_weekly_noop_when_advisor_disabled(monkeypatch):
+    """ai_advisor_enabled 关 → 整个自动推送不跑(不生成、不推送)。"""
+    called = []
+    monkeypatch.setattr(tc, "load_config", lambda: {"ai_advisor_enabled": False}, raising=False)
+
+    async def fake_gen(uid, s, e, **k):
+        called.append("gen")
+        return {"facts": {"n_closed": 5}, "narrative": None, "as_of": "x"}
+
+    monkeypatch.setattr(tc, "generate_coach_report", fake_gen)
+    await tc.run_trade_coach_weekly()
+    assert called == []   # 开关关, generate 都没调
+
+
 async def test_weekly_sends_card_when_closed_rounds(monkeypatch):
     sent = []
+    monkeypatch.setattr(tc, "load_config", lambda: {"ai_advisor_enabled": True}, raising=False)
 
     async def fake_gen(uid, s, e, **k):
         assert uid == tc.OWNER_USER_ID
@@ -23,6 +38,7 @@ async def test_weekly_sends_card_when_closed_rounds(monkeypatch):
 
 async def test_weekly_skips_when_no_closed_rounds(monkeypatch):
     sent = []
+    monkeypatch.setattr(tc, "load_config", lambda: {"ai_advisor_enabled": True}, raising=False)
 
     async def fake_gen(uid, s, e, **k):
         return {"facts": {"n_closed": 0,

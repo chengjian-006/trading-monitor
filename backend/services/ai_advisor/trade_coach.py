@@ -9,6 +9,7 @@ import json
 import logging
 from datetime import date
 
+from backend.core.config import load_config
 from backend.models import repository
 from backend.models.repo import trade_rounds
 from backend.services.ai_advisor import ai_client, coach_facts
@@ -92,7 +93,10 @@ async def _send_coach_card(report: dict):
 
 
 async def run_trade_coach_weekly():
-    """每周日晚: 给交易者本人(user_id=1)生成近一月复盘, 有平仓才推一张卡; 无平仓不打扰。"""
+    """每周日晚: 给交易者本人(user_id=1)生成近一月复盘, 有平仓才推一张卡; 无平仓不打扰。
+    ai_advisor_enabled 关时整个自动推送不跑(开关真正管住功能, 而非只关LLM叙述)。"""
+    if not load_config().get("ai_advisor_enabled", False):
+        return   # 功能未启用: 定时任务空跑, 不生成不推送
     from datetime import timedelta
     end = date.today()
     start = end - timedelta(days=30)
