@@ -955,6 +955,18 @@ SCHEMA_STATEMENTS = [
         INDEX idx_created (created_at)
     )
     """,
+    # AI 交易教练复盘缓存 (Phase1 T3) — 同用户+同区间+同天命中缓存, 免得每次刷新都重调LLM。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_coach_report (
+        user_id     INT NOT NULL,
+        period_key  VARCHAR(40) NOT NULL,
+        gen_date    DATE NOT NULL,
+        facts_json  MEDIUMTEXT NOT NULL,
+        narrative   MEDIUMTEXT NULL,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, period_key, gen_date)
+    )
+    """,
 ]
 
 
