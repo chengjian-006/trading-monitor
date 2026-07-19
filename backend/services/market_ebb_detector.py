@@ -123,7 +123,6 @@ async def detect_strength_ebb():
     except Exception as e:
         logger.error(f"[strength_ebb] DB 去重查询失败, 本轮跳过: {e}")
         return
-    _strength_alerted_date = today
 
     # 基线 v1.1: ✅式维度行(md), 建议单独传给统一卡的 👉建议区
     text = (f"✅ 强势退潮：昨日涨停股今日平均溢价 "
@@ -144,6 +143,9 @@ async def detect_strength_ebb():
     except Exception as e:
         logger.error(f"[strength_ebb] save_signal 失败, 跳过推送避免重启重推: {e}")
         return
+    # 写库成功后才置当日内存哨兵: 写库失败时不置位, 下个tick可重试, 不再当日永久丢失该提醒。
+    # (DB已有记录, 即便进程重启, 上方 signal_already_sent_today 也会挡住重推。)
+    _strength_alerted_date = today
 
     try:
         # v1.7.556 批次D: 溢价转负不再独推, 并入统一「大盘风控」卡(与退潮/当前风险状态合并去重)

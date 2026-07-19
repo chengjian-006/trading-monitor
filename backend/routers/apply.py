@@ -34,10 +34,15 @@ _last_cleanup = 0.0
 
 
 def _client_ip(request: Request) -> str:
-    """生产走 nginx 反代, 必须优先 X-Forwarded-For 首段(与登录日志口径一致)。"""
-    if not request.client:
-        return "unknown"
-    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    """真实客户端 IP(申请按IP限流用)。优先 X-Real-IP(nginx设, 不可伪造), 退而取 XFF 最后一段;
+    绝不取 XFF 首段(客户端可控, 换首段即可绕过按IP限流)。"""
+    real = request.headers.get("x-real-ip", "").strip()
+    if real:
+        return real
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _cleanup(now: float) -> None:

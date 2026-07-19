@@ -124,6 +124,32 @@ class TestLoginLockout:
         assert _login(client, "wrong", ip="1.1.1.1").status_code == 429   # 该 IP 已锁
         assert _login(client, "goodpass", ip="2.2.2.2").status_code == 200  # 别的 IP 不受影响
 
+    def test_spoofed_xff_first_segment_cannot_bypass_lock(self, login_client):
+        """撞库防绕过: 攻击者伪造 XFF 首段(每次不同)也不能绕过按IP锁定——
+        真实IP在 XFF 最右段(我方nginx追加), 锁定键取最右段, 故五次失败照样锁死。"""
+        client, auth_router = login_client
+        # 每次换一个伪造首段, 但最右真实段固定 9.9.9.9(模拟 nginx 追加)
+        for i in range(5):
+            r = client.post("/api/auth/login",
+                            json={"username": "admin", "password": "wrong"},
+                            headers={"x-forwarded-for": f"{i}.{i}.{i}.{i}, 9.9.9.9"})
+            assert r.status_code == 401
+        # 第六次即便再换伪造首段, 真实段仍 9.9.9.9 → 已锁 429
+        r = client.post("/api/auth/login",
+                        json={"username": "admin", "password": "goodpass"},
+                        headers={"x-forwarded-for": "123.123.123.123, 9.9.9.9"})
+        assert r.status_code == 429
+        assert auth_router._login_locks.get("9.9.9.9|admin", 0) > time.time()
+
+    def test_x_real_ip_takes_priority(self, login_client):
+        """X-Real-IP(nginx设,不可伪造)优先于 XFF: 锁定键用 X-Real-IP。"""
+        client, auth_router = login_client
+        for _i in range(5):
+            client.post("/api/auth/login",
+                        json={"username": "admin", "password": "wrong"},
+                        headers={"x-real-ip": "8.8.8.8", "x-forwarded-for": "1.2.3.4"})
+        assert auth_router._login_locks.get("8.8.8.8|admin", 0) > time.time()
+
     def test_lock_expires_after_lock_window(self, login_client):
         client, auth_router = login_client
         for _i in range(5):

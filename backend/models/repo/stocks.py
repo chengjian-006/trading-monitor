@@ -163,6 +163,11 @@ def _case_params(chunk: list[dict], getters: list) -> list:
 async def batch_update_quotes(updates: list[dict]):
     if not updates:
         return
+    # 价<=0 不写(集合竞价撮合前09:15-25新浪撮合价字段为0): 否则会把全池现价/成交额刷成0,
+    # 并灌进5s缓存毒化所有下游。跳过=保留旧值+不刷 quote_updated_at, 由 data_sanity 另行判陈旧。
+    updates = [u for u in updates if float(u.get("price") or 0) > 0]
+    if not updates:
+        return
     getters = [
         lambda u: u["price"], lambda u: u["pct_change"], lambda u: u["amount"],
         lambda u: u["speed"],
@@ -194,6 +199,10 @@ async def batch_update_quotes(updates: list[dict]):
 async def batch_update_core_quotes(updates: list[dict]):
     """只写核心行情(价/涨跌幅/成交额), 不碰 extra/排名等慢字段。
     给 quote_refresher 在取到行情后"先快速落库"用, 避免后续慢的东财 extra 超时导致整轮不写、价/涨跌幅长期不刷。"""
+    if not updates:
+        return
+    # 价<=0 不写(集合竞价撮合前09:15-25撮合价为0): 跳过=保留旧值, 不把全池刷成0。见 batch_update_quotes。
+    updates = [u for u in updates if float(u.get("price") or 0) > 0]
     if not updates:
         return
     getters = [lambda u: u["price"], lambda u: u["pct_change"], lambda u: u["amount"]]

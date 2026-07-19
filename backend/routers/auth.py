@@ -24,10 +24,18 @@ _last_cleanup = 0.0
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP: 生产走 nginx 反代, 优先 X-Forwarded-For 首段(与登录日志口径一致)。"""
-    if not request.client:
-        return "unknown"
-    return request.headers.get("x-forwarded-for", "").split(",")[0].strip() or request.client.host
+    """取真实客户端 IP(用于登录失败锁定/日志)。
+
+    优先 X-Real-IP(=nginx 的 $remote_addr, 客户端不可伪造); 退而取 X-Forwarded-For
+    最后一段(我方 nginx proxy_add_x_forwarded_for 追加的真实IP在最右, 客户端伪造段只在左侧)。
+    绝不取 XFF 首段——那是客户端完全可控的, 撞库者每次换首段即可绕过按IP的失败锁定。"""
+    real = request.headers.get("x-real-ip", "").strip()
+    if real:
+        return real
+    xff = request.headers.get("x-forwarded-for", "").strip()
+    if xff:
+        return xff.split(",")[-1].strip()
+    return request.client.host if request.client else "unknown"
 
 
 def _cleanup_login_guard(now: float) -> None:
