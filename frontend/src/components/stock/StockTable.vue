@@ -634,15 +634,15 @@ const allColumns = computed(() => [
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
       if (resoLevel) {
-        const bg = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
+        // 双榜共振: 低调小圆点(颜色随强弱), 取代原扎眼的火苗色块
+        const dot = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
         children.push(h('span', {
           title: `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`,
           style: {
-            marginRight: '4px', fontSize: '10px', padding: '0 3px',
-            background: bg, borderRadius: '3px', lineHeight: '16px',
-            verticalAlign: 'middle', boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
+            display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
+            background: dot, marginRight: '5px', verticalAlign: 'middle', flexShrink: 0,
           },
-        }, '🔥'))
+        }))
       }
       children.push(row.name)
       // 涨停 / 跌停: 实心高对比徽章, 一眼可辨 (按板块/ST 阈值判定)
@@ -653,7 +653,6 @@ const allColumns = computed(() => [
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
             background: 'var(--red)', color: 'var(--on-emphasis)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-            boxShadow: '0 1px 2px rgba(207,34,46,0.35)',
           },
         }, '涨停'))
       } else if (isLimitDown(row)) {
@@ -663,7 +662,6 @@ const allColumns = computed(() => [
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
             background: 'var(--green)', color: 'var(--on-emphasis)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-            boxShadow: '0 1px 2px rgba(26,127,55,0.35)',
           },
         }, '跌停'))
       }
@@ -675,7 +673,7 @@ const allColumns = computed(() => [
           title: n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)',
           style: {
             marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: n >= 2 ? 'linear-gradient(135deg, #ff6b00, #ff2d00)' : 'var(--up-bg-muted)',
+            background: n >= 2 ? 'var(--red)' : 'var(--up-bg-muted)',
             color: n >= 2 ? 'var(--on-emphasis)' : 'var(--up-fg)', borderRadius: '2px',
             fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
             border: n >= 2 ? 'none' : '1px solid color-mix(in srgb, var(--up-fg) 30%, transparent)',
@@ -882,12 +880,21 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '≥MA20',
+    title: '距MA20',
     key: 'ma20',
-    width: 52,
+    width: 68,
+    sorter: (a: any, b: any) => {
+      const da = (a.ma20 && a.price) ? a.price / a.ma20 : -Infinity
+      const db = (b.ma20 && b.price) ? b.price / b.ma20 : -Infinity
+      return da - db
+    },
+    sortOrder: sortOrder('ma20'),
     render: (row: any) => {
-      if (row.ma20 == null || row.price == null) return '-'
-      return row.price >= row.ma20 ? '✓' : '✗'
+      if (row.ma20 == null || row.price == null || row.ma20 === 0) return '-'
+      const dev = (row.price / row.ma20 - 1) * 100
+      // 距20日均线幅度: A股口径 在均线上方(正)红、下方(负)绿, 一眼知离得多远
+      const color = dev >= 0 ? 'var(--red)' : 'var(--green)'
+      return h('span', { style: { color, fontWeight: 600, whiteSpace: 'nowrap' } }, (dev >= 0 ? '+' : '') + dev.toFixed(1) + '%')
     },
   },
   {
@@ -1023,7 +1030,7 @@ const allColumns = computed(() => [
 ])
 
 // 机构级 (v1.7.650): 数字列打等宽 mono className, 盘口质感; 中文名/信号列不受影响
-const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'volume_ratio', 'free_cap', 'turnover'])
+const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'volume_ratio', 'free_cap', 'turnover', 'ma20'])
 
 // 列自定义 (v1.7.672): 可勾选隐藏的列(结构列 序号/代码/名称/操作 恒显不可关); 选择存 localStorage
 const HIDEABLE: { key: string; label: string }[] = [
@@ -1032,7 +1039,7 @@ const HIDEABLE: { key: string; label: string }[] = [
   { key: 'pct_change', label: '涨幅' }, { key: 'pct_5d', label: '5日涨幅' },
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
   { key: 'volume_ratio', label: '量比' }, { key: 'free_cap', label: '流通市值' },
-  { key: 'turnover', label: '换手' }, { key: 'ma20', label: '≥MA20' },
+  { key: 'turnover', label: '换手' }, { key: 'ma20', label: '距MA20' },
   { key: 'industry', label: '行业' },
   { key: 'board_rank', label: '板块内强弱' }, { key: 'strategy', label: '策略' },
 ]
