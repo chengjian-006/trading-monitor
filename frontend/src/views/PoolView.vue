@@ -440,45 +440,9 @@ async function handleThsImport(groupId: string) {
           <NButton size="tiny" round :type="pf.fNearMa10.value ? 'info' : 'default'" :tertiary="!pf.fNearMa10.value" @click="pf.fNearMa10.value = !pf.fNearMa10.value">近10线±2%</NButton>
           <NButton size="tiny" round :type="pf.fNearMa60.value ? 'info' : 'default'" :tertiary="!pf.fNearMa60.value" @click="pf.fNearMa60.value = !pf.fNearMa60.value">近60线±2%</NButton>
         </div>
-        <NButton size="tiny" quaternary @click="pf.advancedOpen.value = !pf.advancedOpen.value">
-          高级筛选 {{ pf.advancedOpen.value ? '收起' : '展开' }}
-        </NButton>
         <NButton v-if="pf.hasActiveFilter.value" size="tiny" type="warning" tertiary @click="pf.reset()">清空筛选</NButton>
       </div>
 
-      <div v-if="pf.advancedOpen.value" class="pf-advanced">
-        <div class="pf-adv-item">
-          <label>交易类型</label>
-          <NSelect v-model:value="pf.fTradeTypes.value" multiple size="small" style="width: 170px" placeholder="不限"
-            :options="[{ label: '短线', value: 'short' }, { label: '中线', value: 'mid' }, { label: '指数', value: 'index' }]" />
-        </div>
-        <div class="pf-adv-item">
-          <label>涨幅%</label>
-          <NInputNumber v-model:value="pf.fPctMin.value" size="small" style="width: 84px" placeholder="下限" />
-          <span class="pf-tilde">~</span>
-          <NInputNumber v-model:value="pf.fPctMax.value" size="small" style="width: 84px" placeholder="上限" />
-        </div>
-        <div class="pf-adv-item">
-          <label>换手率≥</label>
-          <NInputNumber v-model:value="pf.fTurnoverMin.value" size="small" style="width: 90px" :min="0" placeholder="%" />
-        </div>
-        <div class="pf-adv-item">
-          <label>量比≥</label>
-          <NInputNumber v-model:value="pf.fVolRatioMin.value" size="small" style="width: 84px" :min="0" placeholder="" />
-        </div>
-        <div class="pf-adv-item">
-          <label>板块内名次≤</label>
-          <NInputNumber v-model:value="pf.fBoardRankMax.value" size="small" style="width: 84px" :min="1" placeholder="N" />
-        </div>
-        <div class="pf-adv-item">
-          <label>人气榜≤</label>
-          <NInputNumber v-model:value="pf.fPopRankMax.value" size="small" style="width: 96px" :min="1" placeholder="N" />
-        </div>
-        <div class="pf-adv-item">
-          <label>行业/题材</label>
-          <NInput v-model:value="pf.fIndustry.value" size="small" style="width: 130px" placeholder="包含..." clearable />
-        </div>
-      </div>
     </div>
     </div>
 

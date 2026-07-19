@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.710',
+    date: '2026-07-19',
+    title: '股票池拿掉高级筛选面板 + 盘中刷新提到2秒',
+    changes: [
+      {
+        text: '股票池去掉「高级筛选」展开面板(交易类型/涨幅/换手/量比/名次/行业等一堆条件),快捷胶囊筛选已够用,减少干扰。',
+        tag: 'improve',
+      },
+      {
+        text: '股票池行情盘中轮询从 3 秒提到 2 秒一次,刷新更实时(仍是每次完成后再等间隔、不重叠, 后台标签页照常暂停)。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.709',
     date: '2026-07-19',
     title: '股票池「策略」列再压窄',
