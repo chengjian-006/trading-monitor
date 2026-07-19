@@ -852,7 +852,12 @@ const allColumns = computed(() => [
     width: 58,
     sorter: numSorter('volume_ratio'),
     sortOrder: sortOrder('volume_ratio'),
-    render: (row: Stock) => row.volume_ratio != null ? row.volume_ratio.toFixed(2) : '-',
+    render: (row: Stock) => {
+      if (row.volume_ratio == null) return '-'
+      const v = row.volume_ratio
+      // 量比>3 = 突然放量(主力进场/恐慌出货), 数字标紫醒目
+      return v > 3 ? h('span', { style: { color: '#8b5cf6', fontWeight: 700 } }, v.toFixed(2)) : v.toFixed(2)
+    },
   },
   {
     title: '流通市值',
@@ -868,7 +873,13 @@ const allColumns = computed(() => [
     width: 64,
     sorter: numSorter('turnover'),
     sortOrder: sortOrder('turnover'),
-    render: (row: Stock) => row.turnover != null ? row.turnover.toFixed(2) + '%' : '-',
+    render: (row: Stock) => {
+      if (row.turnover == null) return '-'
+      const t = row.turnover
+      const txt = t.toFixed(2) + '%'
+      // 换手>20% = 高换手(资金分歧大/活跃), 数字标紫醒目
+      return t > 20 ? h('span', { style: { color: '#8b5cf6', fontWeight: 700 } }, txt) : txt
+    },
   },
   {
     title: '≥MA20',
@@ -905,32 +916,6 @@ const allColumns = computed(() => [
         }, '最强'))
       }
       return h('span', { style: { whiteSpace: 'nowrap' } }, children)
-    },
-  },
-  {
-    title: '概念',
-    key: 'concepts',
-    width: 130,
-    render: (row: Stock) => {
-      const list = (row.concepts || '').split(',').map(s => s.trim()).filter(Boolean)
-      if (!list.length) return h('span', { style: { color: 'var(--text2)' } }, '-')
-      const chips = list.slice(0, 2).map(c => h('span', {
-        style: {
-          fontSize: '10px', padding: '0 4px', marginRight: '3px',
-          background: 'var(--accent-bg-muted)', color: 'var(--accent-fg)', borderRadius: '2px',
-          lineHeight: '16px', border: '1px solid color-mix(in srgb, var(--accent-fg) 30%, transparent)', whiteSpace: 'nowrap',
-        },
-      }, c))
-      if (list.length > 2) {
-        chips.push(h('span', {
-          style: { fontSize: '10px', color: 'var(--text2)' },
-        }, `+${list.length - 2}`))
-      }
-      // 全部概念在 tooltip 里看全
-      return h('span', {
-        title: list.join(' / '),
-        style: { display: 'inline-flex', alignItems: 'center', flexWrap: 'nowrap', cursor: 'help' },
-      }, chips)
     },
   },
   {
@@ -1048,7 +1033,7 @@ const HIDEABLE: { key: string; label: string }[] = [
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
   { key: 'volume_ratio', label: '量比' }, { key: 'free_cap', label: '流通市值' },
   { key: 'turnover', label: '换手' }, { key: 'ma20', label: '≥MA20' },
-  { key: 'industry', label: '行业' }, { key: 'concepts', label: '概念' },
+  { key: 'industry', label: '行业' },
   { key: 'board_rank', label: '板块内强弱' }, { key: 'strategy', label: '策略' },
 ]
 const LS_HIDDEN = 'pool_hidden_cols'
