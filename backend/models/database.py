@@ -144,6 +144,24 @@ SCHEMA_STATEMENTS = [
         INDEX idx_dt (dt)
     )
     """,
+    # 指数 5 分钟 K 线 (v1.7.692) — 上证/深成/创业板指, 新浪源每 5 分钟增量追加。
+    # code 必须带市场前缀(sh000001/sz399001/sz399006): 裸码会与个股撞车 —— cfzy_sys_kline_5m
+    # 里的 "000001" 实为平安银行而非上证指数(0719 排查确认)。与个股 5m 分表存, 互不污染。
+    # 注意: 本表为**不复权**原始指数点位(指数不除权, 无复权概念); 而 cfzy_sys_kline_5m
+    # 是个股**后复权**价, 两表价格口径不同, 不可直接比较。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_index_kline_5m (
+        code    VARCHAR(16) NOT NULL,
+        dt      DATETIME    NOT NULL,
+        open    DOUBLE,
+        high    DOUBLE,
+        low     DOUBLE,
+        close   DOUBLE,
+        volume  BIGINT,
+        PRIMARY KEY (code, dt),
+        INDEX idx_dt (dt)
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS cfzy_sys_market_breadth (
         trade_date   VARCHAR(10) NOT NULL PRIMARY KEY,
@@ -1738,6 +1756,13 @@ async def _seed_scheduled_tasks(conn):
              "每晚21:00(等20:00的5分钟K线追加完成后)按5分钟真实可成交口径重算全部买入模型 近3月/近6月 胜率+单笔均收益, 写 cfzy_biz_model_winrate, 供买入提醒带全市场回测战绩", "cron",
              {"hour": 21, "minute": 0}, "refresh_model_winrate"),
             # v1.7.599: 5分钟K线每日追加 — 胜率5分钟诚实口径的数据前提(表此前为一次性回填停在06-18)
+            # v1.7.692: 指数5分钟K线增量 — baostock 不支持指数分钟线(实测0根), 东财生产IP被封,
+            # 故走新浪(实测服务器直连可用, datalen上限1023根≈21交易日滚动窗)。盘中每5分钟追加,
+            # 幂等upsert(当前未走完的bar会被反复覆盖成最新值, 收盘自然定格)。非交易时段 TaskSkipped。
+            ("index_kline_5m_append", "指数5分钟K线·盘中增量",
+             "交易时段每5分钟从新浪拉上证/深成/创业板指的5分钟K线, 幂等upsert进 cfzy_sys_index_kline_5m; "
+             "code带市场前缀(sh000001等)防与个股撞码; 非交易时段跳过", "interval",
+             {"seconds": 300}, "append_index_kline_5m"),
             ("kline_5m_append", "5分钟K线·每日追加20:00",
              "每晚20:00用baostock逐票增量追加5分钟K线(后复权)到 cfzy_sys_kline_5m: 库内票续尾, 新入池票回补近一年; 幂等upsert, 当晚数据未出次日自动补齐", "cron",
              {"hour": 20, "minute": 0}, "append_kline_5m"),
