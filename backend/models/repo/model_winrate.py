@@ -3,7 +3,7 @@
 v1.7.x: 加 monthly_json(逐月胜率序列)+ max_drawdown(逐笔权益曲线最大回撤), 供图鉴果仁式策略卡。"""
 import json
 
-from backend.models.repo._db import _executemany, _fetchall
+from backend.models.repo._db import _execute, _executemany, _fetchall
 
 
 async def save_model_winrate(run_date: str, rows: list[dict]) -> int:
@@ -26,6 +26,48 @@ async def save_model_winrate(run_date: str, rows: list[dict]) -> int:
           json.dumps(r.get("monthly") or [], ensure_ascii=False), r.get("max_drawdown"))
          for r in rows],
     )
+
+
+# ── 断点续算暂存 (cfzy_sys_model_winrate_stage) ──────────────────────────────
+
+async def stage_model_winrate_code(anchor: str, code: str, trades: list) -> None:
+    """把一只票算完的窗口内交易 [[模型名,触发日,净收益], ...] 落暂存(空列表也落, 标记已算)。"""
+    await _execute(
+        "INSERT INTO cfzy_sys_model_winrate_stage (anchor, code, trades_json) "
+        "VALUES (%s,%s,%s) ON DUPLICATE KEY UPDATE trades_json=VALUES(trades_json), "
+        "created_at=CURRENT_TIMESTAMP",
+        (anchor, code, json.dumps(trades, ensure_ascii=False)),
+    )
+
+
+async def staged_model_winrate_codes(anchor: str) -> set:
+    """该锚点已落暂存(已算)的股票代码集合, 用于断点续算跳过。"""
+    rows = await _fetchall(
+        "SELECT code FROM cfzy_sys_model_winrate_stage WHERE anchor=%s", (anchor,)
+    )
+    return {r["code"] for r in rows}
+
+
+async def staged_model_winrate_count(anchor: str) -> int:
+    rows = await _fetchall(
+        "SELECT COUNT(*) AS n FROM cfzy_sys_model_winrate_stage WHERE anchor=%s", (anchor,)
+    )
+    return int(rows[0]["n"]) if rows else 0
+
+
+async def load_model_winrate_stage(anchor: str) -> list[dict]:
+    """载入该锚点全部暂存行(定稿聚合用)。"""
+    return await _fetchall(
+        "SELECT code, trades_json FROM cfzy_sys_model_winrate_stage WHERE anchor=%s", (anchor,)
+    )
+
+
+async def clear_model_winrate_stage(anchor: str | None = None, exclude_anchor: str | None = None) -> None:
+    """清暂存: 给 anchor 清该锚点(定稿后); 给 exclude_anchor 清"除它以外"的旧锚点(换交易日重来)。"""
+    if anchor is not None:
+        await _execute("DELETE FROM cfzy_sys_model_winrate_stage WHERE anchor=%s", (anchor,))
+    elif exclude_anchor is not None:
+        await _execute("DELETE FROM cfzy_sys_model_winrate_stage WHERE anchor<>%s", (exclude_anchor,))
 
 
 async def get_model_winrate() -> dict:

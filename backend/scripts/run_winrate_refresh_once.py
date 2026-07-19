@@ -16,11 +16,15 @@ except Exception:
 async def main():
     await init_db()
     try:
-        r = await refresh_model_winrate()
+        # force=True: 手动补算绕过工作日闸; 断点续算, 反复跑直到定稿(全票齐才写正式表)。
+        r = await refresh_model_winrate(force=True)
+        while r and r.get("partial"):
+            print(f"  部分完成 {r['staged']}/{r['total']}, 继续续算...")
+            r = await refresh_model_winrate(force=True)
     finally:
         await close_db()
     if not r:
-        print("非工作日/空缓存, 未写入")
+        print("空缓存/无可用股票, 未写入")
         return
     print(f"重算完成 run_date={r['as_of']}")
     for m in sorted(r["models"], key=lambda x: x["model_name"]):

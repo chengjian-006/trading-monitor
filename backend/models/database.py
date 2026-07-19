@@ -689,6 +689,18 @@ SCHEMA_STATEMENTS = [
         PRIMARY KEY (signal_id)
     )
     """,
+    # 胜率重算「断点续算」暂存 (v1.7.x): 每票算完把窗口内 [(模型名,触发日,净收益)] 落这里(哪怕空也落, 标记已算)。
+    # 服务高频重启会杀掉 21:00 的 6h 长任务, 有了逐票暂存, 重启后从断点接着算、被杀不白算;
+    # 全部票齐了再一次性聚合写 cfzy_biz_model_winrate, 然后清空本表。anchor=锚点交易日, 换日即弃旧。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_model_winrate_stage (
+        anchor      VARCHAR(10) NOT NULL,
+        code        VARCHAR(10) NOT NULL,
+        trades_json MEDIUMTEXT NULL,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (anchor, code)
+    )
+    """,
     # 持仓态 → 全市场五年 T+1/T+3 前向收益分布 (v1.7.x): 单行/态(state PK).
     # 每周由 holding_brief.refresh_holding_state_fwd 全市场扫描重算, 持仓研判晚报(20:00)
     # 读此表给每只持仓挂「同类形态历史次日/3日真实分布」当客观概率。

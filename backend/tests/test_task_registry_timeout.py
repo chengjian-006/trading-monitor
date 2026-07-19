@@ -127,3 +127,48 @@ def test_long_task_names_exist_in_registry():
     """防拼错: 长任务表里的每个名字必须真实注册, 否则超时配置悄悄失效。"""
     for name in LONG_TASK_TIMEOUTS:
         assert name in TASK_HANDLERS, f"LONG_TASK_TIMEOUTS 含未注册 handler: {name}"
+
+
+async def test_task_skipped_marked_skipped_not_success(monkeypatch):
+    """handler 抛 TaskSkipped(非交易日等) → 落 'skipped', 不是 'success' 也不是 'error'。
+
+    这是"周末空跑清零失败计数、掩盖工作日真实失败"观测事故的护栏: 'skipped' 不得复用
+    'success' 分支(那会清零 consecutive_failures)。"""
+    from backend.models import repository
+    from backend.core.task_signals import TaskSkipped
+
+    recorder = _StatusRecorder()
+    monkeypatch.setattr(repository, "update_task_run_status", recorder)
+
+    async def skipper():
+        raise TaskSkipped("非交易日")
+
+    monkeypatch.setitem(task_registry.TASK_HANDLERS, "skipper_handler", skipper)
+
+    await wrapped_handler("job_skip", "skipper_handler", timeout=5)
+
+    assert len(recorder.calls) == 1
+    assert recorder.calls[0]["status"] == "skipped"
+    assert recorder.calls[0]["job_id"] == "job_skip"
+
+
+async def test_task_skipped_does_not_reach_failure_alert(monkeypatch):
+    """跳过不得走失败告警链路(跳过≠失败)。"""
+    from backend.models import repository
+    from backend.core.task_signals import TaskSkipped
+
+    monkeypatch.setattr(repository, "update_task_run_status", _StatusRecorder(count=3))
+    alert_calls = []
+
+    async def fake_alert(job_id, handler_name, count, err_msg):
+        alert_calls.append(job_id)
+
+    monkeypatch.setattr(task_registry, "_maybe_alert_task_failure", fake_alert)
+
+    async def skipper():
+        raise TaskSkipped("非交易日")
+
+    monkeypatch.setitem(task_registry.TASK_HANDLERS, "skipper_handler", skipper)
+    await wrapped_handler("job_skip", "skipper_handler", timeout=5)
+
+    assert alert_calls == []

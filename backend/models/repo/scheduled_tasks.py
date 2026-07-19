@@ -31,7 +31,21 @@ async def toggle_scheduled_task(job_id: str, enabled: bool):
 
 
 async def update_task_run_status(job_id: str, last_run_at, last_status: str, error_msg: str = "") -> int:
-    """更新任务运行状态; 成功时清零 consecutive_failures, 失败时 +1。返回新的 consecutive_failures。"""
+    """更新任务运行状态; 成功时清零 consecutive_failures, 失败时 +1。返回新的 consecutive_failures。
+
+    'skipped'(非交易日等主动跳过): 只更 last_run_at + 状态, 不动 consecutive_failures / last_error_msg
+    —— 防止周末空跑把工作日真实失败的计数和错误信息抹掉(静默失败掩盖事故的观测根因)。"""
+    if last_status == "skipped":
+        await _execute(
+            "UPDATE cfzy_sys_scheduled_tasks SET last_run_at = %s, last_status = %s "
+            "WHERE job_id = %s",
+            (last_run_at, last_status, job_id),
+        )
+        row = await _fetchone(
+            "SELECT consecutive_failures FROM cfzy_sys_scheduled_tasks WHERE job_id = %s",
+            (job_id,),
+        )
+        return int(row["consecutive_failures"]) if row else 0
     if last_status == "success":
         await _execute(
             "UPDATE cfzy_sys_scheduled_tasks SET last_run_at = %s, last_status = %s, "

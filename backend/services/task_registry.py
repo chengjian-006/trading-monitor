@@ -5,6 +5,8 @@ import logging
 import time
 from datetime import datetime
 
+from backend.core.task_signals import TaskSkipped
+
 from backend.services.scanner import scan_stock_pool
 from backend.services.market_report import run_market_report
 from backend.services.quote_refresher import refresh_quotes
@@ -252,6 +254,11 @@ async def wrapped_handler(job_id: str, handler_name: str, timeout: float | None 
         except asyncio.TimeoutError:
             # 转成可读信息, 作为一次普通失败走下方既有 失败落库/计数/告警 链路
             raise TimeoutError(f"任务 {handler_name} 超时({effective_timeout:g}s)被中止") from None
+        except TaskSkipped as sk:
+            # 主动跳过(非交易日等): 不算成功也不算失败, 不动失败计数(见 update_task_run_status 说明)
+            await repository.update_task_run_status(job_id, datetime.now(), "skipped")
+            logger.info(f"Task {job_id} skipped: {sk}")
+            return
         await repository.update_task_run_status(job_id, datetime.now(), "success")
     except Exception as e:
         logger.exception(f"Task {job_id} failed: {e}")

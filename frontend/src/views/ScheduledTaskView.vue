@@ -211,11 +211,11 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
                 <NTag
                   v-if="task.last_status"
                   size="small"
-                  :type="task.last_status === 'success' ? 'success' : 'error'"
+                  :type="task.last_status === 'success' ? 'success' : (task.last_status === 'skipped' ? 'default' : 'error')"
                   :bordered="false"
                   round
                 >
-                  {{ task.last_status === 'success' ? '成功' : '失败' }}
+                  {{ task.last_status === 'success' ? '成功' : (task.last_status === 'skipped' ? '跳过' : '失败') }}
                 </NTag>
                 <NTag
                   v-if="(task.consecutive_failures ?? 0) > 0"

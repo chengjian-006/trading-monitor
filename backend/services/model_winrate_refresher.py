@@ -15,13 +15,15 @@
 CPU 重活走线程池, 不阻塞事件循环。结果 upsert cfzy_biz_model_winrate, 供买入提醒带战绩。
 """
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
 
-from backend.core.trading_calendar import is_workday
+from backend.core.task_signals import TaskSkipped
+from backend.core.trading_calendar import is_trading_time, is_workday
 from backend.models import repository
 from backend.models.repo._db import _fetchall
 from backend.services.signal_engine_indicators import compute_indicators
@@ -206,54 +208,120 @@ def _aggregate(acc: dict, anchor: str) -> list[dict]:
     return out
 
 
-async def refresh_model_winrate():
-    """每日(工作日)收盘后: 5分钟诚实口径重算全模型胜率 → upsert cfzy_biz_model_winrate。"""
-    if not is_workday(datetime.now()):
-        return
+# 进程内互斥: 21:00 定时任务与启动自愈补算不并跑(各自重活会互抢2核+DB池)。
+_refresh_lock = asyncio.Lock()
+
+
+async def refresh_model_winrate(force: bool = False):
+    """(工作日)收盘后 5分钟诚实口径重算全模型胜率 → 断点续算写 cfzy_biz_model_winrate。
+
+    断点续算(v1.7.x): 每票算完落 cfzy_sys_model_winrate_stage 暂存, 全票齐了再聚合写正式表并清暂存。
+    服务高频重启杀掉这个 6h 长任务时, 已算的票不白算, 重启/下轮从断点接着算, 迟早补齐。
+    force=True: 手动/启动自愈补算, 绕过工作日闸(周末补算上一交易日战绩合法)。
+    非交易日且非 force → raise TaskSkipped(不计失败、不清零计数, 交给 wrapped_handler 记 'skipped')。"""
+    if not force and not is_workday(datetime.now()):
+        raise TaskSkipped("非交易日, 跳过胜率重算")
+    if _refresh_lock.locked():
+        logger.info("[model_winrate] 已有重算在跑, 本次跳过")
+        return None
+    async with _refresh_lock:
+        return await _run_refresh_resumable()
+
+
+async def _run_refresh_resumable():
     rows = await _fetchall("SELECT DATE(MAX(dt)) AS d FROM cfzy_sys_kline_5m")
     if not rows or not rows[0]["d"]:
         logger.warning("[model_winrate] 5分钟K线表为空, 跳过(需先跑 kline_5m 回填/追加)")
-        return
+        return None
     anchor = str(rows[0]["d"])[:10]
     base = datetime.strptime(anchor, "%Y-%m-%d")
-    cut3 = (base - timedelta(days=WIN_3M)).strftime("%Y-%m-%d")
     cut6 = (base - timedelta(days=WIN_6M)).strftime("%Y-%m-%d")
 
     codes = sorted(c for c in await universe_codes("all") if _is_stock(c))
     if not codes:
         logger.warning("[model_winrate] 5分钟表无可用股票, 跳过")
-        return
-    logger.info(f"[model_winrate] 5分钟诚实口径重算: {len(codes)}只 窗口{cut6}~{anchor}")
+        return None
 
-    # 每模型存近6月的 (触发日, 净收益) 对; 近3月由日期过滤派生, 月度/回撤也从这份算(_aggregate)。
-    acc = {name: {"6m": []} for _, name in MODELS}
+    # 换了锚点交易日 → 弃旧暂存重来; 同锚点则跳过已算票, 断点续算。
+    await repository.clear_model_winrate_stage(exclude_anchor=anchor)
+    already = await repository.staged_model_winrate_codes(anchor)
+    todo = [c for c in codes if c not in already]
+    logger.info(f"[model_winrate] 断点续算: 已算{len(already)}/{len(codes)}, 待算{len(todo)} 窗口{cut6}~{anchor}")
+
     sem = asyncio.Semaphore(_CONCURRENCY)
-    done = [0]
+    prog = [0]
 
     async def work(code: str):
         try:
             async with sem:
                 df = await load_daily_one(code)
                 if df is None:
-                    return
-                ind, cand = await asyncio.to_thread(_prep_candidates, df, cut6, anchor)
-                day5m = await load_5m_days(code, cand) if cand else {}
-            trades = await asyncio.to_thread(_crunch_one, code, ind, day5m, cut6, anchor)
-            for name, d, ret in trades:
-                if d >= cut6:
-                    acc[name]["6m"].append((d, ret))
+                    trades = []
+                else:
+                    ind, cand = await asyncio.to_thread(_prep_candidates, df, cut6, anchor)
+                    day5m = await load_5m_days(code, cand) if cand else {}
+                    trades = await asyncio.to_thread(_crunch_one, code, ind, day5m, cut6, anchor)
+            # 只留近6月窗口内; 空也落, 标记该票已算(否则每轮都重算无触发的票, 永不收敛)。
+            keep = [[name, d, ret] for name, d, ret in trades if d >= cut6]
+            await repository.stage_model_winrate_code(anchor, code, keep)
         except Exception:
-            logger.exception(f"[model_winrate] {code} 重算失败, 跳过")
+            logger.exception(f"[model_winrate] {code} 重算失败, 跳过(不落暂存, 下轮重试)")
         finally:
-            done[0] += 1
-            if done[0] % 500 == 0:
-                logger.info(f"[model_winrate] {done[0]}/{len(codes)}")
+            prog[0] += 1
+            if prog[0] % 500 == 0:
+                logger.info(f"[model_winrate] {prog[0]}/{len(todo)}")
 
-    await asyncio.gather(*[work(c) for c in codes])
+    await asyncio.gather(*[work(c) for c in todo])
+
+    # 完整性闸: 暂存覆盖数 < 全部票 → 本轮被打断或有票失败, 暂不写正式表, 等下轮/重启续算。
+    staged = await repository.staged_model_winrate_count(anchor)
+    if staged < len(codes):
+        logger.warning(f"[model_winrate] 本轮部分完成 {staged}/{len(codes)}, 暂不写正式表, 等下次续算补齐")
+        return {"partial": True, "staged": staged, "total": len(codes), "as_of": anchor}
+
+    # 定稿: 载入全部暂存 → 聚合 → 写正式表 → 清暂存。
+    acc = {name: {"6m": []} for _, name in MODELS}
+    for r in await repository.load_model_winrate_stage(anchor):
+        try:
+            trades = json.loads(r["trades_json"] or "[]")
+        except (ValueError, TypeError):
+            trades = []
+        for name, d, ret in trades:
+            if name in acc and d >= cut6:
+                acc[name]["6m"].append((d, ret))
 
     out = _aggregate(acc, anchor)
     await repository.save_model_winrate(anchor, out)
-    logger.info("[model_winrate] 重算完成(5分钟口径) 截至%s: " % anchor + " ".join(
+    await repository.clear_model_winrate_stage(anchor=anchor)
+    logger.info("[model_winrate] 重算完成(5分钟口径·断点续算) 截至%s: " % anchor + " ".join(
         f"{r['model_name']}(3月{r['win_rate_3m']}%/{r['n_3m']}笔, 6月{r['win_rate_6m']}%/{r['n_6m']}笔)"
         for r in out))
     return {"as_of": anchor, "models": out}
+
+
+async def catchup_model_winrate_if_stale():
+    """启动自愈补算: 服务高频重启会杀掉 21:00 的长任务, 这里在启动稳定后(仅非交易时段)检查
+    正式表是否落后于最新锚点交易日 / 暂存是否未完成, 落后就补算(可续跑, 被杀不白算, 多轮收敛)。"""
+    try:
+        await asyncio.sleep(180)   # 让启动峰值过去、错开开机瞬时
+        if is_trading_time():
+            logger.info("[model_winrate] 交易时段, 启动补算延后(不与实时行情抢2核)")
+            return
+        rows = await _fetchall("SELECT DATE(MAX(dt)) AS d FROM cfzy_sys_kline_5m")
+        if not rows or not rows[0]["d"]:
+            return
+        anchor = str(rows[0]["d"])[:10]
+        cur = await repository.get_model_winrate()
+        latest_run = max((str(v.get("run_date") or "") for v in cur.values()), default="")
+        staged = await repository.staged_model_winrate_count(anchor)
+        if latest_run >= anchor and staged == 0:
+            return   # 已是最新且无残留暂存, 无需补
+        logger.warning(
+            f"[model_winrate] 启动自愈: 正式表 run_date={latest_run or '空'} 落后锚点 {anchor}"
+            f"(暂存 {staged} 票), 触发断点续算补齐"
+        )
+        await refresh_model_winrate(force=True)
+    except TaskSkipped:
+        pass
+    except Exception:
+        logger.exception("[model_winrate] 启动自愈补算异常")

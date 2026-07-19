@@ -54,6 +54,10 @@ async def lifespan(app: FastAPI):
     # 全市场名称表为空时, 后台非阻塞首填(走新浪批量行情), 不卡启动; 已有则跳过留给定时任务
     from backend.services.stock_names_refresher import ensure_stock_names_seeded
     asyncio.create_task(ensure_stock_names_seeded())
+    # 胜率表启动自愈补算(v1.7.x): 高频重启会杀掉21:00的6h长任务致胜率静默停写, 这里在启动后
+    # 非交易时段检查落后就断点续算补齐(被杀不白算, 多轮收敛), 让推送战绩不再冻在旧值。
+    from backend.services.model_winrate_refresher import catchup_model_winrate_if_stale
+    asyncio.create_task(catchup_model_winrate_if_stale())
     # 飞书应用机器人卡片回调长连接(v1.7.631, lark_app_enabled 时才启; 缺依赖/未配置安全跳过)
     try:
         from backend.services.lark_app import start_ws_listener
