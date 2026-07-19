@@ -75,6 +75,7 @@ async function load() {
   try {
     const { opinions: rows } = await listWencaiOpinions()
     opinions.value = rows
+    fetchPrices()   // 异步拉主推股现价, 到了自动补上距现价%
   } catch {
     message.error('加载问财观点失败')
   } finally {
@@ -111,12 +112,69 @@ function renderAnswer(text: string): string {
 function hasConclusion(c: WencaiConclusion | undefined): boolean {
   return !!c && !!(c.stock || c.buy || c.takeProfit || c.stopLoss || c.logic || c.risk)
 }
-function conclusionRows(c: WencaiConclusion | undefined) {
+
+// ── 研判决策卡: 价位提取/清洗 (与扩展 common.js 同口径) + 距现价% ──
+function extractPrice(text: string): { lo: number, hi: number } | null {
+  const t = (text || '').replace(/[,，]/g, '')
+  let m = t.match(/(\d{2,5}(?:\.\d+)?)\s*[—~\-–]\s*(\d{2,5}(?:\.\d+)?)\s*元/)
+  if (m) return { lo: +m[1], hi: +m[2] }
+  m = t.match(/(\d{2,5}(?:\.\d+)?)\s*元/)
+  if (m) return { lo: +m[1], hi: +m[1] }
+  m = t.match(/(\d{2,5}(?:\.\d+)?)\s*[—~–]\s*(\d{2,5}(?:\.\d+)?)/)
+  if (m) return { lo: +m[1], hi: +m[2] }
+  const re = /(\d{2,5}(?:\.\d+)?)(?!\s*(?:%|％|天|日|周|个?月|年|倍|万|亿|手))/g
+  let mm: RegExpExecArray | null
+  while ((mm = re.exec(t))) { const v = +mm[1]; if (v >= 2 && v <= 100000) return { lo: v, hi: v } }
+  return null
+}
+function cleanConcVal(s: string | undefined, label: string): string {
+  let v = String(s || '').replace(/[*`]/g, '').trim()
+  v = v.replace(/^\|+/, '').replace(/\|+$/, '').trim()
+  if (label) v = v.replace(new RegExp('^' + label + '\\s*[|｜:：]?\\s*'), '')
+  return v.replace(/\s*\|\s*/g, ' ').replace(/\s+/g, ' ').trim()
+}
+const fmtN = (v: number) => Number.isInteger(v) ? String(v) : String(+v.toFixed(2))
+const signPct = (p: number) => (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%'
+
+// 主推股现价(用于算距现价%), 按代码从 /quote 拉, 存 map
+const priceMap = ref<Record<string, number>>({})
+function priceOf(op: WencaiOpinion): number | null {
+  const code = recStocks(op)[0]?.code
+  return code && priceMap.value[code] != null ? priceMap.value[code] : null
+}
+async function fetchPrices() {
+  const codes = [...new Set(opinions.value.flatMap((o) => recStocks(o).map((s) => s.code)).filter(Boolean))]
+  await Promise.all(codes.map(async (code) => {
+    try {
+      const r = await fetch('/api/wencai/quote?code=' + encodeURIComponent(code))
+      if (!r.ok) return
+      const q = await r.json()
+      if (q && q.price) priceMap.value = { ...priceMap.value, [code]: +q.price }
+    } catch { /* 现价拉不到就只显示价位不显示% */ }
+  }))
+}
+
+interface DTile { cls: string; cn: string; en: string; num?: string; delta?: string; dir?: string; barW?: number; cap: string; only?: boolean }
+function tilesOf(op: WencaiOpinion): DTile[] {
+  const c = op.conclusion || {}
+  const cur = priceOf(op)
   const defs: [string, string, string, string | undefined][] = [
-    ['📌', '主推', 'stock', c?.stock], ['🟢', '买点', 'buy', c?.buy], ['🎯', '止盈', 'tp', c?.takeProfit],
-    ['🛑', '止损', 'sl', c?.stopLoss], ['⏳', '周期', 'period', c?.period], ['💡', '逻辑', 'logic', c?.logic], ['⚠️', '风险', 'risk', c?.risk],
+    ['buy', '买入', 'BUY', c.buy], ['tp', '止盈', 'TARGET', c.takeProfit], ['sl', '止损', 'STOP', c.stopLoss],
   ]
-  return defs.filter((d) => d[3]).map((d) => ({ icon: d[0], label: d[1], key: d[2], val: d[3] as string }))
+  return defs.map(([cls, cn, en, raw]) => {
+    const v = cleanConcVal(raw, cn)
+    const pr = v ? extractPrice(v) : null
+    if (!pr) return { cls, cn, en, cap: v, only: true }
+    const num = pr.lo === pr.hi ? fmtN(pr.lo) : fmtN(pr.lo) + '–' + fmtN(pr.hi)
+    const t: DTile = { cls, cn, en, num, cap: v }
+    if (cur) {
+      const loP = (pr.lo - cur) / cur * 100, hiP = (pr.hi - cur) / cur * 100, mid = (loP + hiP) / 2
+      t.dir = mid >= 0 ? 'up' : 'down'
+      t.delta = (mid >= 0 ? '↑ ' : '↓ ') + (pr.lo === pr.hi ? signPct(loP) : signPct(loP) + '~' + signPct(hiP))
+      t.barW = Math.max(6, Math.min(100, Math.abs(mid) / 10 * 100))
+    }
+    return t
+  })
 }
 
 async function removeOpinion(id: number) {
@@ -256,31 +314,52 @@ onMounted(load)
           </div>
         </div>
 
-        <!-- 结论速览: 卡片核心, 突出展示 -->
-        <div v-if="hasConclusion(op.conclusion)" class="concl">
-          <div class="concl-h">🎯 结论速览</div>
-          <div class="concl-grid">
-            <div v-for="row in conclusionRows(op.conclusion)" :key="row.label" class="concl-row" :class="'r-' + row.key">
-              <span class="ci">{{ row.icon }}</span><span class="cl">{{ row.label }}</span><span class="cv">{{ row.val }}</span>
+        <!-- 研判决策卡: 主推 hero + 买入/止盈/止损价位磁贴(距现价%) + 逻辑/风险 (与扩展/详情页一套观感) -->
+        <div v-if="hasConclusion(op.conclusion)" class="dcard">
+          <div class="dc-top">
+            <div class="dc-l">
+              <div class="dc-eye">主推标的 · Top Pick</div>
+              <div v-if="recStocks(op)[0]" class="dc-name">
+                <span class="nm" role="button" tabindex="0"
+                      @click="ui.openStock(recStocks(op)[0].code, recStocks(op)[0].name)"
+                      @keydown.enter="ui.openStock(recStocks(op)[0].code, recStocks(op)[0].name)">{{ recStocks(op)[0].name }}</span>
+                <span class="cd">{{ recStocks(op)[0].code }}</span>
+                <span v-if="priceOf(op) != null" class="cur">现价 {{ fmtN(priceOf(op)!) }}</span>
+              </div>
+              <div v-else-if="cleanConcVal(op.conclusion?.stock, '标的')" class="dc-name">
+                <span class="nm-plain">{{ cleanConcVal(op.conclusion?.stock, '标的') }}</span>
+              </div>
             </div>
+            <NButton v-if="recStocks(op).length" size="tiny" secondary type="primary" class="dc-add"
+                     :loading="addingId === op.id" @click="addStocksToPool(op)">
+              <template #icon><NIcon :component="AddCircleOutline" /></template>加自选
+            </NButton>
+          </div>
+          <div class="dc-tiles">
+            <div v-for="t in tilesOf(op)" :key="t.cls" class="dtile" :class="t.cls">
+              <div class="dt-k">{{ t.cn }} <i>{{ t.en }}</i></div>
+              <template v-if="t.only"><div class="dt-only">{{ t.cap || '—' }}</div></template>
+              <template v-else>
+                <div class="dt-num">{{ t.num }}<span v-if="t.delta" class="dt-d" :class="t.dir">{{ t.delta }}</span></div>
+                <div v-if="t.barW" class="dt-bar"><i :style="{ width: t.barW + '%' }"></i></div>
+                <div class="dt-cap">{{ t.cap }}</div>
+              </template>
+            </div>
+          </div>
+          <div v-if="cleanConcVal(op.conclusion?.logic,'逻辑') || cleanConcVal(op.conclusion?.risk,'风险')" class="dthesis">
+            <div v-if="cleanConcVal(op.conclusion?.logic,'逻辑')" class="dth"><b>逻辑</b>{{ cleanConcVal(op.conclusion?.logic,'逻辑') }}</div>
+            <div v-if="cleanConcVal(op.conclusion?.risk,'风险')" class="dth risk"><b>风险</b>{{ cleanConcVal(op.conclusion?.risk,'风险') }}</div>
           </div>
         </div>
 
-        <!-- 推荐标的: 只列最终推荐(primary), 不再展示话术里顺带提及的其它个股, 避免干扰判断(v1.7.667) -->
-        <div v-if="recStocks(op).length" class="rec-stocks">
+        <!-- 无结论但有推荐个股时的兜底: 仍给出个股 + 加自选 -->
+        <div v-else-if="recStocks(op).length" class="rec-stocks">
           <span class="rl">推荐标的</span>
-          <NTag
-            v-for="s in recStocks(op)" :key="s.code"
-            size="small" type="primary" class="stk" @click="ui.openStock(s.code, s.name)"
-          >
+          <NTag v-for="s in recStocks(op)" :key="s.code" size="small" type="primary" class="stk" @click="ui.openStock(s.code, s.name)">
             {{ s.name }}<span class="code">{{ s.code }}</span>
           </NTag>
-          <NButton
-            size="tiny" secondary type="primary" class="add-btn"
-            :loading="addingId === op.id" @click="addStocksToPool(op)"
-          >
-            <template #icon><NIcon :component="AddCircleOutline" /></template>
-            加自选
+          <NButton size="tiny" secondary type="primary" class="add-btn" :loading="addingId === op.id" @click="addStocksToPool(op)">
+            <template #icon><NIcon :component="AddCircleOutline" /></template>加自选
           </NButton>
         </div>
 
@@ -341,23 +420,31 @@ onMounted(load)
 .meta { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .time { font-size: 11px; color: var(--fg-subtle); }
 
-/* 结论速览: 卡片核心焦点块 */
-.concl {
-  margin: 12px 0 0; padding: 12px 14px;
-  border: 1px solid rgba(22,104,220,.22); border-radius: 10px;
-  background: var(--accent-bg-muted);
-}
-.concl-h { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--fg-default); }
-.concl-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 18px; }
-.concl-row { display: flex; gap: 7px; align-items: baseline; padding: 3px 0; font-size: 13px; line-height: 1.5; }
-.concl-row .ci { flex-shrink: 0; }
-.concl-row .cl { flex-shrink: 0; width: 32px; color: var(--fg-subtle); font-size: 12px; }
-.concl-row .cv { flex: 1; color: var(--fg-default); }
-/* 主推/买点=最关键加粗; 止盈红/止损绿; 逻辑/风险长文跨整行 */
-.concl-row.r-stock .cv, .concl-row.r-buy .cv { font-weight: 700; }
-.concl-row.r-tp .cv { color: var(--up-fg); font-weight: 600; }
-.concl-row.r-sl .cv { color: var(--down-fg); font-weight: 600; }
-.concl-row.r-logic, .concl-row.r-risk { grid-column: 1 / -1; }
+/* 研判决策卡: 主推 hero + 价位磁贴(距现价%) + 逻辑/风险 (与扩展/详情页一套观感) */
+.dcard { margin: 12px 0 0; padding: 14px; border: 1px solid var(--border-default); border-radius: 12px; background: var(--bg-surface); }
+.dc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.dc-eye { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-subtle); }
+.dc-name { margin-top: 5px; display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.dc-name .nm { font-size: 22px; font-weight: 800; letter-spacing: -.01em; color: var(--fg-default); cursor: pointer; }
+.dc-name .nm:hover { color: var(--accent-fg); }
+.dc-name .nm-plain { font-size: 20px; font-weight: 800; color: var(--fg-default); }
+.dc-name .cd { font-size: 13px; font-weight: 600; color: var(--fg-subtle); font-family: var(--font-mono); }
+.dc-name .cur { font-size: 12px; color: var(--fg-muted); font-weight: 600; }
+.dc-add { flex-shrink: 0; }
+.dc-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.dtile { background: color-mix(in srgb, var(--fg-default) 4%, transparent); border: 1px solid var(--border-muted); border-radius: 11px; padding: 11px 12px; }
+.dt-k { font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--fg-subtle); }
+.dt-k i { font-style: normal; opacity: .7; margin-left: 4px; }
+.dt-num { font-size: 21px; font-weight: 800; color: var(--fg-default); margin-top: 6px; line-height: 1.05; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.dt-d { font-size: 12px; font-weight: 800; } .dt-d.up { color: var(--up-fg); } .dt-d.down { color: var(--down-fg); }
+.dt-bar { height: 4px; border-radius: 99px; margin-top: 9px; background: var(--border-muted); overflow: hidden; } .dt-bar i { display: block; height: 100%; }
+.dtile.buy .dt-bar i { background: var(--down-fg); } .dtile.tp .dt-bar i { background: var(--accent-fg); } .dtile.sl .dt-bar i { background: var(--up-fg); }
+.dt-cap { font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; margin-top: 9px; }
+.dt-only { font-size: 13px; color: var(--fg-default); font-weight: 600; margin-top: 6px; line-height: 1.5; }
+.dthesis { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.dth { font-size: 12.5px; line-height: 1.6; color: var(--fg-default); padding: 9px 11px; border-radius: 9px; background: var(--accent-bg-muted); }
+.dth.risk { background: color-mix(in srgb, var(--up-fg) 10%, transparent); }
+.dth b { color: var(--down-fg); font-weight: 800; margin-right: 7px; } .dth.risk b { color: var(--up-fg); }
 
 /* 推荐标的: 只显最终推荐 */
 .rec-stocks { margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
@@ -377,6 +464,7 @@ onMounted(load)
   .filter-bar { grid-template-columns: 1fr; }
   .filter-item { min-width: 140px; }
   .filter-actions { justify-content: flex-start; }
-  .concl-grid { grid-template-columns: 1fr; }   /* 手机单列 */
+  .dc-tiles { grid-template-columns: 1fr; }   /* 手机单列 */
+  .dc-top { flex-wrap: wrap; }
 }
 </style>

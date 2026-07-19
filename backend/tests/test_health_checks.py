@@ -102,40 +102,84 @@ def _r(key, ok, sev=hc.WARN):
     return hc.CheckResult(key, key, "测试", sev, ok, "实际", "期望")
 
 
+_HB0 = {"last_push_at": None, "fail_streak": 0}
+
+
 def test_report_all_pass():
-    title, body, crit = hc.build_report([_r("a", True), _r("b", True)],
-                                        {"last_push_at": None, "fail_streak": 0})
-    assert "全通过" in title and crit is False
+    card, crit = hc.build_report_card([_r("a", True), _r("b", True)], _HB0)
+    assert "全通过" in card.title and crit is False
 
 
 def test_report_critical_first():
-    title, body, crit = hc.build_report(
-        [_r("warn1", False, hc.WARN), _r("crit1", False, hc.CRITICAL)],
-        {"last_push_at": None, "fail_streak": 0})
-    assert crit is True and "严重" in title
-    assert body.index("crit1") < body.index("warn1"), "严重项必须排在前面"
+    card, crit = hc.build_report_card(
+        [_r("warn1", False, hc.WARN), _r("crit1", False, hc.CRITICAL)], _HB0)
+    assert crit is True and "故障" in card.title
+    assert card.fallback.index("crit1") < card.fallback.index("warn1"), "严重项必须排前"
 
 
 def test_report_flags_missing_checks(monkeypatch):
     """执行项数 < 注册项数 = 有检查项自身没跑起来, 必须在报告里点出来。"""
     monkeypatch.setattr(hc, "CHECKS", [_r(f"c{i}", True) for i in range(5)])
-    _, body, _ = hc.build_report([_r("c0", True)],
-                                 {"last_push_at": None, "fail_streak": 0})
-    assert "执行项数少于注册项数" in body
+    card, _ = hc.build_report_card([_r("c0", True)], _HB0)
+    assert "执行项数少于注册项数" in card.fallback
 
 
 def test_report_shows_push_failure_streak():
     """告警通路自身的心跳: 连续推送失败要在下一次报告里自曝。"""
-    _, body, _ = hc.build_report([_r("a", True)],
-                                 {"last_push_at": None, "fail_streak": 3})
-    assert "连续失败 3 次" in body
+    card, _ = hc.build_report_card([_r("a", True)],
+                                   {"last_push_at": None, "fail_streak": 3})
+    assert "连续失败 3 次" in card.fallback
 
 
 def test_report_shows_hours_since_last_push():
     from datetime import timedelta
     hb = {"last_push_at": datetime.now() - timedelta(hours=26), "fail_streak": 0}
-    _, body, _ = hc.build_report([_r("a", True)], hb)
-    assert "距上次成功推送 26 小时" in body
+    card, _ = hc.build_report_card([_r("a", True)], hb)
+    assert "距上次成功推送 26 小时" in card.fallback
+
+
+# ── 推送设计基线 v1.1 合规(首版四条全违反, 用测试钉死) ──
+
+def test_card_uses_system_family_grey():
+    """体检属"系统"族(与EOD复核/数据源同族)=grey header, 不能用风险族的橙红抢注意力。"""
+    card, _ = hc.build_report_card([_r("a", False, hc.CRITICAL)], _HB0)
+    assert card.family == "system"
+    assert card.template == "grey"
+
+
+def test_card_title_uses_system_emoji():
+    """系统族标题 emoji 词表是 ⚙️。"""
+    for results in ([_r("a", True)], [_r("a", False, hc.CRITICAL)], [_r("a", False)]):
+        card, _ = hc.build_report_card(results, _HB0)
+        assert card.title.startswith("⚙️"), card.title
+
+
+def test_card_has_advice_section():
+    """五区骨架: 行动建议区必有, 👉 开头。"""
+    for results in ([_r("a", True)], [_r("a", False, hc.CRITICAL)]):
+        card, _ = hc.build_report_card(results, _HB0)
+        assert "👉" in card.fallback
+
+
+def test_card_has_light_string():
+    """系统卡家族图形 = 灯串 + 异常项列表。"""
+    card, _ = hc.build_report_card([_r("a", True), _r("b", False, hc.CRITICAL)], _HB0)
+    assert "🟢" in card.fallback and "🔴" in card.fallback
+
+
+def test_card_body_capped_to_avoid_long_card():
+    """正文(0~3区)≤10 行: 异常项超 6 条时只列前 6, 其余下沉折叠。"""
+    many = [_r(f"bad{i}", False, hc.CRITICAL) for i in range(12)]
+    card, _ = hc.build_report_card(many, _HB0)
+    assert "另有 6 项异常" in card.fallback
+    body_lines = [e for e in card.elements if isinstance(e, dict)]
+    assert len(body_lines) <= 10, "正文元素过多, 会撑爆手机端卡片"
+
+
+def test_card_summary_present():
+    """区外标配: 自定义摘要(锁屏横幅直接显示它)。"""
+    card, _ = hc.build_report_card([_r("a", True)], _HB0)
+    assert card.summary and "系统体检" in card.summary
 
 
 # ── 注册表自身 ──
