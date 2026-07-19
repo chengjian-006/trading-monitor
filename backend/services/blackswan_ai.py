@@ -174,7 +174,7 @@ async def generate_risk_verdicts(hits: list[dict]) -> dict[str, dict]:
         items = items[:MAX_STOCKS]
     sem = asyncio.Semaphore(CONCURRENCY)
     import httpx
-    async with httpx.AsyncClient(follow_redirects=True) as http_client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=8.0), follow_redirects=True) as http_client:
         results = await asyncio.gather(
             *[_verdict_one(sem, http_client, code, g["name"], g["hits"], cfg) for code, g in items])
     return {code: v for code, v in results if v}

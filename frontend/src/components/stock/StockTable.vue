@@ -560,12 +560,6 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '序号',
-    key: 'index',
-    width: 44,
-    render: (_row: Stock, index: number) => h('span', { style: { color: 'var(--text2)', fontSize: '12px' } }, index + 1),
-  },
-  {
     title: '代码',
     key: 'code',
     width: 96,
@@ -974,7 +968,14 @@ function resetCols() { hiddenCols.value = new Set(); localStorage.removeItem(LS_
 
 const columns = computed(() => allColumns.value
   .filter((c: any) => !hiddenCols.value.has(c.key))
-  .map((c: any) => NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
+  .map((c: any) => {
+    const col: any = NUM_KEYS.has(c.key)
+      ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') }
+      : { ...c }
+    // 数据列支持鼠标拖拽调列宽(排除选择列/固定的操作列)
+    if (col.key && col.key !== 'action' && !col.fixed) col.resizable = true
+    return col
+  }))
 // 横向滚动宽度 = 当前可见列宽总和(动态: 加/删/隐藏列自动跟随, 避免写死值偏小导致最右列滚不到)
 const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum + (Number(c.width) || 120), 0) + 40)
 </script>
@@ -995,7 +996,7 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
             <NCheckbox v-for="c in HIDEABLE" :key="c.key" :checked="isColShown(c.key)"
                        @update:checked="(v: boolean) => toggleCol(c.key, v)">{{ c.label }}</NCheckbox>
           </div>
-          <div class="col-menu-foot">序号 / 代码 / 名称 / 操作 列固定显示</div>
+          <div class="col-menu-foot">代码 / 名称 / 操作 列固定显示</div>
         </div>
       </NPopover>
     </div>
@@ -1073,13 +1074,14 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;   /* 供列设置按钮绝对定位到右上角 */
 }
 @keyframes flash-up-bg {
-  0% { background: rgba(255, 59, 48, 0.35); }
+  0% { background: color-mix(in srgb, var(--up-fg) 32%, transparent); }
   100% { background: transparent; }
 }
 @keyframes flash-down-bg {
-  0% { background: rgba(22, 163, 74, 0.35); }
+  0% { background: color-mix(in srgb, var(--down-fg) 32%, transparent); }
   100% { background: transparent; }
 }
 .flash-up {
@@ -1133,7 +1135,9 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
   background: rgba(88, 104, 130, 0.20) !important;
 }
 /* 列设置工具栏 + 菜单 (v1.7.672, 本 style 非 scoped, popover 内容可命中) */
-.col-toolbar { display: flex; justify-content: flex-end; margin-bottom: 6px; }
+/* 不独占一行: 绝对定位浮到表格右上角, 回收整行竖向空间 */
+.col-toolbar { position: absolute; top: 0; right: 6px; z-index: 6; }
+.col-toolbar .n-button { background: var(--bg-surface); border-radius: 6px; }
 .col-menu-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .col-menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .col-menu-foot { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); }

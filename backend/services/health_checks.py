@@ -30,6 +30,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# 本进程启动时刻(模块导入≈进程启动)。用于"任务超期未跑"判据: 服务刚起来不足一个
+# 调度周期时, 任务本来就还没轮到, 不能算它超期 —— 否则每次部署后体检都误报一片。
+_PROC_START = datetime.now()
+
 CRITICAL, WARN, INFO = "critical", "warn", "info"
 _SEV_ORDER = {CRITICAL: 0, WARN: 1, INFO: 2}
 _SEV_ICON = {CRITICAL: "🔴", WARN: "🟡", INFO: "⚪"}
@@ -170,6 +174,9 @@ async def _chk_task_overdue():
             # cron: 周任务给 9 天, 日任务给 2 天
             tol = 9 * 86400 if sc.get("day_of_week") else 2 * 86400
         lag = (now - r["last_run_at"]).total_seconds()
+        # 服务刚重启时不能怪任务没跑: 进程起来不足一个周期, 它本来就还没轮到。
+        # (v1.7.714: 否则每次部署后体检都误报一片 —— 0719 晚部署 16 次即触发)
+        lag = min(lag, (now - _PROC_START).total_seconds())
         if lag > tol:
             bad.append(f"{r['job_id']}({int(lag / 3600)}h)")
     return (not bad, f"{len(bad)}个" + (f": {', '.join(bad[:4])}" if bad else ""), "0个")

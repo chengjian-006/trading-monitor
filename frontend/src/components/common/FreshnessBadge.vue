@@ -66,20 +66,22 @@ const tone = computed<'fresh' | 'stale' | 'error'>(() => {
   gap: 4px;
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-weight: 500;
   user-select: none;
   font-variant-numeric: tabular-nums;
+  border: 1px solid transparent;
 }
 .freshness .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
 }
-.freshness.fresh { background: rgba(22, 163, 74, 0.08); color: #15803d; }
-.freshness.fresh .dot { background: #16a34a; }
-.freshness.stale { background: rgba(217, 119, 6, 0.10); color: #b45309; }
-.freshness.stale .dot { background: #d97706; }
-.freshness.error { background: rgba(220, 38, 38, 0.10); color: #b91c1c; }
-.freshness.error .dot { background: #dc2626; }
+/* 描边细标签(淡底+彩边+彩字), 走状态色 token 深色自适配 */
+.freshness.fresh { background: var(--success-bg-muted); color: var(--success-fg); border-color: color-mix(in srgb, var(--success-fg) 35%, transparent); }
+.freshness.fresh .dot { background: var(--success-fg); }
+.freshness.stale { background: var(--warn-bg-muted); color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 35%, transparent); }
+.freshness.stale .dot { background: var(--warn-fg); }
+.freshness.error { background: var(--danger-bg-muted); color: var(--danger-fg); border-color: color-mix(in srgb, var(--danger-fg) 35%, transparent); }
+.freshness.error .dot { background: var(--danger-fg); }
 </style>

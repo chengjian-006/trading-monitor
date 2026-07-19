@@ -95,9 +95,12 @@ function stripDataSections(html: string): string {
 function renderContent(text: string): string {
   if (!text) return ''
   if (text.includes('<table') || text.includes('<h3')) {
+    // AI 报告结构化 HTML(含 table/h3): 目前该面板已隐藏(showAiReport=false); 若重新启用需接 DOMPurify 消毒
     return stripDataSections(text)
   }
+  // markdown 分支: 先转义 & 和 <(阻断标签注入, 保留 > 让引用块 markdown 仍生效)
   return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
     .replace(/^### (.+)$/gm, '<h4>$1</h4>')
