@@ -954,6 +954,40 @@ register("系统通知", "系统健康·盘后汇总",
          "交易日盘后 · 当日无故障不推 · 紧急的行情源健康预警仍即时推")
 
 
+# ── 系统体检报告(v1.7.698): 直调真实构造器 build_report_card, 保证预览与推送 1:1 ──
+
+def _health_report_preview() -> dict:
+    from datetime import timedelta
+
+    from backend.services.health_checks import CRITICAL, WARN, CheckResult, build_report_card
+    rs = [
+        CheckResult("task_never_ran", "任务从未跑过", "任务", CRITICAL, False,
+                    "1个: holding_state_fwd_refresh", "0个"),
+        CheckResult("data_industry_map", "行业映射", "数据", WARN, False,
+                    "2026-07-11", "≥2026-07-15"),
+        CheckResult("data_kline_cache", "全市场日线", "数据", CRITICAL, True,
+                    "2026-07-17", "≥2026-07-17"),
+        CheckResult("data_index_5m", "指数5分钟K线(不可回补)", "数据", CRITICAL, True,
+                    "2026-07-17", "≥2026-07-17"),
+        CheckResult("api_sina_snapshot", "新浪全市场快照", "接口", CRITICAL, True,
+                    "4990 只", "≥3000 只"),
+        CheckResult("api_outbound_ip", "出口IP(推送总闸)", "接口", CRITICAL, True,
+                    "124.71.75.5", "在生产白名单内"),
+        CheckResult("rule_eod_audit", "EOD复核有效性", "规则", WARN, True,
+                    "unverified 0/13(0%)", "<30%"),
+    ]
+    hb = {"last_push_at": datetime.now() - timedelta(hours=24), "fail_streak": 0}
+    card, _ = build_report_card(rs, hb)
+    return _card_json(card)
+
+
+register("系统通知", "系统体检·每日报告",
+         "每日盘前跑21项断言式检查(任务健康/数据新鲜度/外部接口/业务规则), 有无异常都推: "
+         "灯串+异常项(实际vs期望)+建议+明细折叠(含执行项数与推送心跳自检)",
+         _health_report_preview(),
+         "每日 08:10 · 无异常也推(便于区分「一切正常」与「告警系统自己哑了」)")
+
+
 # ── 推送健康度周报: 直调 push_health_report.build_health_card(stats 走真实 summarize_actions) ──
 
 def _push_health_preview() -> dict:

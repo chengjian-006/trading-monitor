@@ -409,43 +409,93 @@ async def run_checks() -> list[CheckResult]:
     return out
 
 
-def build_report(results: list[CheckResult], heartbeat: dict) -> tuple[str, str, bool]:
-    """→ (标题, 正文markdown, 是否有严重问题)。"""
+def _lamp_state(r: CheckResult) -> str:
+    """检查项 → 灯串状态。通过=绿; 失败按严重度分 红/黄。"""
+    if r.ok:
+        return "ok"
+    return "bad" if r.severity == CRITICAL else "warn"
+
+
+def build_report_card(results: list[CheckResult], heartbeat: dict):
+    """按《观潮推送设计基线 v1.1》构体检卡 → (Card, 是否有严重问题)。
+
+    遵循基线的四条硬约束(首版都违反了, 已改正):
+      · 家族=system(grey header) + 标题 emoji ⚙️ —— 体检属"系统"族(与EOD复核/数据源同族),
+        不是风险族; 首版误用 risk/intel 的橙蓝色, 会和真正的行情风险卡抢注意力。
+      · 五区骨架里**行动建议区必有**: 👉 ≤20字动词开头。首版整卡没有建议行。
+      · 系统卡的家族图形 = **灯串 + 异常项列表**, 首版只有列表没有灯串。
+      · 正文(0~3区)≤10 行: 异常项超 6 条时只列前 6, 其余进折叠区计数。
+    """
+    from backend.services import card_kit
+    from backend.services.lark_notifier import collapsible_element, md_element
+
     failed = [r for r in results if not r.ok]
     crit = [r for r in failed if r.severity == CRITICAL]
     failed.sort(key=lambda r: _SEV_ORDER.get(r.severity, 9))
 
     if not failed:
-        title = f"✅ 系统体检 · {len(results)}项全通过"
+        title = f"⚙️ 系统体检 · {len(results)}项全通过"
     elif crit:
-        title = f"🔴 系统体检 · {len(crit)}项严重 / 共{len(failed)}项异常"
+        title = f"⚙️ 系统体检 · {len(crit)}项故障 / 共{len(failed)}项异常"
     else:
-        title = f"🟡 系统体检 · {len(failed)}项异常"
+        title = f"⚙️ 系统体检 · {len(failed)}项异常"
 
-    lines: list[str] = []
-    if failed:
-        lines.append("**异常项**")
-        for r in failed:
-            lines.append(f"{_SEV_ICON.get(r.severity, '')} **{r.name}** · "
-                         f"实际 {r.actual} · 期望 {r.expected}")
-            if r.detail:
-                lines.append(f"<font color='grey'>　{r.detail[:120]}</font>")
-        lines.append("")
+    elements: list = []
+    fb: list[str] = [title]
 
-    okn = len(results) - len(failed)
-    lines.append(f"<font color='grey'>通过 {okn}/{len(results)} 项 · "
-                 f"注册 {len(CHECKS)} 项</font>")
+    # 1 结论区: 灯串(系统卡家族图形)
+    lamp = card_kit.light_string([(_lamp_state(r), r.name) for r in results])
+    elements.append(card_kit.heading_md(lamp))
+    fb.append(lamp)
+
+    # 2 数据区: 异常项(正文最多 6 条, 防超 10 行)
+    _MAX = 6
+    for r in failed[:_MAX]:
+        line = f"{_SEV_ICON.get(r.severity, '')} **{r.name}** · 实际 {r.actual} · 期望 {r.expected}"
+        elements.append(md_element(line))
+        fb.append(line)
+    if len(failed) > _MAX:
+        more = f"<font color='grey'>…另有 {len(failed) - _MAX} 项异常, 见折叠详情</font>"
+        elements.append(md_element(more))
+        fb.append(f"…另有 {len(failed) - _MAX} 项异常")
+
+    # 3 行动建议区(基线: 必有, ≤20字动词开头)
+    if crit:
+        adv = f"先查{crit[0].name}"
+    elif failed:
+        adv = "抽空核对异常项"
+    else:
+        adv = "无需处理"
+    elements.append(card_kit.advice(adv))
+    fb.append(f"👉 {adv}")
+
+    # 4 折叠详情: 元检查 + 心跳 + 超出正文的异常项 + 通过项名单
+    det: list[str] = [f"通过 {len(results) - len(failed)}/{len(results)} 项 · 注册 {len(CHECKS)} 项"]
     if len(results) < len(CHECKS):
-        lines.append("<font color='red'>⚠️ 执行项数少于注册项数, 有检查项自身未运行</font>")
-
+        det.append("⚠️ 执行项数少于注册项数, 有检查项自身未运行")
     lp = heartbeat.get("last_push_at")
     if lp:
-        hrs = (datetime.now() - lp).total_seconds() / 3600
-        lines.append(f"<font color='grey'>距上次成功推送 {hrs:.0f} 小时</font>")
+        det.append(f"距上次成功推送 {(datetime.now() - lp).total_seconds() / 3600:.0f} 小时")
     streak = int(heartbeat.get("fail_streak") or 0)
     if streak:
-        lines.append(f"<font color='red'>⚠️ 报告推送已连续失败 {streak} 次</font>")
-    return title, "\n".join(lines), bool(crit)
+        det.append(f"⚠️ 报告推送已连续失败 {streak} 次")
+    for r in failed[_MAX:]:
+        det.append(f"{_SEV_ICON.get(r.severity, '')} {r.name} · 实际 {r.actual}")
+    for r in failed:
+        if r.detail:
+            det.append(f"{r.name}: {r.detail[:120]}")
+    detail_md = "\n".join(det)
+    elements.append(collapsible_element("体检明细", detail_md))
+    fb.extend(det)
+
+    card = card_kit.Card(
+        title=title, elements=elements, fallback="\n".join(fb), family="system",
+        summary=card_kit.summary_text(
+            "系统体检", f"{len(results) - len(failed)}/{len(results)}通过",
+            f"{len(crit)}项故障" if crit else ""),
+        tags=[("故障", "red")] if crit else ([("异常", "orange")] if failed else [("正常", "grey")]),
+    )
+    return card, bool(crit)
 
 
 async def run_health_report():
@@ -461,16 +511,10 @@ async def run_health_report():
         logger.warning(f"[health] 结果落库失败(继续推送): {e}")
 
     hb = await hc_repo.get_heartbeat()
-    title, body, has_crit = build_report(results, hb)
-
     ok = False
     try:
-        from backend.services import card_kit, notifier
-        from backend.services.lark_notifier import md_element
-        card = card_kit.Card(
-            title=title, elements=[md_element(body)], fallback=f"{title}\n{body}",
-            family="risk" if has_crit else "info",
-            summary=title, tags=[("体检", "red" if has_crit else "grey")])
+        from backend.services import notifier
+        card, _has_crit = build_report_card(results, hb)
         ok = bool(await notifier.send_card(card))
     except Exception as e:
         logger.warning(f"[health] 报告推送失败: {e}")
