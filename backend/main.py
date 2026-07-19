@@ -17,7 +17,7 @@ from backend.models.database import init_db, close_db
 from backend.models.repository import purge_old_logs
 from backend.services import task_manager
 
-from backend.routers import stocks, signals, kline, search, config, scan, ws, ths, auth, users, logs, signal_config, popularity, market_report, scheduled_tasks, backtest, trade_analysis, substance, api_health as api_health_router, signal_executions, sector, emotion, market_breadth, near_buy, auction_pool, paper_trading, lark_templates, blogger, alerts, sector_rotation, quick, wencai, limit_up, apply, trade_journal, coach
+from backend.routers import stocks, signals, kline, search, config, scan, ws, ths, auth, users, logs, signal_config, popularity, market_report, scheduled_tasks, backtest, trade_analysis, substance, api_health as api_health_router, signal_executions, sector, emotion, market_breadth, near_buy, auction_pool, paper_trading, lark_templates, blogger, alerts, sector_rotation, quick, wencai, limit_up, apply, trade_journal, coach, stock_review
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,6 +108,7 @@ app.include_router(wencai.router)
 app.include_router(limit_up.router)
 app.include_router(apply.router)   # 官网内测申请(POST 免鉴权)
 app.include_router(coach.router)
+app.include_router(stock_review.router)
 
 # Serve Vue production build if it exists
 FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
