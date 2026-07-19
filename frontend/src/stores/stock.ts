@@ -107,7 +107,7 @@ export const useStockStore = defineStore('stock', () => {
   }
 
   // v1.7.50: 盘外 30 分钟刷新 ± 抖动削峰
-  //  交易时段:   3 秒
+  //  交易时段:   2 秒
   //  非交易时段: 30 分钟基准 + 随机抖动 ±3min (1620s ~ 1980s)
   // 抖动让每次 tick 落在 30 分钟周期内随机时刻, 避免多客户端在 30 分钟边界集中请求
   function getPollInterval(): number {
@@ -120,7 +120,7 @@ export const useStockStore = defineStore('stock', () => {
       const inAfternoon = hm >= 13 * 60 && hm <= 15 * 60
       return inMorning || inAfternoon
     })()
-    if (inTradingHours) return 3000
+    if (inTradingHours) return 2000
     // 1800s ± 180s
     const base = 1800000
     const jitter = Math.floor((Math.random() - 0.5) * 360000)
@@ -128,7 +128,7 @@ export const useStockStore = defineStore('stock', () => {
   }
 
   // 标签页切走时暂停发请求(定时器照转但跳过网络), 切回立即刷一次 —
-  // 盘中3s高频轮询在后台标签页空转纯属浪费(还占后端行情通道)
+  // 盘中2s高频轮询在后台标签页空转纯属浪费(还占后端行情通道)
   function onVisibilityChange() {
     if (!document.hidden) refreshQuotes()
   }
