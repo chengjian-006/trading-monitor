@@ -718,7 +718,7 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '成交额排名',
+    title: '成交',
     key: 'amount_rank',
     width: 84,
     align: 'center' as const,
@@ -923,7 +923,7 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    width: 132,
+    width: 152,
     fixed: 'right' as const,
     render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
       (() => {
@@ -991,7 +991,7 @@ const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'v
 
 // 列自定义 (v1.7.672): 可勾选隐藏的列(结构列 序号/代码/名称/操作 恒显不可关); 选择存 localStorage
 const HIDEABLE: { key: string; label: string }[] = [
-  { key: 'popularity_rank', label: '人气' }, { key: 'amount_rank', label: '成交额排名' },
+  { key: 'popularity_rank', label: '人气' }, { key: 'amount_rank', label: '成交' },
   { key: 'sparkline', label: '走势图' }, { key: 'price', label: '现价' },
   { key: 'pct_change', label: '涨幅' }, { key: 'pct_5d', label: '5日涨幅' },
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
@@ -1135,6 +1135,13 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 /* 表体数字列等宽对齐, 防 3s 行情刷新数字跳动 */
 .stock-table-wrap :deep(.n-data-table-td) {
   font-variant-numeric: tabular-nums;
+}
+/* 固定列(选择/操作)给不透明底: 防横向滚动时下面「策略」等列内容透出造成重叠遮挡 */
+.stock-table-wrap :deep(.n-data-table-td--fixed-left),
+.stock-table-wrap :deep(.n-data-table-td--fixed-right),
+.stock-table-wrap :deep(.n-data-table-th--fixed-left),
+.stock-table-wrap :deep(.n-data-table-th--fixed-right) {
+  background-color: var(--bg-surface);
 }
 .signal-expand {
   padding: 8px 12px;
