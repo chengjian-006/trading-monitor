@@ -24,34 +24,64 @@ def _as_date(v):
 
 
 def _fingerprint(code, direction, quantity, price, trade_time):
-    """日期无关的成交指纹: 秒级时间 + 量 + 价唯一锁定一笔成交。"""
+    """日期无关的量价时间指纹: 秒级时间 + 量 + 价。成交编号缺失时的兜底判据。"""
     return (str(code), str(direction), int(quantity),
             round(float(price), 3), str(trade_time))
+
+
+def _deal_no(rec) -> str | None:
+    """取成交编号(每笔成交全局唯一号); 空/缺 → None。"""
+    v = rec.get("deal_no")
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s or None
+
+
+def _same_fill(r_fp, r_deal, r_date, e_fp, e_deal, e_date, window_days: int) -> bool:
+    """判两笔是否同一笔成交:
+      - 双方都有成交编号 → 严格按编号相等(等量拆单编号不同=不同笔, 保留; 重复导入编号相同=同笔, 去重);
+      - 任一方无编号(跨格式: 平安"历史成交"可能无编号) → 退回 量价时间指纹 + 成交日相距≤window。
+    这样等量拆单靠编号区分、跨格式靠指纹兜底, 两头都不误判。"""
+    if r_deal and e_deal:
+        return r_deal == e_deal
+    if r_fp != e_fp:
+        return False
+    if r_date is None or e_date is None:
+        return True
+    return abs((r_date - e_date).days) <= window_days
 
 
 def filter_new_records(records: list[dict], existing: list[dict],
                        window_days: int = _DEDUP_WINDOW_DAYS) -> list[dict]:
     """从待入库 records 里剔除与 existing(或同批已留)重复的成交, 返回应新增的子集。
 
-    判重: 指纹相同(_fingerprint) 且成交日相距 ≤ window_days。纯逻辑, 不连库, 供单测。
-    """
-    seen: dict[tuple, list] = {}
+    去重按"同一笔"关系(_same_fill)做多重集消费: 每条 incoming 至多消费一条尚未被消费的
+    已存在记录; 消费到=重复导入跳过, 消费不到=新成交(含同秒同量同价但成交编号不同的等量拆单)保留。
+    纯逻辑, 不连库, 供单测。"""
+    pool = []   # 可消费池: 已存在(DB) + 同批已保留, 每项 {fp, deal, date}
     for e in existing:
-        fp = _fingerprint(e["code"], e["direction"], e["quantity"], e["price"], e["trade_time"])
-        d = _as_date(e["trade_date"])
-        if d is not None:
-            seen.setdefault(fp, []).append(d)
+        pool.append({
+            "fp": _fingerprint(e["code"], e["direction"], e["quantity"], e["price"], e["trade_time"]),
+            "deal": _deal_no(e),
+            "date": _as_date(e["trade_date"]),
+        })
 
     fresh = []
     for r in records:
-        fp = _fingerprint(r["code"], r["direction"], r["quantity"], r["price"], r["trade_time"])
-        d = _as_date(r["trade_date"])
-        prev = seen.get(fp)
-        if prev and d is not None and any(abs((d - p).days) <= window_days for p in prev):
-            continue   # 同一笔成交已存在(可能 trade_date 不同), 跳过防重复导入
-        if d is not None:
-            seen.setdefault(fp, []).append(d)   # 同批内也去重
+        rfp = _fingerprint(r["code"], r["direction"], r["quantity"], r["price"], r["trade_time"])
+        rdeal = _deal_no(r)
+        rdate = _as_date(r["trade_date"])
+        hit = None
+        for i, e in enumerate(pool):
+            if _same_fill(rfp, rdeal, rdate, e["fp"], e["deal"], e["date"], window_days):
+                hit = i
+                break
+        if hit is not None:
+            pool.pop(hit)   # 消费掉该已存在记录, 防两条相同 incoming 撞同一条
+            continue
         fresh.append(r)
+        pool.append({"fp": rfp, "deal": rdeal, "date": rdate})   # 同批后续可与它去重
     return fresh
 
 
@@ -100,7 +130,7 @@ async def save_trade_records(user_id: int, records: list[dict]) -> int:
     codes = {r["code"] for r in records}
     placeholders = ",".join(["%s"] * len(codes))
     existing = await _fetchall(
-        f"SELECT code, direction, quantity, price, trade_time, trade_date "
+        f"SELECT code, direction, quantity, price, trade_time, trade_date, deal_no "
         f"FROM cfzy_biz_trades WHERE user_id = %s AND code IN ({placeholders})",
         (user_id, *codes),
     )
@@ -113,11 +143,11 @@ async def save_trade_records(user_id: int, records: list[dict]) -> int:
         async with conn.cursor() as cur:
             await cur.executemany(
                 "INSERT IGNORE INTO cfzy_biz_trades "
-                "(user_id, trade_date, trade_time, code, name, direction, quantity, price, amount, fee, stamp_tax, transfer_fee, net_amount) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                "(user_id, trade_date, trade_time, code, name, direction, quantity, price, amount, fee, stamp_tax, transfer_fee, net_amount, deal_no) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 [(user_id, r["trade_date"], r["trade_time"], r["code"], r["name"],
                   r["direction"], r["quantity"], r["price"], r["amount"],
-                  r["fee"], r["stamp_tax"], r["transfer_fee"], r["net_amount"])
+                  r["fee"], r["stamp_tax"], r["transfer_fee"], r["net_amount"], r.get("deal_no"))
                  for r in fresh],
             )
             return cur.rowcount

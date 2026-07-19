@@ -331,6 +331,7 @@ SCHEMA_STATEMENTS = [
         stamp_tax     DECIMAL(8,2) DEFAULT 0,
         transfer_fee  DECIMAL(8,2) DEFAULT 0,
         net_amount    DECIMAL(12,2),
+        deal_no       VARCHAR(40) DEFAULT NULL,
         imported_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_user_code (user_id, code),
         INDEX idx_user_date (user_id, trade_date)
@@ -985,7 +986,11 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_sys_users ADD COLUMN mobile VARCHAR(20) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN sector_rank INT DEFAULT NULL",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN hold_source VARCHAR(10) NOT NULL DEFAULT ''",
-    "ALTER TABLE cfzy_biz_trades ADD UNIQUE INDEX uk_trade (user_id, trade_date, trade_time, code, direction, quantity, price)",
+    "ALTER TABLE cfzy_biz_trades ADD COLUMN deal_no VARCHAR(40) DEFAULT NULL",
+    # deal_no(成交编号)进唯一键: 等量拆单(同秒同量同价但成交编号不同)在DB层不再被 INSERT IGNORE 丢掉;
+    # 老数据 deal_no=NULL, MySQL 唯一键视 NULL 互不相同, 向后兼容(应用层 filter_new_records 主去重)。
+    # 既有7列 uk_trade 由 _migrate_trades_uk_deal_no 条件重建(此 ADD 对既有库报1061被幂等吞)。
+    "ALTER TABLE cfzy_biz_trades ADD UNIQUE INDEX uk_trade (user_id, trade_date, trade_time, code, direction, quantity, price, deal_no)",
     "ALTER TABLE cfzy_biz_signals ADD INDEX idx_user_triggered (user_id, triggered_at)",
     "ALTER TABLE cfzy_biz_signals ADD INDEX idx_dedup (code, signal_id, user_id, triggered_at)",
     "ALTER TABLE cfzy_biz_operation_logs ADD INDEX idx_user_created (user_id, created_at)",
@@ -1130,6 +1135,26 @@ async def _migrate_stock_pool_pk(cur):
         logger.warning(f"[migration] stock_pool 主键条件迁移跳过: {e}")
 
 
+async def _migrate_trades_uk_deal_no(cur):
+    """既有 cfzy_biz_trades.uk_trade(7列)重建为含 deal_no(成交编号)的8列, 让等量拆单不被唯一键丢。
+    条件迁移(仿 _migrate_stock_pool_pk): 已含 deal_no 或索引未建则跳过, 避免每次启动重建索引。"""
+    try:
+        await cur.execute(
+            "SELECT COLUMN_NAME FROM information_schema.STATISTICS "
+            "WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='cfzy_biz_trades' "
+            "AND INDEX_NAME='uk_trade' ORDER BY SEQ_IN_INDEX")
+        cols = [r[0] for r in await cur.fetchall()]
+        if not cols or "deal_no" in cols:
+            return   # 索引尚未建(全新库由MIGRATION建8列版) 或 已含deal_no → 无需改
+        await cur.execute("ALTER TABLE cfzy_biz_trades DROP INDEX uk_trade")
+        await cur.execute(
+            "ALTER TABLE cfzy_biz_trades ADD UNIQUE INDEX uk_trade "
+            "(user_id, trade_date, trade_time, code, direction, quantity, price, deal_no)")
+        logger.info(f"[migration] cfzy_biz_trades uk_trade {cols} → 含 deal_no 已迁移")
+    except Exception as e:
+        logger.warning(f"[migration] uk_trade deal_no 条件迁移跳过: {e}")
+
+
 async def _run_migrations(conn):
     import json as _json
     # v1.7.x: MySQL 错误码区分 —— "幂等已存在"类静默吞掉, 真正的错误必须记 warning
@@ -1156,6 +1181,8 @@ async def _run_migrations(conn):
                 )
             except Exception as e:
                 logger.warning(f"[migration] 未知异常被跳过: stmt={stmt[:100]!r} err={e}")
+        # 列 deal_no 已由上面 ADD COLUMN 就位后, 条件重建 uk_trade(含 deal_no)
+        await _migrate_trades_uk_deal_no(cur)
         migration_tasks = [
             # v1.7.572: 每日涨停复盘存档+推送 — 收盘后15:40拉同花顺涨停池(每只带涨停概念/板数/炸板)
             # 存 cfzy_sys_limit_up_pool/daily, 并推一张飞书复盘卡(概览+连板梯队+热点分布, 精华版)。

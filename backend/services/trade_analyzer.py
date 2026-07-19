@@ -38,6 +38,7 @@ _FIELD_ALIASES = {
     "stamp_tax": ["印花税"],
     "transfer_fee": ["过户费"],
     "net_amount": ["发生金额", "清算金额"],
+    "deal_no": ["成交编号", "成交序号"],   # 每笔成交全局唯一号; 用于区分等量拆单 vs 重复导入(可选列)
 }
 _REQUIRED = ("date", "code", "op", "quantity", "price", "amount")
 # 历史成交: 无成交日期列(日期由外部注入), 故 date 不在必需集。
@@ -103,6 +104,7 @@ def _parse_row_mapped(cols: list[str], m: dict, inject_date: date | None = None)
         "stamp_tax": _safe_float(_cell(cols, m.get("stamp_tax"))),
         "transfer_fee": _safe_float(_cell(cols, m.get("transfer_fee"))),
         "net_amount": _safe_float(_cell(cols, m.get("net_amount"))),
+        "deal_no": (_cell(cols, m.get("deal_no")).strip() or None) if m.get("deal_no") is not None else None,
     }
 
 
@@ -203,6 +205,7 @@ def _parse_row(cols: list[str]) -> dict | None:
     stamp_tax = _safe_float(cols[12]) if len(cols) > 12 else 0
     transfer_fee = _safe_float(cols[15]) if len(cols) > 15 else 0
     net_amount = _safe_float(cols[10]) if len(cols) > 10 else 0
+    deal_no = (cols[6].strip() or None) if len(cols) > 6 else None   # 定位版列6=成交编号(同花顺远航版式)
 
     return {
         "trade_date": trade_date,
@@ -217,6 +220,7 @@ def _parse_row(cols: list[str]) -> dict | None:
         "stamp_tax": stamp_tax,
         "transfer_fee": transfer_fee,
         "net_amount": net_amount,
+        "deal_no": deal_no,
     }
 
 
