@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.709',
+    date: '2026-07-19',
+    title: '股票池「策略」列再压窄',
+    changes: [
+      {
+        text: '股票池「策略」列宽从 118 收到 96px,策略文本超 8 字即省略(完整内容悬停卡片看),更紧凑。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.708',
     date: '2026-07-19',
     title: '模型图鉴战绩改为实时，不再写死在文案里',

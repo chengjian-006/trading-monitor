@@ -853,7 +853,7 @@ const allColumns = computed(() => [
   {
     title: '策略',
     key: 'strategy',
-    width: 118,
+    width: 96,
     ellipsis: true,
     render: (row: Stock) => {
       const text = row.strategy?.trim() || ''
@@ -868,7 +868,7 @@ const allColumns = computed(() => [
         style: { cursor: 'pointer', fontSize: '12px', color: '#7c3aed', fontWeight: 500 },
         onClick: handler,
       }, [
-        h('span', {}, text.length > 14 ? text.slice(0, 14) + '…' : text),
+        h('span', {}, text.length > 8 ? text.slice(0, 8) + '…' : text),
         h(NIcon, { size: 12, style: { marginLeft: '3px', verticalAlign: 'middle', opacity: 0.6 } }, { default: () => h(CreateOutline) }),
       ])
       // 悬浮富卡(功能A): 完整策略 + 目标/止损/仓位高亮; 点击仍进编辑
