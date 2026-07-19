@@ -91,6 +91,22 @@ async def ext_download():
     )
 
 
+@router.get("/quote")
+async def wencai_quote(code: str):
+    """按 6 位股票代码返当前现价(供扩展详情页算「距现价 %」)。免鉴权、只收合法代码。"""
+    code = re.sub(r"\D", "", code or "")[:6]
+    if len(code) != 6:
+        raise HTTPException(status_code=400, detail="code 非法")
+    from backend.fetcher.quotes import get_realtime_quotes
+    try:
+        q = await get_realtime_quotes([code])
+    except Exception:
+        q = {}
+    d = q.get(code) or {}
+    return {"code": code, "price": d.get("price"), "pct_change": d.get("pct_change"),
+            "name": d.get("name", ""), "pre_close": d.get("pre_close")}
+
+
 @router.get("/userscript.user.js")
 async def userscript():
     """托管油猴脚本原文: 供篡改猴 @updateURL/@downloadURL 拉取自动更新(路径 .user.js 便于点开即装)。"""

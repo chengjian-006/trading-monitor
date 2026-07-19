@@ -12,6 +12,25 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.687',
+    date: '2026-07-19',
+    title: '问财观点详情页改版：现代财富 App 风 + 距现价百分比',
+    changes: [
+      {
+        text: '观点详情页整体改成现代财富 App 视觉（Porcelain Pro：瓷白卡片 + 靛蓝主色 + 圆角磁贴），主推标的做成 hero，买入/止盈/止损做成大号价位磁贴。',
+        tag: 'improve',
+      },
+      {
+        text: '价位磁贴新增「距现价 %」：从结论里正则抽出价位数字，向后端取该股现价，算出每个价位相对现价的涨跌幅（红涨绿跌 A 股口径）并配强弱进度条；抽不到价位时自动退回只显示文字，不会出错。',
+        tag: 'new',
+      },
+      {
+        text: '后端新增 /api/wencai/quote?code=（按代码返现价，走新浪/腾讯行情源）供详情页算百分比。扩展升至 1.7.0。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.686',
     date: '2026-07-19',
     title: '大盘风控背书重做：更正推送里那串站不住的胜率数字',

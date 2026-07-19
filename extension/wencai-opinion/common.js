@@ -109,6 +109,22 @@
     return hit >= 3 ? out : null;
   }
 
+  // 从一句结论里抽出价位: 优先带「元」锚点的区间/单值, 再退到区间, 再退到像价格的单数字。
+  // 返回 {lo, hi}(单值 lo===hi)或 null(抽不到→上层退回只显示文字)。
+  function extractPrice(text) {
+    const t = String(text || '').replace(/[,，]/g, '');
+    let m = t.match(/(\d{2,5}(?:\.\d+)?)\s*[—~\-–]\s*(\d{2,5}(?:\.\d+)?)\s*元/);
+    if (m) return { lo: +m[1], hi: +m[2] };
+    m = t.match(/(\d{2,5}(?:\.\d+)?)\s*元/);
+    if (m) return { lo: +m[1], hi: +m[1] };
+    m = t.match(/(\d{2,5}(?:\.\d+)?)\s*[—~–]\s*(\d{2,5}(?:\.\d+)?)/);
+    if (m) return { lo: +m[1], hi: +m[2] };
+    const re = /(\d{2,5}(?:\.\d+)?)(?!\s*(?:%|％|天|日|周|个?月|年|倍|万|亿|手))/g;
+    let mm;
+    while ((mm = re.exec(t))) { const v = +mm[1]; if (v >= 2 && v <= 100000) return { lo: v, hi: v }; }
+    return null;
+  }
+
   // 结论值清洗(展示前): 去首尾竖线、去开头重复标签(如 "止盈 | 一周...")、中间竖线→空格。
   function cleanConcVal(s, label) {
     let v = String(s || '').replace(/[*`]/g, '').trim();
@@ -240,5 +256,5 @@
              deepResearch: d.deep_research_query_times, leftTime: d.left_time };
   }
 
-  root.WOP = { genSessionId, cmpVer, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, cleanConcVal, stripMarkerLine };
+  root.WOP = { genSessionId, cmpVer, buildBody, esc, mdRender, stripEmbeds, buildStandaloneHtml, readAimeSSE, runAimeQuery, fetchQuota, FORMAT_SUFFIX, extractConclusion, cleanConcVal, extractPrice, stripMarkerLine };
 })(typeof self !== 'undefined' ? self : this);
