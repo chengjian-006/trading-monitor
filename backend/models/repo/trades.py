@@ -153,6 +153,55 @@ async def save_trade_records(user_id: int, records: list[dict]) -> int:
             return cur.rowcount
 
 
+async def replace_trades_on_date(user_id: int, trade_date, records: list[dict]) -> tuple[int, int]:
+    """原子替换某交易日成交: 单事务内先删该日、再去重写入这批, 返回 (删除行数, 新增行数)。
+
+    历史成交「替换该日」用。原来 delete 与 save 分处两个独立连接、无事务包裹, 删成功后写入前
+    崩溃/失败会把该日成交清空且无法回滚(丢数据)。改为同一连接 conn.begin() 事务, 整体成败一致。
+    去重仍按 filter_new_records(对其它日已存在成交按指纹/成交编号判重, 本日已删不算存在)。
+    """
+    import aiomysql
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "DELETE FROM cfzy_biz_trades WHERE user_id = %s AND trade_date = %s",
+                    (user_id, trade_date),
+                )
+                deleted = cur.rowcount
+            inserted = 0
+            if records:
+                codes = {r["code"] for r in records}
+                ph = ",".join(["%s"] * len(codes))
+                async with conn.cursor(aiomysql.DictCursor) as dcur:
+                    await dcur.execute(
+                        f"SELECT code, direction, quantity, price, trade_time, trade_date, deal_no "
+                        f"FROM cfzy_biz_trades WHERE user_id = %s AND code IN ({ph})",
+                        (user_id, *codes),
+                    )
+                    existing = await dcur.fetchall()
+                fresh = filter_new_records(records, existing)
+                if fresh:
+                    async with conn.cursor() as icur:
+                        await icur.executemany(
+                            "INSERT IGNORE INTO cfzy_biz_trades "
+                            "(user_id, trade_date, trade_time, code, name, direction, quantity, price, amount, fee, stamp_tax, transfer_fee, net_amount, deal_no) "
+                            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                            [(user_id, r["trade_date"], r["trade_time"], r["code"], r["name"],
+                              r["direction"], r["quantity"], r["price"], r["amount"],
+                              r["fee"], r["stamp_tax"], r["transfer_fee"], r["net_amount"], r.get("deal_no"))
+                             for r in fresh],
+                        )
+                        inserted = icur.rowcount
+            await conn.commit()
+            return deleted, inserted
+        except Exception:
+            await conn.rollback()
+            raise
+
+
 async def get_all_trade_records(user_id: int) -> list[dict]:
     """获取用户全量交割记录 (用于分析)."""
     return await _fetchall(

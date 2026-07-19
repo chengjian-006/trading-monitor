@@ -92,9 +92,13 @@ async def upload_status(user: Annotated[dict, Depends(get_current_user)]):
     }
 
 
-async def _import_and_analyze(user_id: int, new_trades: list[dict]) -> dict:
-    """存入新记录，基于全量数据分析，同步持仓"""
-    new_count = await repository.save_trade_records(user_id, new_trades)
+async def _import_and_analyze(user_id: int, new_trades: list[dict], pre_saved_count: int | None = None) -> dict:
+    """存入新记录，基于全量数据分析，同步持仓。
+    pre_saved_count 非空表示调用方已在事务里存过(如历史成交替换该日走 replace_trades_on_date), 不再重复 save。"""
+    if pre_saved_count is None:
+        new_count = await repository.save_trade_records(user_id, new_trades)
+    else:
+        new_count = pre_saved_count
 
     all_rows = await repository.get_all_trade_records(user_id)
     all_trades = _db_rows_to_trades(all_rows)
@@ -176,9 +180,10 @@ async def import_history(
     if not trades:
         return {"ok": False, "msg": "未识别到有效的历史成交记录。请连同表头行(成交时间 证券代码 操作 …)一起粘贴。"}
 
-    deleted = await repository.delete_trades_on_date(user["id"], d)
-    logger.info(f"[trade_analysis] user={user['id']} 历史成交替换该日 {d}: 清旧 {deleted} 行, 写入 {len(trades)} 行")
-    result = await _import_and_analyze(user["id"], trades)
+    # 原子替换: 删该日+去重写入 在单事务内完成, 崩溃则整体回滚, 不会删了旧的又没写进新的丢当日成交。
+    deleted, inserted = await repository.replace_trades_on_date(user["id"], d, trades)
+    logger.info(f"[trade_analysis] user={user['id']} 历史成交替换该日 {d}: 清旧 {deleted} 行, 写入 {inserted} 行")
+    result = await _import_and_analyze(user["id"], trades, pre_saved_count=inserted)
     return {"ok": True, "record_count": result["total_count"], **result}
 
 

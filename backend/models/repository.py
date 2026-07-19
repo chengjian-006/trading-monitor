@@ -100,7 +100,7 @@ from backend.models.repo.scheduled_tasks import (  # noqa: F401
 )
 from backend.models.repo.trades import (  # noqa: F401
     save_trade_records, get_all_trade_records, sync_positions_from_trades,
-    has_import_today, get_latest_import_time, delete_trades_on_date,
+    has_import_today, get_latest_import_time, delete_trades_on_date, replace_trades_on_date,
 )
 from backend.models.repo.blogger_posts import (  # noqa: F401
     save_post, get_recent_posts, list_posts, mark_pushed,

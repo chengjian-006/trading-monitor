@@ -9,6 +9,7 @@
   DELETE /api/wencai/queries/{id} 删除语句及其候选榜
   POST   /api/wencai/ingest       本地油猴代跑上报: 浏览器登录态查问财→归一化→POST结果落库(共享密钥鉴权, 免JWT)
 """
+import asyncio
 import io
 import json
 import re
@@ -352,17 +353,9 @@ _OPINION_MAX_STOCKS = 12
 _CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 
 
-async def _extract_stocks(text: str) -> list[dict]:
-    """从投顾话术里撞出被提及的 A 股: ①正文里的 6 位代码 ②全市场名称字典命中(全名 len>=3 防误伤)。
-
-    按出现次数降序、首现位置升序排, 第一只标 primary(主推通常反复提且靠前)。返回 [{code,name,primary}]。
-    """
-    if not text:
-        return []
-    try:
-        names = await repository.all_stock_names()   # [{code, name}]
-    except Exception:
-        names = []
+def _scan_names(text: str, names: list[dict]) -> list[dict]:
+    """纯CPU: 在话术文本里撞全市场名称字典/6位代码。~5000名称的 O(N×len) 扫描,
+    必须放线程池跑(见 _extract_stocks), 绝不能直接在单worker事件循环上跑(否则匿名接口可打挂全站)。"""
     code2name = {str(r["code"]): str(r["name"]) for r in names}
     found: dict[str, dict] = {}   # code -> {code, name, count, idx}
 
@@ -391,6 +384,18 @@ async def _extract_stocks(text: str) -> list[dict]:
     ranked = sorted(found.values(), key=lambda x: (-x["count"], x["idx"]))
     return [{"code": s["code"], "name": s["name"], "primary": i == 0}
             for i, s in enumerate(ranked[:_OPINION_MAX_STOCKS])]
+
+
+async def _extract_stocks(text: str) -> list[dict]:
+    """从投顾话术里撞出被提及的 A 股: ①正文里的 6 位代码 ②全市场名称字典命中(全名 len>=3 防误伤)。
+    按出现次数降序、首现位置升序排, 第一只标 primary。CPU重活卸到线程池, 不阻塞事件循环。"""
+    if not text:
+        return []
+    try:
+        names = await repository.all_stock_names()   # [{code, name}]
+    except Exception:
+        names = []
+    return await asyncio.to_thread(_scan_names, text, names)
 
 
 # ── H4 安全整改 (v1.7.653): /opinion 无鉴权(用户拍板)靠 IP 限流兜底防匿名刷库/DoS ──

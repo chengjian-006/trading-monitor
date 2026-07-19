@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, File, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.core.config import load_config
@@ -203,7 +203,8 @@ async def ocr_recognize(file: UploadFile = File(...), user: dict = Depends(get_c
 
 
 class BatchDeleteRequest(BaseModel):
-    codes: list[str]
+    # 上限防几千条逐条 DB 往返(单worker+跨云44ms)打爆连接池、拖垮实时行情
+    codes: list[str] = Field(..., max_length=1000)
 
 
 @router.post("/batch-delete")
@@ -223,7 +224,7 @@ async def batch_delete(req: BatchDeleteRequest, user: Annotated[dict, Depends(ge
 
 
 class BatchImportRequest(BaseModel):
-    stocks: list[dict]
+    stocks: list[dict] = Field(..., max_length=1000)   # 同 batch-delete: 防无界批量逐条往返
 
 
 @router.post("/batch-import")
