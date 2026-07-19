@@ -42,6 +42,11 @@ onMounted(load)
 
 const btMap = computed<Record<string, ModelBacktestRow>>(() => { const m: Record<string, ModelBacktestRow> = {}; for (const r of bt.value.models) m[r.signal_id] = r; return m })
 const btOf = (id: string) => btMap.value[id] || null
+// v1.7.708: 每张模型卡挂实时战绩 —— 此前卡内「特点/注意事项」文案里写死了各模型的胜率与
+// 盈利因子(如平台突破写「实测胜率74%/盈利因子4.03」), 而同页胜率榜是每晚 21:00 重算的实时值
+// (实测当时 54.0%/近6月48.8%), 同屏两个数字差 20 多个百分点。战绩一律走实时表, 静态文案只留定性。
+const wrMap = computed<Record<string, any>>(() => { const m: Record<string, any> = {}; for (const r of winrate.value.models) m[r.signal_id] = r; return m })
+const wrOf = (id: string) => wrMap.value[id] || null
 const outOf = (id: string) => outcome.value[id] || null
 
 const activeId = ref<string>(MODELS[0]?.id || '')
@@ -94,6 +99,23 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
   <div v-for="m in MODELS" :key="m.id" :id="'m-' + m.id" class="mp-model-card" :class="m.side">
     <div class="mp-mc-hd"><div class="mp-mc-hd-l"><span class="mp-mc-name">{{ m.name }}</span><span class="mp-side-pill" :class="m.side">{{ m.side==='left'?'左侧':'右侧' }}</span><span class="mp-mc-tag">{{ m.tag }}</span><span v-if="m.isNew" class="mp-new-tag">新</span></div><span class="mp-mc-code">{{ m.id }}</span></div>
     <p class="mp-mc-oneliner">{{ m.oneLine }}</p>
+
+    <!-- v1.7.708 实时战绩带: 数字一律来自每晚21:00重算的胜率表, 不再写死在文案里 -->
+    <div v-if="wrOf(m.id)" class="mp-mc-live">
+      <span class="mp-live-tag">实时战绩</span>
+      <span class="mp-live-i">近3月 <b>{{ wrOf(m.id).win_rate_3m?.toFixed(1) }}%</b>
+        <em :class="(wrOf(m.id).net_3m || 0) >= 0 ? 'up' : 'down'">{{ fmtNet(wrOf(m.id).net_3m) }}</em>
+        <u>{{ wrOf(m.id).n_3m }}笔</u></span>
+      <span class="mp-live-i">近6月 <b>{{ wrOf(m.id).win_rate_6m != null ? wrOf(m.id).win_rate_6m.toFixed(1) + '%' : '—' }}</b>
+        <em :class="(wrOf(m.id).net_6m || 0) >= 0 ? 'up' : 'down'">{{ fmtNet(wrOf(m.id).net_6m) }}</em>
+        <u>{{ wrOf(m.id).n_6m || 0 }}笔</u></span>
+      <span v-if="wrOf(m.id).rank_3m" class="mp-live-i">近3月排名 <b>第{{ wrOf(m.id).rank_3m }}</b></span>
+      <span class="mp-live-as">截至 {{ winrate.run_date || '—' }}</span>
+    </div>
+    <div v-else-if="!loading" class="mp-mc-live mp-live-none">
+      <span class="mp-live-tag">实时战绩</span>
+      <span class="mp-live-i">暂无(样本不足或未纳入全市场回测)</span>
+    </div>
 
     <div v-if="!showVisual" class="mp-mc-grid">
       <div class="mp-mc-blk"><h4 class="mp-mc-bt">特点</h4><ul><li v-for="(t,i) in m.traits" :key="i">{{ t }}</li></ul></div>
@@ -281,6 +303,22 @@ const FLOW_STAGES: Record<string, FlowStage[]> = {
 .mp-mc-tag{font-size:11px;color:var(--text2);background:#f6f8fa;padding:1px 8px;border-radius:4px;font-weight:500}
 .mp-mc-code{font-size:10px;color:#c4c9d1;font-family:Consolas,monospace;flex-shrink:0}
 .mp-mc-oneliner{margin:6px 0 10px;font-size:13px;color:var(--text1);line-height:1.5;padding:8px 12px;background:#fafbfc;border-radius:6px;border-left:3px solid #e5e7eb}
+/* v1.7.708 实时战绩带: 数字来自每晚21:00重算的胜率表, 与静态文案区分开(文案只留定性) */
+.mp-mc-live{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0 0 10px;padding:7px 12px;
+  background:#f6f8fa;border:1px solid #e5e7eb;border-radius:6px;font-size:12px;color:var(--text1)}
+.mp-live-tag{font-size:10.5px;font-weight:700;color:#6d28d9;letter-spacing:.4px;flex-shrink:0}
+.mp-live-i{display:inline-flex;align-items:baseline;gap:4px;color:var(--text2)}
+.mp-live-i b{font-size:13px;font-weight:700;color:var(--text1)}
+.mp-live-i em{font-style:normal;font-weight:600}
+.mp-live-i em.up{color:#dc2626}.mp-live-i em.down{color:#16a34a}
+.mp-live-i u{text-decoration:none;font-size:11px;color:var(--text3, #9ca3af)}
+.mp-live-as{margin-left:auto;font-size:10.5px;color:var(--text3, #9ca3af);flex-shrink:0}
+.mp-live-none{color:var(--text3, #9ca3af)}
+@media (max-width:768px){
+  .mp-mc-live{gap:4px 10px;padding:6px 10px;font-size:11.5px}
+  .mp-live-i b{font-size:12.5px}
+  .mp-live-as{margin-left:0;width:100%}
+}
 .mp-mc-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.mp-mc-rules{grid-column:1/-1}
 .mp-mc-bt{font-size:11px;font-weight:700;color:#6d28d9;margin:0 0 4px;text-transform:uppercase;letter-spacing:.5px}
 .mp-mc-blk ul{margin:0;padding-left:17px}.mp-mc-blk li{font-size:12.5px;color:var(--text1);line-height:1.55}
