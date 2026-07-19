@@ -9,10 +9,13 @@ v1.7.535 起由 FIFO(剩余物理批次成本) 改为 摊薄成本: 卖出时把
 区别: 高抛低吸/减仓落袋利润会压低剩余股成本, 成本可低于任一买入价、甚至为负(已实现盈利超剩余投入);
 FIFO 旧法剩下的是更晚买入的高价仓, 与用户/券商认的"利润垫"背离, 致盈利保护误报(天华新能 300390)。
 """
+import logging
 from collections import defaultdict
 from datetime import date, timedelta
 
 from backend.models.repo._db import _fetchall
+
+logger = logging.getLogger(__name__)
 
 
 def compute_diluted_holdings(trades: list[dict]) -> dict[str, dict]:
@@ -37,6 +40,7 @@ def compute_diluted_holdings(trades: list[dict]) -> dict[str, dict]:
         qty = 0
         total_cost = 0.0
         leg_start = None     # 当前持仓段第一笔买入日
+        oversold = False     # 买卖股数守恒检测: 卖出曾超过持有=漏了买单(数据不全), 成本不可信
         for t in ts:
             tq = int(t["quantity"])
             price = float(t["price"])
@@ -47,6 +51,8 @@ def compute_diluted_holdings(trades: list[dict]) -> dict[str, dict]:
                 total_cost += price * tq
                 qty += tq
             else:                       # 卖出: 卖出金额抵减剩余成本(摊薄)
+                if qty - tq < 0:        # 卖出量>当前持有量 → 缺买单, 成本会被算低(误触发止盈的根源)
+                    oversold = True
                 total_cost -= price * tq
                 qty -= tq
                 if qty <= 0:            # 清仓归零, 重置(已落袋盈亏不带入下一段)
@@ -58,18 +64,25 @@ def compute_diluted_holdings(trades: list[dict]) -> dict[str, dict]:
                 leg_str = leg_start.strftime("%Y-%m-%d")
             else:
                 leg_str = str(leg_start)[:10]
+            if oversold:
+                logger.warning(
+                    f"[holdings] {code} 卖出量曾超过买入量(净持{qty}股), 疑似漏导买单→摊薄成本偏低, "
+                    f"标记成本不可信、静音成本类卖点(防误发止盈)")
             result[code] = {
                 "avg_cost": round(total_cost / qty, 3),   # 可为负(超额落袋)
                 "earliest_buy_date": leg_str,
                 "qty": qty,                               # 当前净持股数(止损升级算累计多亏用)
+                "cost_unreliable": oversold,              # True=缺量致成本偏低, 下游静音成本类卖点
             }
     return result
 
 
 async def get_holdings_cost(user_id: int) -> dict[str, float]:
-    """返回 {code: avg_cost(摊薄)}, 仅包含 remaining_qty > 0 的票."""
+    """返回 {code: avg_cost(摊薄)}, 仅含 remaining_qty > 0 且成本可信的票。
+    cost_unreliable(卖>买缺买单致成本偏低)的票不返回成本→ entry_cost=None→ 成本类卖点
+    (止盈/浮亏止损)自动静音, 不误发(缺量低侧成本护栏, 补上原来只挡高侧5倍的口子)。"""
     info = await _get_holdings_cost_info(user_id)
-    return {code: v["avg_cost"] for code, v in info.items()}
+    return {code: v["avg_cost"] for code, v in info.items() if not v.get("cost_unreliable")}
 
 
 async def get_holdings_entry_date(user_id: int) -> dict[str, str]:

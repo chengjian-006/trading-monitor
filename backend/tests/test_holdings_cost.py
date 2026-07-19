@@ -80,3 +80,27 @@ def test_fully_closed_not_in_result():
     trades = [_t("A", "buy", 100, 10.0, "2026-01-01"),
               _t("A", "sell", 100, 12.0, "2026-01-02")]
     assert compute_diluted_holdings(trades) == {}
+
+
+def test_oversold_flags_cost_unreliable():
+    """卖出量曾超过持有量(漏导买单) → 净持>0 但 cost_unreliable=True(守恒检测, 防误发止盈)。"""
+    # 只导了 500 股买入, 却有 800 股卖出(缺 300 股买单), 之后又买 400 → 净持不为0但数据有洞
+    trades = [
+        _t("002648", "buy", 500, 20.0, "2026-06-01"),
+        _t("002648", "sell", 800, 25.0, "2026-06-05"),   # 卖800 > 持有500 → oversold
+        _t("002648", "buy", 400, 22.0, "2026-06-10"),
+    ]
+    r = compute_diluted_holdings(trades)
+    assert "002648" in r
+    assert r["002648"]["cost_unreliable"] is True
+
+
+def test_normal_high_sell_low_buy_not_flagged():
+    """正常高抛低吸(卖不超过持有)成本虽低但 cost_unreliable=False(不误标)。"""
+    trades = [
+        _t("300390", "buy", 200, 90.0, "2026-06-01"),
+        _t("300390", "sell", 100, 100.0, "2026-06-05"),  # 卖100 ≤ 持有200, 合法
+        _t("300390", "buy", 100, 80.0, "2026-06-10"),
+    ]
+    r = compute_diluted_holdings(trades)
+    assert r["300390"]["cost_unreliable"] is False
