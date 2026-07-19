@@ -80,6 +80,24 @@
   .full-h { font-size:12.5px; color:#64748b; cursor:pointer; display:flex; align-items:center; gap:6px; user-select:none; padding:4px 0; } .full-h:hover { color:#334155; }
   .full-h .ar { font-size:10px; transition:transform .18s; } .full.open .full-h .ar { transform:rotate(90deg); }
   .full-b { display:none; } .full.open .full-b { display:block; }
+  .dc { margin-bottom:10px; }
+  .dc-hd { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .dc-eye { font-size:9.5px; font-weight:800; letter-spacing:.12em; text-transform:uppercase; color:#8791a6; }
+  .dc-name { font-size:20px; font-weight:800; color:#131b2b; margin-top:4px; letter-spacing:-.02em; }
+  .dc-name .dc-code { font-size:12px; color:#8791a6; font-weight:600; margin-left:7px; }
+  .dc-q { flex-shrink:0; font-size:11px; font-weight:700; color:#fff; background:#3d4ee0; text-decoration:none; padding:6px 11px; border-radius:8px; white-space:nowrap; }
+  .dc-cur { margin-bottom:10px; font-size:11.5px; color:#8791a6; } .dc-cur b { color:#131b2b; font-weight:800; font-size:14px; }
+  .dtiles { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .dtile { background:#f4f6fc; border:1px solid #e6eaf4; border-radius:10px; padding:9px 10px; }
+  .dt-k { font-size:9px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#8791a6; } .dt-k i { font-style:normal; opacity:.7; }
+  .dt-num { font-size:17px; font-weight:800; color:#131b2b; margin-top:5px; line-height:1; display:flex; align-items:baseline; gap:5px; flex-wrap:wrap; }
+  .dt-d { font-size:10.5px; font-weight:800; } .dt-d.up { color:#d3453b; } .dt-d.down { color:#12894e; }
+  .dt-bar { height:4px; border-radius:99px; margin-top:7px; background:#e6eaf4; overflow:hidden; } .dt-bar i { display:block; height:100%; }
+  .dtile.buy .dt-bar i { background:#12894e; } .dtile.tp .dt-bar i { background:#3d4ee0; } .dtile.sl .dt-bar i { background:#d3453b; }
+  .dt-cap { font-size:10.5px; color:#40495c; line-height:1.45; margin-top:7px; } .dt-only { font-size:12px; color:#131b2b; font-weight:600; margin-top:5px; }
+  .dthesis { display:flex; flex-direction:column; gap:6px; margin-top:10px; }
+  .dth { display:flex; gap:8px; padding:8px 10px; border-radius:9px; background:#f4f6fc; font-size:12px; line-height:1.5; } .dth.risk { background:#fdeceb; }
+  .dth-k { flex-shrink:0; font-weight:800; width:28px; color:#12894e; } .dth.risk .dth-k { color:#d3453b; }
   @media (prefers-color-scheme: dark) {
     .wrap { background:#1e293b; color:#e2e8f0; border-color:#334155; }
     .q { background:#172033; color:#cbd5e1; border-color:#334155; } .q b { color:#e2e8f0; }
@@ -91,6 +109,10 @@
     .btn.ghost { background:#1e293b; color:#e2e8f0; border-color:#475569; } .btn.ghost:hover { background:#334155; }
     .fu input { background:#0f172a; color:#e2e8f0; border-color:#475569; }
     .card { background:#172033; border-color:#334155; } .cardh { color:#f1f5f9; } .crow .cv { color:#e2e8f0; } .crow .cl { color:#94a3b8; }
+    .dc-name { color:#f1f5f9; } .dc-cur b { color:#f1f5f9; }
+    .dtile { background:#0f172a; border-color:#334155; } .dt-num { color:#f1f5f9; } .dt-cap { color:#cbd5e1; } .dt-only { color:#e2e8f0; } .dt-bar { background:#334155; }
+    .dt-d.up { color:#ff6b61; } .dt-d.down { color:#3fb97e; }
+    .dth { background:#172033; } .dth.risk { background:#2a1618; }
   }`;
   const LCSS = `
   :host { all: initial; }
@@ -139,18 +161,52 @@
   function setBodyText(t) { panel().body.innerHTML = '<span class="think">' + esc(t) + '</span>'; }
   function setBodyMd(md, cursor) { const p = panel(); const near = p.body.scrollHeight - p.body.scrollTop - p.body.clientHeight < 70; p.body.innerHTML = mdRender(md) + (cursor ? '<span class="cursor"></span>' : ''); if (near) p.body.scrollTop = p.body.scrollHeight; }
   function setFoot(html) { const p = panel(); p.ft.style.display = 'block'; p.ft.innerHTML = html; return p.ft; }
-  function concCard(c) {
-    const row = (icon, label, val) => val ? '<div class="crow"><span class="ci">' + icon + '</span><span class="cl">' + label + '</span><span class="cv">' + esc(val) + '</span></div>' : '';
-    return '<div class="card"><div class="cardh">🎯 结论速览</div>'
-      + row('📌', '主推', c.stock) + row('🟢', '买点', c.buy) + row('🎯', '止盈', c.takeProfit)
-      + row('🛑', '止损', c.stopLoss) + row('⏳', '周期', c.period) + row('💡', '逻辑', c.logic) + row('⚠️', '风险', c.risk)
-      + '</div>';
+  const fmtN = (v) => Number.isInteger(v) ? String(v) : String(+v.toFixed(2));
+  const signPct = (p) => (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%';
+  function dcTile(cls, cn, en, valText, cur) {
+    const v = WOP.cleanConcVal(valText || '', cn);
+    const pr = v ? WOP.extractPrice(v) : null;
+    const k = '<div class="dt-k">' + cn + ' <i>' + en + '</i></div>';
+    if (!pr) return '<div class="dtile ' + cls + '">' + k + '<div class="dt-only">' + esc(v || '—') + '</div></div>';
+    const num = pr.lo === pr.hi ? fmtN(pr.lo) : fmtN(pr.lo) + '–' + fmtN(pr.hi);
+    let delta = '', bar = '';
+    if (cur) {
+      const loP = (pr.lo - cur) / cur * 100, hiP = (pr.hi - cur) / cur * 100, mid = (loP + hiP) / 2;
+      const dir = mid >= 0 ? 'up' : 'down', ar = mid >= 0 ? '↑' : '↓';
+      delta = '<span class="dt-d ' + dir + '">' + ar + ' ' + (pr.lo === pr.hi ? signPct(loP) : signPct(loP) + '~' + signPct(hiP)) + '</span>';
+      bar = '<div class="dt-bar"><i style="width:' + Math.max(6, Math.min(100, Math.abs(mid) / 10 * 100)).toFixed(0) + '%"></i></div>';
+    }
+    return '<div class="dtile ' + cls + '">' + k + '<div class="dt-num">' + num + delta + '</div>' + bar + '<div class="dt-cap">' + esc(v) + '</div></div>';
   }
-  function renderResult(conclusion, answerMd) {
+  function decisionCard(c, items, cur) {
+    const top = (items && items[0]) || {};
+    const name = top.name || WOP.cleanConcVal(c.stock || '', '标的').replace(/\s*\(.*$/, '');
+    const code = top.code || ((String(c.stock || '').match(/(\d{6})/) || [])[1] || '');
+    const logic = WOP.cleanConcVal(c.logic || '', '逻辑'), risk = WOP.cleanConcVal(c.risk || '', '风险');
+    if (!(name || c.buy || c.takeProfit || c.stopLoss || logic || risk)) return '';
+    let h = '<div class="dc"><div class="dc-hd"><div><div class="dc-eye">主推标的</div><div class="dc-name">'
+      + esc(name || '—') + (code ? '<span class="dc-code">' + esc(code) + '</span>' : '') + '</div></div>'
+      + (code ? '<a class="dc-q" href="https://stockpage.10jqka.com.cn/' + esc(code) + '/" target="_blank">看行情 →</a>' : '') + '</div>';
+    if (cur) h += '<div class="dc-cur">现价 <b>' + fmtN(cur) + '</b> · 距下列价位</div>';
+    h += '<div class="dtiles">' + dcTile('buy', '买入', 'BUY', c.buy, cur) + dcTile('tp', '止盈', 'TARGET', c.takeProfit, cur) + dcTile('sl', '止损', 'STOP', c.stopLoss, cur) + '</div>';
+    let th = '';
+    if (logic) th += '<div class="dth"><span class="dth-k">逻辑</span><span>' + esc(logic) + '</span></div>';
+    if (risk) th += '<div class="dth risk"><span class="dth-k">风险</span><span>' + esc(risk) + '</span></div>';
+    if (th) h += '<div class="dthesis">' + th + '</div>';
+    return h + '</div>';
+  }
+  let _rv = null;
+  function renderResult(conclusion, answerMd, items) {
+    _rv = { conclusion, answerMd, items: items || [] };
+    drawResult(null);
+    const code = _rv.items[0] && _rv.items[0].code;
+    if (code) chrome.runtime.sendMessage({ type: 'quote', code }, (q) => { if (q && q.price && _rv) drawResult(+q.price); });
+  }
+  function drawResult(cur) {
     const p = panel();
-    const hasAny = conclusion && (conclusion.stock || conclusion.buy || conclusion.takeProfit || conclusion.stopLoss || conclusion.logic || conclusion.risk);
-    p.body.innerHTML = (hasAny ? concCard(conclusion) : '')
-      + '<div class="full' + (hasAny ? '' : ' open') + '"><div class="full-h" id="fullh"><span class="ar">▸</span>完整分析</div><div class="full-b">' + mdRender(answerMd) + '</div></div>';
+    const card = decisionCard(_rv.conclusion, _rv.items, cur);
+    p.body.innerHTML = (card || '')
+      + '<div class="full' + (card ? '' : ' open') + '"><div class="full-h" id="fullh"><span class="ar">▸</span>完整分析</div><div class="full-b">' + mdRender(_rv.answerMd) + '</div></div>';
     const fh = p.body.querySelector('#fullh'); if (fh) fh.onclick = () => p.body.querySelector('.full').classList.toggle('open');
     if (p.body.scrollTop !== undefined) p.body.scrollTop = 0;
   }
@@ -179,7 +235,7 @@
     res.answer = WOP.stripMarkerLine(WOP.stripEmbeds(rawAnswer));        // 展示/存库: 去图表占位块+结论标记行
     panel().sessionId = res.sessionId || '';
     setStage('已完成', 'green');
-    renderResult(WOP.extractConclusion(rawAnswer, []), res.answer);      // 先按标记出结论卡(主推名来自标记)
+    renderResult(WOP.extractConclusion(rawAnswer, []), res.answer, []);      // 先按标记出决策卡(主推名来自标记, 无个股代码故暂无距现价%)
 
     const doUpload = async () => {
       setStage('上报中', 'blue', true);
@@ -187,8 +243,8 @@
         const conc = WOP.extractConclusion(rawAnswer, []);
         const r = await uploadOpinion(s.serverUrl, { token: s.token, question, answer_text: res.answer, reasoning: res.reasoning || '', conclusion: conc, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || getCookie('userid') || '', only_with_stock: !!s.onlyWithStock });
         const items = r.stock_items || (r.stocks || []).map((n) => ({ name: n }));
-        const c2 = WOP.extractConclusion(rawAnswer, items);              // 有代码后重算(主推可点)
-        renderResult(c2, res.answer);
+        const c2 = WOP.extractConclusion(rawAnswer, items);              // 有代码后重算(主推可点 + 取现价算距现价%)
+        renderResult(c2, res.answer, items);
         pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: c2, ts: Date.now() });
         if (r.skipped) { setStage('未上报', 'amber'); renderFoot([], res.sources, question, res.answer, '按「仅识别出个股才上报」，本次没抽出个股，未入库。'); }
         else { setStage('✓ 已存档', 'green'); renderFoot(items, res.sources, question, res.answer, ''); }

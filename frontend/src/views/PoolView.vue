@@ -32,6 +32,12 @@ const message = useGlobalMessage()
 const stockTableRef = ref<InstanceType<typeof StockTable> | null>(null)
 const showStrategyDrawer = ref(false)
 const showSparkline = ref(false)
+// 添加/筛选区默认折叠, 用户展开状态记 localStorage(未设过=折叠)
+const controlsCollapsed = ref(localStorage.getItem('pool_controls_collapsed') !== '0')
+function toggleControls() {
+  controlsCollapsed.value = !controlsCollapsed.value
+  localStorage.setItem('pool_controls_collapsed', controlsCollapsed.value ? '1' : '0')
+}
 
 // v1.7.x: SignalSummaryBar 从 StockTable 内部移到 PoolView 顶部 (避免与 StockTable 名称色块重复展示),
 // 由 PoolView 集中渲染一次, 同时供桌面/移动复用
@@ -331,7 +337,13 @@ async function handleThsImport(groupId: string) {
 <template>
   <div :class="['pool-view', { 'pool-view--fixed': !isPhone }]">
     <div class="pool-controls">
-    <div class="filter-bar">
+    <button class="pool-collapse-bar" :class="{ open: !controlsCollapsed }" @click="toggleControls" :aria-expanded="!controlsCollapsed">
+      <span class="pcb-arrow">{{ controlsCollapsed ? '▸' : '▾' }}</span>
+      <span class="pcb-label">添加股票 · 筛选</span>
+      <span v-if="pf.hasActiveFilter.value" class="pcb-active">● 已启用筛选</span>
+      <span class="pcb-hint">{{ controlsCollapsed ? '展开' : '收起' }}</span>
+    </button>
+    <div class="filter-bar" v-show="!controlsCollapsed">
       <div class="filter-fields">
         <div class="filter-item" style="flex: 2; min-width: 200px;">
           <label>添加股票</label>
@@ -400,7 +412,7 @@ async function handleThsImport(groupId: string) {
     </div>
 
     <!-- 股票池筛选 (v1.7.419): 快捷胶囊 + 高级面板, 全部前端即时过滤 -->
-    <div class="pool-filter">
+    <div class="pool-filter" v-show="!controlsCollapsed">
       <div class="pf-row">
         <NInput v-model:value="pf.fKeyword.value" size="small" clearable class="pf-search"
           placeholder="代码 / 名称 / 拼音首字母 查找…（如 gzmt → 贵州茅台）">
@@ -705,6 +717,18 @@ async function handleThsImport(groupId: string) {
   top: 0;
   z-index: 50;
 }
+/* 添加/筛选区折叠条 (默认折叠): 折叠时仅此条可见, 点击展开 */
+.pool-collapse-bar {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 14px; background: transparent; border: 0; cursor: pointer;
+  font: inherit; text-align: left; color: var(--fg-default); transition: background .12s;
+}
+.pool-collapse-bar:hover { background: color-mix(in srgb, var(--fg-default) 4%, transparent); }
+.pool-collapse-bar.open { border-bottom: 1px solid var(--border-muted); }
+.pcb-arrow { color: var(--fg-subtle); font-size: 11px; width: 10px; flex-shrink: 0; }
+.pcb-label { font-size: 13px; font-weight: 700; letter-spacing: .02em; }
+.pcb-active { font-size: 11px; color: var(--accent-fg); font-weight: 600; }
+.pcb-hint { margin-left: auto; font-size: 12px; color: var(--accent-fg); }
 .filter-bar {
   background: transparent;
   border-radius: 0;

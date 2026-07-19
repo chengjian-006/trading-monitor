@@ -79,7 +79,8 @@ const stats = computed(() => {
 <style scoped>
 .pool-stats-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;      /* 当日 + 近5日 强制同一行, 窄了横向滚而非折成两行 */
+  overflow-x: auto;
   align-items: center;
   gap: 6px 14px;
   padding: 8px 12px;
@@ -89,6 +90,8 @@ const stats = computed(() => {
   font-size: 13px;
   line-height: 1.4;
 }
+.pool-stats-bar::-webkit-scrollbar { height: 4px; }
+.pool-stats-bar::-webkit-scrollbar-thumb { background: var(--border-color, #ddd); border-radius: 4px; }
 .stat-group {
   display: flex;
   flex-wrap: wrap;
@@ -125,7 +128,7 @@ const stats = computed(() => {
 }
 /* 移动端: 卡片化、两组各占一行, 分隔线转横向 */
 @media (max-width: 767px) {
-  .pool-stats-bar { gap: 6px 10px; font-size: 12px; padding: 8px 10px; }
+  .pool-stats-bar { flex-wrap: wrap; overflow-x: visible; gap: 6px 10px; font-size: 12px; padding: 8px 10px; }
   .stat-group { gap: 4px 10px; }
   .divider { width: 100%; height: 1px; min-height: 0; margin: 2px 0; }
 }

@@ -112,6 +112,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     checkExtVersion(true).then((r) => sendResponse(r)).catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
   }
+  if (msg.type === 'quote' && msg.code) {
+    // 问财页浮层(页面上下文)跨域取不到股小察现价, 由后台代取(host_permissions 覆盖 124.71.75.5)
+    getSettings().then((s) => fetch(s.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(msg.code), { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null)).then((q) => sendResponse(q)).catch(() => sendResponse(null)));
+    return true;
+  }
 });
 
 // ---------- 定时触发 ----------

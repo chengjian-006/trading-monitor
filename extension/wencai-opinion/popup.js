@@ -149,6 +149,44 @@ function kvRow(k, v) {
   row.appendChild(ke); row.appendChild(ve); return row;
 }
 
+function fetchQuoteDirect(code) {
+  return fetch(DEFAULTS.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(code), { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null);
+}
+// 弹窗决策卡(与详情页/浮层同一套): 主推 + 买入/止盈/止损价位磁贴(带距现价%) + 逻辑/风险
+function fillPopupDc(el, c, items, cur) {
+  const W = window.WOP; if (!W) { el.innerHTML = ''; return; }
+  const esc = W.esc;
+  const fmtN = (v) => Number.isInteger(v) ? String(v) : String(+v.toFixed(2));
+  const signPct = (p) => (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%';
+  const tile = (cls, cn, en, val) => {
+    const v = W.cleanConcVal(val || '', cn); const pr = v ? W.extractPrice(v) : null;
+    const k = '<div class="pt-k">' + cn + '<i>' + en + '</i></div>';
+    if (!pr) return '<div class="ptile ' + cls + '">' + k + '<div class="pt-only">' + esc(v || '—') + '</div></div>';
+    const num = pr.lo === pr.hi ? fmtN(pr.lo) : fmtN(pr.lo) + '–' + fmtN(pr.hi);
+    let d = '', bar = '';
+    if (cur) {
+      const loP = (pr.lo - cur) / cur * 100, hiP = (pr.hi - cur) / cur * 100, mid = (loP + hiP) / 2;
+      const dir = mid >= 0 ? 'up' : 'down', arr = mid >= 0 ? '↑' : '↓';
+      d = '<span class="pt-d ' + dir + '">' + arr + ' ' + (pr.lo === pr.hi ? signPct(loP) : signPct(loP) + '~' + signPct(hiP)) + '</span>';
+      bar = '<div class="pt-bar"><i style="width:' + Math.max(6, Math.min(100, Math.abs(mid) / 10 * 100)).toFixed(0) + '%"></i></div>';
+    }
+    return '<div class="ptile ' + cls + '">' + k + '<div class="pt-num">' + num + d + '</div>' + bar + '<div class="pt-cap">' + esc(v) + '</div></div>';
+  };
+  const top = items[0] || {};
+  const name = top.name || W.cleanConcVal(c.stock || '', '标的').replace(/\s*\(.*$/, '');
+  const code = top.code || '';
+  const logic = W.cleanConcVal(c.logic || '', '逻辑'), risk = W.cleanConcVal(c.risk || '', '风险');
+  let h = '';
+  if (name || code) h += '<div class="pdc-name">' + esc(name || '—') + (code ? '<span class="pdc-code">' + esc(code) + '</span>' : '') + (cur ? '<span class="pdc-cur">现价 ' + fmtN(cur) + '</span>' : '') + '</div>';
+  h += '<div class="ptiles">' + tile('buy', '买入', 'BUY', c.buy) + tile('tp', '止盈', 'TP', c.takeProfit) + tile('sl', '止损', 'SL', c.stopLoss) + '</div>';
+  let th = '';
+  if (logic) th += '<div class="pth"><b>逻辑</b>' + esc(logic) + '</div>';
+  if (risk) th += '<div class="pth risk"><b>风险</b>' + esc(risk) + '</div>';
+  if (th) h += '<div class="pthesis">' + th + '</div>';
+  el.innerHTML = h;
+}
+
 function renderResultCard(st) {
   const res = $('resultCard'); res.innerHTML = ''; res.classList.remove('err');
 
@@ -169,22 +207,10 @@ function renderResultCard(st) {
     head.classList.add(st.skipped ? 'skip' : 'ok');
     head.textContent = st.skipped ? '⚠ 未抽出个股，按设置未上报' : '✓ 已存档';
     const items = st.stockItems || [];
-    if (items.length) {
-      const sc = document.createElement('div'); sc.className = 'res-stocks';
-      items.slice(0, 4).forEach((s, i) => {
-        const c = document.createElement('span'); c.className = 'chip' + (i === 0 ? ' hot' : '');
-        c.textContent = (s.name || '') + (i === 0 ? ' · 主推' : '');
-        sc.appendChild(c);
-      });
-      body.appendChild(sc);
-    }
-    const conc = st.conclusion || {};
-    const rows = [['买点', conc.buy], ['止盈', conc.takeProfit], ['止损', conc.stopLoss], ['周期', conc.period], ['逻辑', conc.logic]].filter(([, v]) => v);
-    if (rows.length) {
-      const box = document.createElement('div'); box.className = 'res-conc';
-      rows.forEach(([k, v]) => box.appendChild(kvRow(k, v)));
-      body.appendChild(box);
-    }
+    const dc = document.createElement('div'); dc.className = 'pdc'; body.appendChild(dc);
+    fillPopupDc(dc, st.conclusion || {}, items, null);
+    const dcode = items[0] && items[0].code;
+    if (dcode) fetchQuoteDirect(dcode).then((q) => { if (q && q.price && dc.isConnected) fillPopupDc(dc, st.conclusion || {}, items, +q.price); });
     const foot = document.createElement('div'); foot.className = 'res-foot';
     const full = document.createElement('button'); full.className = 'btn ghost'; full.textContent = '看全文';
     full.onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('viewer.html?i=0') });

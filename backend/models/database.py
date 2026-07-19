@@ -144,6 +144,39 @@ SCHEMA_STATEMENTS = [
         INDEX idx_dt (dt)
     )
     """,
+    # 系统体检结果 (v1.7.698) — 每轮体检把**每一项**的判定结果落库, 再推报告。
+    # 为什么必须落库: system_health 的旧做法是进程内累积 + 21:00 推送 + finally 无条件清空,
+    # 推送失败 = 当日全部故障记录永久蒸发, 且重启即丢。落库后推送只是"展示层",
+    # 推失败下轮还能补报, 也留下可回溯的历史(用于看某项是偶发还是持续劣化)。
+    # ok: 1通过 0失败; severity: critical/warn/info; actual/expected 存实际值与期望值原文。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_health_check (
+        run_at     DATETIME     NOT NULL,
+        check_key  VARCHAR(48)  NOT NULL,
+        category   VARCHAR(16)  NOT NULL DEFAULT '',
+        name       VARCHAR(64)  NOT NULL DEFAULT '',
+        severity   VARCHAR(10)  NOT NULL DEFAULT 'warn',
+        ok         TINYINT      NOT NULL DEFAULT 1,
+        actual     VARCHAR(255) NOT NULL DEFAULT '',
+        expected   VARCHAR(255) NOT NULL DEFAULT '',
+        detail     VARCHAR(500) NOT NULL DEFAULT '',
+        PRIMARY KEY (run_at, check_key),
+        INDEX idx_key_time (check_key, run_at)
+    )
+    """,
+    # 体检报告推送心跳 (v1.7.698) — 单行表, 记最后一次**成功推送**体检报告的时刻。
+    # 告警通路自身没有心跳时, 系统可以在完全静默的状态下跑任意久(飞书token过期/群解散/
+    # 出口IP变更导致 is_production 恒False, 都不会有任何响声)。报告里带上"距上次成功推送
+    # N 小时", 就把"没消息"和"消息发不出去"区分开了。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_sys_health_heartbeat (
+        id            TINYINT     NOT NULL PRIMARY KEY DEFAULT 1,
+        last_push_at  DATETIME    DEFAULT NULL,
+        last_fail_at  DATETIME    DEFAULT NULL,
+        fail_streak   INT         NOT NULL DEFAULT 0,
+        updated_at    TIMESTAMP   DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+    """,
     # 指数 5 分钟 K 线 (v1.7.692) — 上证/深成/创业板指, 新浪源每 5 分钟增量追加。
     # code 必须带市场前缀(sh000001/sz399001/sz399006): 裸码会与个股撞车 —— cfzy_sys_kline_5m
     # 里的 "000001" 实为平安银行而非上证指数(0719 排查确认)。与个股 5m 分表存, 互不污染。
@@ -1773,6 +1806,14 @@ async def _seed_scheduled_tasks(conn):
              "每晚21:00(等20:00的5分钟K线追加完成后)按5分钟真实可成交口径重算全部买入模型 近3月/近6月 胜率+单笔均收益, 写 cfzy_biz_model_winrate, 供买入提醒带全市场回测战绩", "cron",
              {"hour": 21, "minute": 0}, "refresh_model_winrate"),
             # v1.7.599: 5分钟K线每日追加 — 胜率5分钟诚实口径的数据前提(表此前为一次性回填停在06-18)
+            # v1.7.698: 系统体检 — 断言式定时校验(任务健康/数据新鲜度/外部接口/业务规则),
+            # 每日 08:10(盘前, 早于所有交易日任务, 有问题当天还来得及处理)。结果先落
+            # cfzy_sys_health_check 再推报告: 推送只是展示层, 推失败不丢数据、下轮补报。
+            # 无论有无异常都推 —— "没消息"和"告警系统自己挂了"必须能区分, 报告里带推送心跳。
+            ("health_report", "系统体检·每日08:10",
+             "跑全部体检项(任务从未跑过/超期/连续失败、关键表数据新鲜度按交易日判、外部接口真拉一次校验内容、"
+             "业务规则自洽), 结果落库并推一张体检报告卡; 带执行项数与推送心跳自检", "cron",
+             {"hour": 8, "minute": 10}, "run_health_report"),
             # v1.7.692: 指数5分钟K线增量 — baostock 不支持指数分钟线(实测0根), 东财生产IP被封,
             # 故走新浪(实测服务器直连可用, datalen上限1023根≈21交易日滚动窗)。盘中每5分钟追加,
             # 幂等upsert(当前未走完的bar会被反复覆盖成最新值, 收盘自然定格)。非交易时段 TaskSkipped。

@@ -48,6 +48,7 @@ from backend.services.near_buy_refresher import refresh_near_buy_snapshot
 from backend.services.theme_heat_refresher import refresh_theme_heat
 from backend.services.sector_strength_scanner import refresh_sector_strength
 from backend.services.model_winrate_refresher import refresh_model_winrate
+from backend.services.health_checks import run_health_report
 from backend.services.index_kline_5m import append_index_kline_5m
 from backend.services.kline_5m_appender import append_kline_5m
 from backend.services.auction_pool_refresher import record_auction_pool_snapshot
@@ -152,6 +153,7 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_model_winrate": refresh_model_winrate,
     "append_kline_5m": append_kline_5m,
     "append_index_kline_5m": append_index_kline_5m,
+    "run_health_report": run_health_report,
     "record_auction_pool_snapshot": record_auction_pool_snapshot,
     "run_auction_strength_selfcheck": run_auction_strength_selfcheck,
     "run_model_backtest_weekly": run_model_backtest_weekly,
