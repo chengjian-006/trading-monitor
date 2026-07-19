@@ -675,4 +675,19 @@ onMounted(() => loadConfig())
   justify-content: flex-end;
   margin-top: 8px;
 }
+
+/* ── 移动端适配(≤768px): 原来只靠 flex-wrap 被动降级, 这里主动排版 ──
+   参数项两列排布 + 输入全宽便于触摸; 筛选输入加宽; 操作区不再挤在右侧独占一行 */
+@media (max-width: 768px) {
+  .sig-params { gap: 8px 10px; padding: 8px; }
+  .sig-params .p-item { flex: 1 1 44%; }
+  .p-input, .p-input :deep(.n-input-number) { width: 100%; }
+  .p-item label { white-space: normal; }
+  .sig-filters { gap: 8px; }
+  .f-item { flex: 1 1 44%; }
+  .f-input { width: 100%; }
+  .sig-header { flex-wrap: wrap; }
+  .sig-actions { margin-left: 0; margin-top: 6px; width: 100%; justify-content: flex-end; }
+  .action-bar { position: sticky; bottom: 0; background: var(--bg1, #fff); padding-top: 6px; z-index: 2; }
+}
 </style>
