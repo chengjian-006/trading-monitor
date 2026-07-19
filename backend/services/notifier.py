@@ -682,12 +682,13 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     # 市场风险档标记(v1.7.686 起文案与数字统一由 risk_buy_note 出, 并按模型分流)。
     # 原写死的「胜率30%均值-3.6%」来自带前视偏差的旧回测, 且 YELLOW 曾写「质量未显著
     # 下降」—— 实测 YELLOW -1.8% vs GREEN -0.5%, 是显著下降的。均已按 OOS 实测更正。
+    # 按模型分流的具体风险警示单独拿出(不再拼进 detail —— \n 会把首条真实触发条件粘进风险文案);
+    # 下面作独立顶部横幅, 并替掉 _risk_deco 的通用横幅去重(用户拍板: 留具体警示/去重/修污染)。
+    risk_note = ""
     if direction == "buy":
         try:
             from backend.services.market_risk_controller import get_risk_state, risk_buy_note
-            note = risk_buy_note(await get_risk_state(), signal_id or "")
-            if note:
-                detail = f"{note}\n{detail}"
+            risk_note = risk_buy_note(await get_risk_state(), signal_id or "") or ""
         except Exception:
             pass
 
@@ -705,6 +706,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     except Exception as e:
         logger.warning(f"[signal_background] 取黑天鹅/预增背景失败, 略过: {e}")
     content = _build_text(code, name, signal_name, direction, price, detail, username, strategy, pct_change, model_stats, basics, sector, background)
+    if risk_note:   # 文本卡: 风险警示作独立顶部段落(空行分隔, 不粘触发条件)
+        content = f"{risk_note}\n\n{content}"
 
     # 飞书并推(独立通道, 不受企微开关影响) — 交互卡片: 信号头进彩色标题栏, 正文加粗
     lark_ok = False
@@ -715,6 +718,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
         _subject = f"{name}({code})" if code and name else signal_name
         lark_title, risk_banner = await _risk_deco(
             f"{DIRECTION_EMOJI.get(direction, '')} {DIRECTION_SHORT.get(direction, '')} · {_subject}")
+        if risk_note:   # 有按模型分流的具体警示 → 替掉通用横幅去重(它更具体, 含OOS实测数字)
+            risk_banner = risk_note
         lark_template = lark_notifier.DIRECTION_TEMPLATE.get(direction, "blue")
         # 信封三件(基线v1.1): 锁屏摘要 + 彩签(模型名/排名)
         lark_summary = card_kit.summary_text(
@@ -791,6 +796,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     if pp_cfg.get("pushplus_enabled", True):
         pp_title, pp_banner = await _risk_deco(
             f"{DIRECTION_EMOJI.get(direction,'')} {DIRECTION_SHORT.get(direction,'')} · [{signal_name}] — {name}")
+        if risk_note:   # 同飞书: 具体警示替通用横幅去重
+            pp_banner = risk_note
         pp_html = _build_pushplus_html(code, name, signal_name, direction, price, detail, strategy, pct_change, model_stats, basics, sector, background)
         if pp_banner:
             pp_html = f"<div style='font-size:15px;margin-bottom:6px'>{pp_banner}</div>{pp_html}"
