@@ -12,6 +12,25 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.715',
+    date: '2026-07-20',
+    title: '风格一致性(一): 深色模式根治 + 去序号列 + 主题色描边',
+    changes: [
+      {
+        text: '深色模式根治: 补齐四个被大量引用却未定义的旧变量别名(--text3/--text-secondary/--card-bg/--border-color → 映射到主题 token),一处修复历史/股票池统计/概览等多个页面在深色模式下文字看不清、边框错色的问题。',
+        tag: 'fix',
+      },
+      {
+        text: '股票池去掉「序号」列(无实际意义,占地方)。',
+        tag: 'improve',
+      },
+      {
+        text: '股票池行情涨跌闪烁色改用主题红涨绿跌 token(原来用了 iOS 系统色不一致);数据新鲜度徽章(FreshnessBadge)改成描边细标签、走状态色 token,深色模式自适配。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.714',
     date: '2026-07-20',
     title: '修复「频繁部署会饿死定时任务」——与胜率停写9天同一根因',

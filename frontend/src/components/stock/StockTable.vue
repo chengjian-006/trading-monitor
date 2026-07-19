@@ -560,12 +560,6 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '序号',
-    key: 'index',
-    width: 44,
-    render: (_row: Stock, index: number) => h('span', { style: { color: 'var(--text2)', fontSize: '12px' } }, index + 1),
-  },
-  {
     title: '代码',
     key: 'code',
     width: 96,
@@ -1002,7 +996,7 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
             <NCheckbox v-for="c in HIDEABLE" :key="c.key" :checked="isColShown(c.key)"
                        @update:checked="(v: boolean) => toggleCol(c.key, v)">{{ c.label }}</NCheckbox>
           </div>
-          <div class="col-menu-foot">序号 / 代码 / 名称 / 操作 列固定显示</div>
+          <div class="col-menu-foot">代码 / 名称 / 操作 列固定显示</div>
         </div>
       </NPopover>
     </div>
@@ -1083,11 +1077,11 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
   position: relative;   /* 供列设置按钮绝对定位到右上角 */
 }
 @keyframes flash-up-bg {
-  0% { background: rgba(255, 59, 48, 0.35); }
+  0% { background: color-mix(in srgb, var(--up-fg) 32%, transparent); }
   100% { background: transparent; }
 }
 @keyframes flash-down-bg {
-  0% { background: rgba(22, 163, 74, 0.35); }
+  0% { background: color-mix(in srgb, var(--down-fg) 32%, transparent); }
   100% { background: transparent; }
 }
 .flash-up {

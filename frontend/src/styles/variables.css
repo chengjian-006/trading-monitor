@@ -8,6 +8,10 @@
   --primary: var(--accent-fg);
   --text1: var(--fg-default);
   --text2: var(--fg-muted);
+  --text3: var(--fg-subtle);
+  --text-secondary: var(--fg-muted);
+  --card-bg: var(--bg-surface);
+  --border-color: var(--border-default);
   --border: var(--border-default);
   --green: var(--down-fg);
   --red: var(--up-fg);
