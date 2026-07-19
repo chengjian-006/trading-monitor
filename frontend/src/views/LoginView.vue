@@ -44,6 +44,7 @@ async function loadOverview() {
 // ── 粒子背景 (canvas) — 成熟稳重: 低饱和灰蓝 + 慢速 + 低密度 ──
 const canvasEl = ref<HTMLCanvasElement | null>(null)
 let animationId: number | null = null
+let particleResize: (() => void) | null = null   // 组件级引用, 供 onUnmounted 移除粒子背景 resize 监听
 
 interface Particle {
   x: number
@@ -74,6 +75,7 @@ function setupParticles() {
     ctx!.scale(window.devicePixelRatio, window.devicePixelRatio)
   }
   resize()
+  particleResize = resize
   window.addEventListener('resize', resize)
 
   // 初始化粒子 — 随机分布, 慢速漂浮
@@ -164,6 +166,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (overviewTimer) clearInterval(overviewTimer)
   if (animationId) cancelAnimationFrame(animationId)
+  if (particleResize) window.removeEventListener('resize', particleResize)   // 修粒子背景 resize 监听泄漏
   window.removeEventListener('resize', lockBodyScroll)
   unlockBodyScroll()
 })

@@ -29,6 +29,8 @@ const router = createRouter({
     { path: '/scheduled-tasks', name: 'scheduled-tasks', component: () => import('../views/ScheduledTaskView.vue'), meta: { admin: true } },
     { path: '/lark-templates', name: 'lark-templates', component: () => import('../views/LarkTemplateView.vue'), meta: { admin: true } },
     { path: '/users', name: 'users', component: () => import('../views/UserManageView.vue'), meta: { admin: true } },
+    // 404 兜底: 未定义路径(拼错URL/旧书签/已下线页)不再渲染空白主区域, 一律回首页
+    { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })
 
