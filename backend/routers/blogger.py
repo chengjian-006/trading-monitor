@@ -5,6 +5,7 @@
 携带本系统 JWT, 故不走 get_current_user。校验逻辑: 先用新凭证试拉一次帖子, 通过才落
 config.json(写坏拒绝)。load_config 无缓存, 落库即生效, 下次博主扫描自动用新凭证。
 """
+import hmac
 import json
 import logging
 import os
@@ -43,7 +44,7 @@ async def renew_cookie(req: RenewRequest):
     raw = _read_raw_config()
     bt = raw.get("blogger_tracking", {}) or {}
     expected = bt.get("renew_token", "")
-    if not expected or req.token != expected:
+    if not expected or not hmac.compare_digest(str(req.token), str(expected)):
         logger.warning("[blogger_renew] token 不匹配, 拒绝续签")
         return {"ok": False, "error": "token 无效"}
     if not req.cookie or not req.hexin_v:

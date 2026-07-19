@@ -10,6 +10,7 @@
   POST   /api/wencai/ingest       本地油猴代跑上报: 浏览器登录态查问财→归一化→POST结果落库(共享密钥鉴权, 免JWT)
 """
 import asyncio
+import hmac
 import io
 import json
 import re
@@ -231,7 +232,7 @@ def _uid_of(strategy_id: str) -> int:
 
 def _ingest_token_ok(token: str) -> bool:
     expected = load_config().get("wencai_screening", {}).get("ingest_token", "") or ""
-    return bool(expected) and token == expected
+    return bool(expected) and hmac.compare_digest(str(token), str(expected))
 
 
 class IngestQueriesRequest(BaseModel):

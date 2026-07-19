@@ -63,7 +63,7 @@ const conceptGroups: GroupDef[] = [
     signals: [
       {
         id: 'SCORE_THEME', name: '主流题材：板块强势+龙头大涨+市场焦点', source: 'user', tags: ['底层概念'],
-        description: '主流题材 = 客观有好故事 + 主观资金认可 (用资金行为反推故事)\n\n阶段 1 极简版三条规则:\n  ① 板块今日涨幅 ≥ 3% (板块整体强势)\n  ② 板块龙头(top1)涨幅 ≥ 7% (有标杆/赚钱效应)\n  ③ 板块涨幅榜排名 ≤ 前 5 (是市场焦点)\n\n语义：第10课原话"行业龙头要大涨、情绪票要翻倍"——三条全过才算主流\n后续阶段(2~5)可加入:涨停数、持续性、资金流、主观面',
+        description: '主流题材 = 客观有好故事 + 主观资金认可 (用资金行为反推故事)\n\n阶段 1 极简版三条规则:\n  1.  板块今日涨幅 ≥ 3% (板块整体强势)\n  2.  板块龙头(top1)涨幅 ≥ 7% (有标杆/赚钱效应)\n  3.  板块涨幅榜排名 ≤ 前 5 (是市场焦点)\n\n语义：第10课原话"行业龙头要大涨、情绪票要翻倍"——三条全过才算主流\n后续阶段(2~5)可加入:涨停数、持续性、资金流、主观面',
         params: [
           { key: 'min_sector_pct', label: '板块涨幅门槛(%)', min: 1.0, max: 8.0, step: 0.5, recommend: '3.0' },
           { key: 'min_leader_pct', label: '龙头涨幅门槛(%)', min: 3.0, max: 10.0, step: 0.5, recommend: '7.0' },
@@ -141,7 +141,7 @@ const shortTermGroups: GroupDef[] = [
       },
       {
         id: 'BUY_RALLY_MA20', name: '回踩20MA缩量后突破昨高（右侧·内置）', source: 'user', tags: ['强档'],
-        description: '与弱势极限互补, 专抓"强势缩量回踩中期线、次日放量突破"——弱势极限抓不到的急跌/高量回踩(如多氟多)。\n【昨日 setup】\n ① 主升浪: 前有 ≥15% 主升浪, 峰值距今(到昨日) ≤ 30 交易日\n ② 回踩20日线: 昨日 close 距 MA20 在 ±3% 内\n ③ 回踩日缩量: 昨日量 < 近10日均量 × 0.8 (卖盘衰竭, 质量关键)\n ④ 流动性: 近10日均成交额 > 20 亿\n【今日 trigger】\n ⑤ 盘中最高 > 昨日最高 ×(1+2.5%) → 买点 (2.5% 过滤假突破)\n回测(自选股近1年, T+5): 触发48 胜率46% 胜负比1.9:1 平均+6.9%。\n配套交易计划: +15% 减仓50% / -7% 全仓止损。',
+        description: '与弱势极限互补, 专抓"强势缩量回踩中期线、次日放量突破"——弱势极限抓不到的急跌/高量回踩(如多氟多)。\n【昨日 setup】\n 1.  主升浪: 前有 ≥15% 主升浪, 峰值距今(到昨日) ≤ 30 交易日\n 2.  回踩20日线: 昨日 close 距 MA20 在 ±3% 内\n 3.  回踩日缩量: 昨日量 < 近10日均量 × 0.8 (卖盘衰竭, 质量关键)\n 4.  流动性: 近10日均成交额 > 20 亿\n【今日 trigger】\n 5.  盘中最高 > 昨日最高 ×(1+2.5%) → 买点 (2.5% 过滤假突破)\n回测(自选股近1年, T+5): 触发48 胜率46% 胜负比1.9:1 平均+6.9%。\n配套交易计划: +15% 减仓50% / -7% 全仓止损。',
         params: [
           { key: 'intraday_earliest_minute', label: '盘中最早触发(分钟)', min: 570, max: 720, step: 5, recommend: '600' },
           { key: 'rally_peak_within_bars', label: '主升浪峰值距今上限(交易日)', min: 10, max: 60, step: 5, recommend: '30' },
@@ -153,7 +153,7 @@ const shortTermGroups: GroupDef[] = [
       },
       {
         id: 'BUY_RALLY_MA10', name: '回踩10MA缩量后突破昨高（右侧·内置）', source: 'user', tags: ['强档'],
-        description: '回踩20MA缩量后突破昨高 的近亲——回踩锚点改用 MA10、容差收紧到 ±1%(要求贴近MA10), 卖出剩半跟踪 MA10×0.98。\n【昨日 setup】\n ① 主升浪: 前有 ≥15% 主升浪, 峰值距今 ≤ 30 交易日\n ② 回踩10日线: 昨日 close 距 MA10 在 ±1% 内\n ③ 回踩日缩量: 昨日量 < 近10日均量 × 0.8\n ④ 流动性: 今日全天成交额 ≥ 10 亿\n【今日 trigger】\n ⑤ 盘中最高 > 昨日最高 ×(1+2.5%) → 买点\n全市场半年回测: 612笔 胜率57% 盈利因子1.92(样本内1.96/样本外1.88); 配强势股占比≥45%过滤→2.37。\n配套交易计划: +7%卖半 / 剩半收盘破MA10×0.98清 / -6%收盘止损 / 满10交易日时停。',
+        description: '回踩20MA缩量后突破昨高 的近亲——回踩锚点改用 MA10、容差收紧到 ±1%(要求贴近MA10), 卖出剩半跟踪 MA10×0.98。\n【昨日 setup】\n 1.  主升浪: 前有 ≥15% 主升浪, 峰值距今 ≤ 30 交易日\n 2.  回踩10日线: 昨日 close 距 MA10 在 ±1% 内\n 3.  回踩日缩量: 昨日量 < 近10日均量 × 0.8\n 4.  流动性: 今日全天成交额 ≥ 10 亿\n【今日 trigger】\n 5.  盘中最高 > 昨日最高 ×(1+2.5%) → 买点\n全市场半年回测: 612笔 胜率57% 盈利因子1.92(样本内1.96/样本外1.88); 配强势股占比≥45%过滤→2.37。\n配套交易计划: +7%卖半 / 剩半收盘破MA10×0.98清 / -6%收盘止损 / 满10交易日时停。',
         params: [
           { key: 'intraday_earliest_minute', label: '盘中最早触发(分钟)', min: 570, max: 720, step: 5, recommend: '600' },
           { key: 'rally_peak_within_bars', label: '主升浪峰值距今上限(交易日)', min: 10, max: 60, step: 5, recommend: '30' },
@@ -198,7 +198,7 @@ const shortTermGroups: GroupDef[] = [
       },
       {
         id: 'SELL_TRAIL_STOP', name: '追踪止盈：持仓最高价回撤触发', source: 'user', tags: ['持仓减仓', '主动止盈'],
-        description: '物理意义：利润已经跑出来一段，别让它全部回吐\n\n① 持仓最高价(entry_date 起所有 high 的最大值)\n② 浮盈达到 min_gain_pct 才启用追踪(避免开仓后立刻被甩出)\n③ 当 close ≤ 最高价 × (1 - drawdown_pct%) 时触发减仓\n\n推荐组合: min_gain_pct=5, drawdown_pct=7 — 浮盈过 5% 后, 回撤 7% 锁利',
+        description: '物理意义：利润已经跑出来一段，别让它全部回吐\n\n1.  持仓最高价(entry_date 起所有 high 的最大值)\n2.  浮盈达到 min_gain_pct 才启用追踪(避免开仓后立刻被甩出)\n3.  当 close ≤ 最高价 × (1 - drawdown_pct%) 时触发减仓\n\n推荐组合: min_gain_pct=5, drawdown_pct=7 — 浮盈过 5% 后, 回撤 7% 锁利',
         params: [
           { key: 'min_gain_pct', label: '启用浮盈门槛(%)', min: 0, max: 20, step: 1, recommend: '5' },
           { key: 'drawdown_pct', label: '回撤阈值(%)', min: 3, max: 15, step: 1, recommend: '7' },
@@ -260,7 +260,7 @@ const marketGroups: GroupDef[] = [
     signals: [
       {
         id: 'PLUNGE_INDEX', name: '指数急跌：N分钟内沪指跌幅超阈值', source: 'recommended',
-        description: '① 监控上证指数在指定时间窗口内的分钟级跌幅\n② 当窗口内累计跌幅超过设定阈值时触发\n③ 适用于盘中快速杀跌的早期预警',
+        description: '1.  监控上证指数在指定时间窗口内的分钟级跌幅\n2.  当窗口内累计跌幅超过设定阈值时触发\n3.  适用于盘中快速杀跌的早期预警',
         params: [
           { key: 'time_window_min', label: '时间窗口(分)', min: 3, max: 30, step: 1, recommend: '10' },
           { key: 'drop_threshold_pct', label: '跌幅阈值(%)', min: 0.3, max: 3.0, step: 0.1, recommend: '1.0' },
@@ -268,7 +268,7 @@ const marketGroups: GroupDef[] = [
       },
       {
         id: 'PLUNGE_BREADTH', name: '涨跌家数恶化：下跌/上涨比超阈值', source: 'recommended',
-        description: '① 监控全市场上涨/下跌家数比值\n② 当下跌家数远超上涨家数时触发\n③ 反映市场整体情绪快速转弱',
+        description: '1.  监控全市场上涨/下跌家数比值\n2.  当下跌家数远超上涨家数时触发\n3.  反映市场整体情绪快速转弱',
         params: [
           { key: 'down_up_ratio', label: '下跌/上涨比', min: 1.5, max: 8.0, step: 0.5, recommend: '3.0' },
           { key: 'drop_gt3_pct', label: '跌>3%占比(%)', min: 10, max: 50, step: 5, recommend: '25' },
@@ -276,7 +276,7 @@ const marketGroups: GroupDef[] = [
       },
       {
         id: 'PLUNGE_SPEED', name: '跌停加速：短时间内跌停家数激增', source: 'recommended',
-        description: '① 监控短时间窗口内新增跌停股票数量\n② 跌停数量突然增多表明恐慌情绪蔓延\n③ 常见于主力出逃或利空冲击的中后期',
+        description: '1.  监控短时间窗口内新增跌停股票数量\n2.  跌停数量突然增多表明恐慌情绪蔓延\n3.  常见于主力出逃或利空冲击的中后期',
         params: [
           { key: 'time_window_min', label: '时间窗口(分)', min: 3, max: 15, step: 1, recommend: '5' },
           { key: 'new_limit_down', label: '新增跌停数', min: 3, max: 20, step: 1, recommend: '8' },

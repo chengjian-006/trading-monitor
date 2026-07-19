@@ -58,9 +58,10 @@ function rankChangeClass(val: number) {
 
 function formatAiAnalysis(text: string) {
   if (!text) return ''
-  // v1.7.x: 后端实际产出 【催化剂】【持续性】【资金】【建议】4 段, 旧逻辑只匹配【操作建议】所以从未生效
-  // 通用做法: 非首个的所有【xxx】前加 <br>, 让每段单独一行
-  const parts = text.split('【')
+  // 先转义 HTML(v-html 防存储型 XSS: ai_analysis 是 LLM 生成内容, 可能吐出标签)
+  const esc = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // 后端产出 【催化剂】【持续性】【资金】【建议】等段, 非首段的【xxx】前加 <br> 单独成行
+  const parts = esc.split('【')
   return parts[0] + parts.slice(1).map(p => '<br>【' + p).join('')
 }
 

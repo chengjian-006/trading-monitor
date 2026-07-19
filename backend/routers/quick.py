@@ -75,7 +75,7 @@ async def quick_set(
         return _confirm_page("无效操作", "未知的设置类型。", ok=False)
     if not pref_svc.verify_params(u, k, t, d, exp, sig):
         return _confirm_page("链接已失效", "签名校验未通过(可能链接被改动或版本过旧)。", ok=False)
-    if exp < time.time():
+    if exp is None or exp < time.time():
         return _confirm_page("链接已过期", "链接已过期，请从最新推送卡片操作。", ok=False)
 
     ok, label, detail = await pref_svc.execute_quick_action(u, k, t, d)
