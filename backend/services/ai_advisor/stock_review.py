@@ -66,14 +66,6 @@ async def _fetch_fin_risk(code: str):
         return None
 
 
-async def _fetch_sector_rotation():
-    try:
-        return await repository.get_sector_rotation()
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[ai_advisor] 个股研判-板块轮动取数失败: {e}")
-        return None
-
-
 async def _fetch_theme_heat() -> list:
     try:
         return await repository.get_theme_heat(days=15)
@@ -120,13 +112,15 @@ def _pick_holding(cost_map: dict, model_map: dict, pool_row: dict | None, code: 
 
 def _pick_near_buy(snapshot: dict | None, code: str) -> dict | None:
     """从临近买点快照(整表, 多票 items)里按 code 挑出该票那条; 不接近/未在榜 → None。
-    model 取最靠前(最先触发/最贴线)的一条 hit 的中文模型名; gap_pct 用 item.dist(距相关均线%)。"""
+    model 列出该票接近的全部买点名(hits 无 per-hit 距离、顺序也非贴线度, 故不单挑一个,
+    避免与 item 级 dist 张冠李戴); gap_pct 用 item.dist(该票距最近相关均线%, item 级)。"""
     if not snapshot:
         return None
     for item in (snapshot.get("items") or []):
         if item.get("code") == code:
             hits = item.get("hits") or []
-            model = hits[0].get("buy_name") if hits else None
+            names = [h.get("buy_name") for h in hits if h.get("buy_name")]
+            model = " / ".join(names) if names else None
             return {"model": model, "gap_pct": item.get("dist")}
     return None
 
@@ -146,12 +140,12 @@ def _pick_sector(heat: list, pool_row: dict | None) -> dict:
 
 
 async def _gather(user_id: int, code: str) -> dict:
-    """并发拉 7 个源(信号历史/模型胜率/财务红旗/板块轮动/题材热度/持仓/临近买点, 另加池行取现价与
+    """并发拉 6 个源(信号历史/模型胜率/财务红旗/题材热度/持仓/临近买点, 另加池行取现价与
     板块名次); 每源已在各自 _fetch_* 内 try/except 降级, 单源失败不拖垮整体、也不让 gather 抛出。"""
-    (signals, winrate, fin_risk, _rotation, heat, pool_row, holdings, near_buy_snap) = \
+    (signals, winrate, fin_risk, heat, pool_row, holdings, near_buy_snap) = \
         await asyncio.gather(
             _fetch_signals(code, user_id), _fetch_winrate(), _fetch_fin_risk(code),
-            _fetch_sector_rotation(), _fetch_theme_heat(), _fetch_pool_row(code),
+            _fetch_theme_heat(), _fetch_pool_row(code),
             _fetch_holdings(user_id), _fetch_near_buy_snapshot(user_id),
         )
     cost_map, _date_map, model_map = holdings if holdings else ({}, {}, {})
