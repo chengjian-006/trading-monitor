@@ -182,9 +182,9 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 
 .legend { margin-top: 10px; font-size: 11px; color: var(--fg-subtle); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.lg { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: 11px; color: var(--on-emphasis); margin-left: 6px; }
-.lg.trig { background: var(--up-fg); }
-.lg.near { background: var(--warn-fg); }
+.lg { display: inline-block; padding: 1px 7px; border-radius: var(--radius-sm); font-size: 11px; margin-left: 6px; border: 1px solid transparent; }
+.lg.trig { background: var(--up-bg-muted); color: var(--up-fg); border-color: color-mix(in srgb, var(--up-fg) 40%, transparent); }
+.lg.near { background: var(--warn-bg-muted); color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); }
 
 /* PC 多列网格用上横向空间; 窄屏自动回落单列。grid-auto-rows:1fr 让所有行等高, 卡片大小统一 */
 .list { margin-top: 8px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); grid-auto-rows: 1fr; gap: 6px; }
@@ -205,9 +205,9 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 /* 多买点: 顶部一行 chips 列全部命中, 下面只展开主点(优先触发)一行说明 */
 .hits { margin-top: 5px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
-.chip { font-size: 10.5px; font-weight: 600; color: var(--on-emphasis); padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
-.chip.c-trig { background: var(--up-fg); }
-.chip.c-near { background: var(--warn-fg); }
+.chip { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: var(--radius-sm); white-space: nowrap; border: 1px solid transparent; }
+.chip.c-trig { background: var(--up-bg-muted); color: var(--up-fg); border-color: color-mix(in srgb, var(--up-fg) 40%, transparent); }
+.chip.c-near { background: var(--warn-bg-muted); color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); }
 /* 差距可视化: 贴线度进度条 + 条件圆点(v1.7.536), 一眼看出多接近/差几项, 文字退到 hover */
 /* margin-top:auto 把贴线/条件两行顶到卡片底部, 同一行各卡这两行横向对齐(v1.7.537) */
 .gap-viz { display: flex; flex-direction: column; gap: 3px; margin-top: auto; padding-top: 4px; }
