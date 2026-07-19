@@ -31,32 +31,43 @@ def test_by_model_exec_gap_vs_market():
 
 def test_winner_vs_loser_hold_days():
     rounds = [_r(10.0, 2), _r(8.0, 3), _r(-5.0, 15), _r(-3.0, 25)]
-    f = build_coach_facts(rounds, {}, "s", "e")
+    f = build_coach_facts(rounds, {}, "2026-01-01", "2026-12-31")
     assert f["cycle"]["winner_hold_avg"] == 2.5   # 赢家平均持 (2+3)/2
     assert f["cycle"]["loser_hold_avg"] == 20.0   # 输家平均扛 (15+25)/2
 
 
 def test_open_rounds_excluded_from_closed_stats():
     rounds = [_r(5.0, 3, status="closed"), _r(0.0, 0, status="open")]
-    f = build_coach_facts(rounds, {}, "s", "e")
+    f = build_coach_facts(rounds, {}, "2026-01-01", "2026-12-31")
     assert f["n_closed"] == 1
 
 
 def test_empty_rounds_safe():
-    f = build_coach_facts([], {}, "s", "e")
+    f = build_coach_facts([], {}, "2026-01-01", "2026-12-31")
     assert f["n_closed"] == 0 and f["by_model"] == []
+
+
+def test_window_filters_by_close_date():
+    rounds = [
+        {**_r(5.0, 3), "close_date": "2026-05-01"},   # 窗口前
+        {**_r(-2.0, 6), "close_date": "2026-06-15"},  # 窗口内
+        {**_r(3.0, 9), "close_date": "2026-08-01"},   # 窗口后
+    ]
+    f = build_coach_facts(rounds, {}, "2026-06-01", "2026-07-10")
+    assert f["n_closed"] == 1
+    assert f["n_scored"] == 1
 
 
 def test_none_pnl_closed_round_counted_but_not_scored():
     rounds = [_r(None, None, status="closed"), _r(5.0, 3, status="closed")]
-    f = build_coach_facts(rounds, {}, "s", "e")
+    f = build_coach_facts(rounds, {}, "2026-01-01", "2026-12-31")
     assert f["n_closed"] == 2
     assert f["n_scored"] == 1
 
 
 def test_loser_holds_longer_none_when_no_winners():
     rounds = [_r(-5.0, 15), _r(-3.0, 25)]
-    f = build_coach_facts(rounds, {}, "s", "e")
+    f = build_coach_facts(rounds, {}, "2026-01-01", "2026-12-31")
     assert f["habits"]["loser_holds_longer"] is None
 
 
@@ -67,6 +78,6 @@ def test_stop_discipline_counts_stop_exits():
     rounds[0]["exit_reason"] = "SELL_WEAK_STOP"
     rounds[1]["exit_reason"] = "SELL_TIME_STOP"
     rounds[2]["exit_reason"] = "SELL_TARGET"
-    f = build_coach_facts(rounds, {}, "s", "e")
+    f = build_coach_facts(rounds, {}, "2026-01-01", "2026-12-31")
     assert f["habits"]["stop_discipline"]["stop_exit_rounds"] == 2
     assert f["habits"]["stop_discipline"]["stop_exit_ratio"] == round(2 / 3 * 100, 1)

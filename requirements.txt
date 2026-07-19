@@ -14,4 +14,4 @@ PyMuPDF>=1.24.0
 pywencai>=0.13.1
 baostock>=0.8.9
 lark-oapi>=1.4.0
-anthropic
+anthropic>=0.40

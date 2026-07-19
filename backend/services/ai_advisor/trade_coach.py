@@ -64,10 +64,11 @@ async def generate_coach_report(user_id: int, start: str, end: str, *, use_cache
     facts = coach_facts.build_coach_facts(rounds, winrate, start, end)
     narrative = await ai_client.narrate(_SYSTEM_PROMPT, facts)
 
-    try:
-        await _maybe_await(_save_cache(user_id, period_key, today, facts, narrative))
-    except Exception as e:  # noqa: BLE001
-        logger.warning(f"[ai_advisor] 复盘缓存写入失败(忽略): {e}")
+    if narrative is not None:
+        try:
+            await _maybe_await(_save_cache(user_id, period_key, today, facts, narrative))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[ai_advisor] 复盘缓存写入失败(忽略): {e}")
 
     return {"facts": facts, "narrative": narrative, "as_of": str(today), "cached": False}
 

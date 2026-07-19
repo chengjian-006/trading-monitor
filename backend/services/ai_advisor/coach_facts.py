@@ -11,19 +11,28 @@ def _avg(xs: list[float]) -> float | None:
     return round(sum(xs) / len(xs), 2) if xs else None
 
 
-def _closed(rounds: list[dict]) -> list[dict]:
-    """所有已平仓回合(不管数据是否齐全) —— 用于 n_closed 计数,别静默漏计脏数据回合。"""
-    return [r for r in rounds if str(r.get("status")) == "closed"]
+def _in_window(r: dict, start: str, end: str) -> bool:
+    """平仓日 close_date 是否落在 [start, end] 区间内(字符串比较, YYYY-MM-DD 可直接比)。
+    close_date 缺失一律视为不在窗口内(不下结论)。"""
+    cd = r.get("close_date")
+    if not cd:
+        return False
+    return start <= str(cd)[:10] <= end
 
 
-def _scored(rounds: list[dict]) -> list[dict]:
-    """已平仓且 realized_pnl_pct 齐全, 可纳入胜率/盈亏/持仓统计的回合。"""
-    return [r for r in rounds if str(r.get("status")) == "closed" and r.get("realized_pnl_pct") is not None]
+def _closed(rounds: list[dict], start: str, end: str) -> list[dict]:
+    """所选区间内的已平仓回合(不管数据是否齐全) —— 用于 n_closed 计数,别静默漏计脏数据回合。"""
+    return [r for r in rounds if str(r.get("status")) == "closed" and _in_window(r, start, end)]
+
+
+def _scored(rounds: list[dict], start: str, end: str) -> list[dict]:
+    """所选区间内已平仓且 realized_pnl_pct 齐全, 可纳入胜率/盈亏/持仓统计的回合。"""
+    return [r for r in _closed(rounds, start, end) if r.get("realized_pnl_pct") is not None]
 
 
 def build_coach_facts(rounds: list[dict], winrate: dict, start: str, end: str) -> dict:
-    n_closed = len(_closed(rounds))
-    scored = _scored(rounds)
+    n_closed = len(_closed(rounds, start, end))
+    scored = _scored(rounds, start, end)
     # 名称→全市场近3月胜率(model_winrate 值以 signal_id 为键, 取 model_name 反查)
     mkt = {v.get("model_name"): v for v in (winrate or {}).values()}
 
