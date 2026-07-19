@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 """市场风险两级预警 — 状态机 (v1.7.x 替代原空仓预警).
 
-回测背书 (backend/scripts/bt_market_risk.py + bt_risk_state_machine.py):
-  GREEN(正常): 广度≥30% 涨跌比≥30% 炸板率≤60% — 信号胜率52%均值+4.6% PF2.20
-  YELLOW(谨慎): 触发轻度预警 — 信号胜率56%均值+4.1% PF2.01(犹豫中上涨, 不减仓仅提示)
-  RED(空仓):   5日均收益<-1% 或 新低>15% 或 广度<15% — 信号胜率30%均值-3.6% PF0.47
-  状态机: 32.9万条日记录回测, RED覆盖13%交易日, 正确捕获2026-03塌月(n=29均值-9.2%)
+⚠️ 本模块只做「标注」不做「拦截」: RED 期间买点推送照常发出, 仅由 risk_buy_note()
+   在正文加一行警示。历史上曾有 is_risk_active() 看似是抑制开关, 但它从无调用方,
+   已于 v1.7.686 删除以免再被误读为安全闸门。要真拦截需另行显式实现。
+
+回测背书 (v1.7.686 重做, backend/scripts/bt_risk_baseline_redo.py):
+  样本: 5 个右侧模型 8746 条信号; 零重叠独立样本 OOS 2021-01~2025-05(1054 交易日)
+  GREEN(正常): 广度≥30% 涨跌比≥30% 炸板率≤60% — 胜率40.6% 均值-0.49% PF0.89 (覆盖38.8%)
+  YELLOW(谨慎): 触发轻度预警 —                    胜率38.6% 均值-1.79% PF0.67 (覆盖39.6%)
+  RED(空仓):   5日均收益<-1% 或 新低>15% 或 广度<15% — 胜率36.1% 均值-2.27% PF0.62 (覆盖21.6%)
+  → 三档单调递减, 状态机有效; 但**区分力只在坏市场体现**: 同一套规则在 IS 期
+    (2025-06~2026-05 普涨市)三档胜率 48.0/49.3/48.3 几乎无差别。
+
+  旧 docstring 曾写 GREEN 52%/+4.6%/PF2.20、RED 30%/-3.6%/PF0.47、RED覆盖13%,
+  来自 bt_risk_state_machine.py —— 该脚本状态机用**当天**广度判当天状态(生产用昨日),
+  属前视偏差, 且标定期恰为普涨市。复核实测对不上(尤其 GREEN 实为负期望), 已弃用。
 
 指标数据源:
   - 历史(≤昨日): kline_cache 全市场日线 → 涨跌比/均收益/涨停数/新低比
@@ -304,10 +314,33 @@ async def _refresh_active_cache() -> None:
     _active_cache = (now, st, up, days)
 
 
-async def is_risk_active() -> bool:
-    """当前是否处于 RED 风险状态 — 买点推送抑制用, 2 分钟缓存."""
-    await _refresh_active_cache()
-    return _active_cache[1] == RED
+# 买点推送的风险档警示语。数字全部来自 bt_risk_baseline_redo.py 的 OOS 实测
+# (2021-01~2025-05, 1054 交易日, 8746 条信号), 不再用旧脚本那串带前视偏差的数字。
+# 按模型分流的依据: RED 档伤害极度集中在平台突破(OOS 均-5.06% PF0.31, 全模型最差,
+# 且 IS 期同样垫底 = 双段同向); 回踩MA10/MA60 在 RED 档两段都接近打平(PF≈1.0)。
+# 其余模型 IS/OOS 不同向, 不单独分流, 走通用文案。
+_RED_FRAGILE = {"BUY_PLATFORM_BREAKOUT"}
+_RED_NEUTRAL = {"BUY_RALLY_MA10", "BUY_RALLY_MA60"}
+
+
+def risk_buy_note(state: str, signal_id: str = "") -> str:
+    """买点推送要加的风险档警示行; GREEN/未知档返回 ''(不加行)。
+
+    signal_id 可空(合并推送场景由调用方挑代表)。文案刻意短 —— 这是推送正文首行。
+    """
+    if state == RED:
+        if signal_id in _RED_FRAGILE:
+            return ("🔴 大盘空仓档 · 平台突破在此档最脆：独立样本实测单笔均 -5.1%"
+                    "(PF0.31，全买点最差) —— 强烈建议不做")
+        if signal_id in _RED_NEUTRAL:
+            return ("🔴 大盘空仓档 · 大盘整体走弱，但该模型在此档历史上接近打平"
+                    "(PF≈1.0)，若做务必轻仓")
+        return ("🔴 大盘空仓档 · 独立样本实测此档买点单笔均 -2.3%(正常档 -0.5%)，"
+                "建议停开新仓")
+    if state == YELLOW:
+        return ("⚡ 大盘谨慎档 · 独立样本实测此档买点单笔均 -1.8%(正常档 -0.5%)，"
+                "控制仓位、别追高")
+    return ""
 
 
 async def get_risk_state() -> str:

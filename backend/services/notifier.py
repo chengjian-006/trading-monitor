@@ -665,15 +665,15 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
     lark_webhook = cfg.get("lark_webhook", "")
     lark_on = bool(cfg.get("lark_enabled", False))
 
-    # v1.7.x: 市场风险预警期间, 买点推送统一标记 (替代v1.7.406空仓预警)
+    # 市场风险档标记(v1.7.686 起文案与数字统一由 risk_buy_note 出, 并按模型分流)。
+    # 原写死的「胜率30%均值-3.6%」来自带前视偏差的旧回测, 且 YELLOW 曾写「质量未显著
+    # 下降」—— 实测 YELLOW -1.8% vs GREEN -0.5%, 是显著下降的。均已按 OOS 实测更正。
     if direction == "buy":
         try:
-            from backend.services.market_risk_controller import get_risk_state
-            risk_state = await get_risk_state()
-            if risk_state == "RED":
-                detail = f"⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓\n{detail}"
-            elif risk_state == "YELLOW":
-                detail = f"⚡ 市场风险·谨慎(YELLOW): 轻度预警, 信号质量未显著下降, 注意风控\n{detail}"
+            from backend.services.market_risk_controller import get_risk_state, risk_buy_note
+            note = risk_buy_note(await get_risk_state(), signal_id or "")
+            if note:
+                detail = f"{note}\n{detail}"
         except Exception:
             pass
 

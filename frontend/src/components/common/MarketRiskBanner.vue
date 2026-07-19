@@ -54,8 +54,10 @@ useVisiblePolling(load, 300000)
       </span>
     </div>
     <span class="risk-detail">
-      <template v-if="isRed">5日均收益 {{ avg5 }}% · 广度MA20 {{ breadth }}% · RED期内信号胜率30%均值-3.6%{{ latest.source === 'intraday' ? ' · 盘中预升级, 收盘复核' : '' }}</template>
-      <template v-else-if="isYellow">涨跌比 {{ advance }}% · 广度MA20 {{ breadth }}% · 信号质量未显著下降</template>
+      <!-- v1.7.686: 原写「RED期内信号胜率30%均值-3.6%」「信号质量未显著下降」, 数字来自带
+           前视偏差的旧回测且 YELLOW 那句与实测相反; 改用 OOS 独立样本实测值(2021-2025)。 -->
+      <template v-if="isRed">5日均收益 {{ avg5 }}% · 广度MA20 {{ breadth }}% · 实测此档买点单笔均 -2.3%（正常档 -0.5%）{{ latest.source === 'intraday' ? ' · 盘中预升级, 收盘复核' : '' }}</template>
+      <template v-else-if="isYellow">涨跌比 {{ advance }}% · 广度MA20 {{ breadth }}% · 实测此档买点单笔均 -1.8%（正常档 -0.5%）</template>
       <template v-else>涨跌比 {{ advance }}% · 广度MA20 {{ breadth }}% · {{ latest.trade_date }}</template>
     </span>
   </div>

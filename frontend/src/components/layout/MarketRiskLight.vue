@@ -20,7 +20,8 @@ const tip = computed(() => {
   const b = l.breadth_ma20 == null ? '—' : l.breadth_ma20.toFixed(0)
   const a = l.advance_ratio == null ? '—' : l.advance_ratio.toFixed(0)
   const base = `市场风险 ${label.value.slice(2)}（${l.trade_date}${l.source === 'intraday' ? ' · 盘中预升级' : ''}）\n涨跌比 ${a}% · 广度MA20 ${b}%`
-  return state.value === 'RED' ? `${base}\nRED期内信号胜率30%均值-3.6%, 建议空仓` : `${base}\n点击查看监控看板详情`
+  // v1.7.686: 旧提示写死「胜率30%均值-3.6%」(带前视偏差的旧回测), 改用 OOS 实测值
+  return state.value === 'RED' ? `${base}\n实测此档买点单笔均 -2.3%（正常档 -0.5%），建议停开新仓` : `${base}\n点击查看监控看板详情`
 })
 
 async function load() {

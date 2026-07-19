@@ -657,15 +657,17 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
     #  正文为五区骨架文本(结论行→明细→👉建议), 排版规范同结构卡。)
     # v1.7.569: 合并推送补 RED/YELLOW 市场风险标记(原来只有单信号 send_wechat_signal 有, 合并分支丢了)
     risk_line = ""
-    has_buy = any(s.direction == "buy" for s, _ in strong_items)
+    buy_ids = [s.signal_id for s, _ in strong_items if s.direction == "buy"]
+    has_buy = bool(buy_ids)
     if has_buy:
         try:
-            from backend.services.market_risk_controller import get_risk_state
-            _rs = await get_risk_state()
-            if _rs == "RED":
-                risk_line = "⚠️ 市场风险·空仓预警(RED): 回测期内信号胜率30%均值-3.6%, 强烈建议停开新仓"
-            elif _rs == "YELLOW":
-                risk_line = "⚡ 市场风险·谨慎(YELLOW): 轻度预警, 注意风控"
+            from backend.services.market_risk_controller import (
+                get_risk_state, risk_buy_note, _RED_FRAGILE,
+            )
+            # 合并推送含多个买点 → 取代表: 只要有一个是 RED 档的脆弱模型(平台突破),
+            # 就用它的强警示, 否则用第一个(通用文案对非分流模型都一样)。
+            rep = next((i for i in buy_ids if i in _RED_FRAGILE), buy_ids[0])
+            risk_line = risk_buy_note(await get_risk_state(), rep)
         except Exception:
             pass
     # 多买点合并推送也带上各买点历史胜率(与单条推送口径一致)
