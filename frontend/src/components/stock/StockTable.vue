@@ -629,92 +629,49 @@ const allColumns = computed(() => [
       if (prefix) {
         children.push(h('span', { style: { position: 'absolute', right: '100%', marginRight: '2px' } }, prefix))
       }
-      // 双榜共振火苗: 人气排名 与 成交额排名 同时进前100, 颜色随强弱(深红/橙/浅红)
+      // 名称先放(左对齐), 各类标记一律排在名称后面, 统一「描边细标签」风格(淡底+彩边+彩字, 只用颜色区分)
+      children.push(row.name)
+      const chipTag = (label: string, c: string, title: string) => h('span', {
+        title,
+        style: {
+          marginLeft: '4px', fontSize: '10px', lineHeight: '15px', padding: '0 5px',
+          color: c, border: `1px solid color-mix(in srgb, ${c} 45%, transparent)`,
+          background: `color-mix(in srgb, ${c} 8%, transparent)`,
+          borderRadius: '3px', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle',
+        },
+      }, label)
+      // 双榜共振: 人气+成交额双榜前100, 颜色随强弱
       const popR = row.popularity_rank
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
       if (resoLevel) {
-        // 双榜共振: 低调小圆点(颜色随强弱), 取代原扎眼的火苗色块
-        const dot = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
-        children.push(h('span', {
-          title: `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`,
-          style: {
-            display: 'inline-block', width: '6px', height: '6px', borderRadius: '50%',
-            background: dot, marginRight: '5px', verticalAlign: 'middle', flexShrink: 0,
-          },
-        }))
+        const c = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
+        children.push(chipTag('共振', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
       }
-      children.push(row.name)
-      // 涨停 / 跌停: 实心高对比徽章, 一眼可辨 (按板块/ST 阈值判定)
+      // 涨停 / 跌停
       if (isLimitUp(row)) {
-        children.push(h('span', {
-          title: `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`,
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: 'var(--red)', color: 'var(--on-emphasis)', borderRadius: '2px',
-            fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-          },
-        }, '涨停'))
+        children.push(chipTag('涨停', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       } else if (isLimitDown(row)) {
-        children.push(h('span', {
-          title: `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`,
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: 'var(--green)', color: 'var(--on-emphasis)', borderRadius: '2px',
-            fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-          },
-        }, '跌停'))
+        children.push(chipTag('跌停', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       }
-      // 连板: 连续涨停天数 — 游资核心标签, 橙红渐变实心徽章, 首板/N连板
+      // 连板: 首板 / N连板
       if (row.limit_up_days != null && row.limit_up_days >= 1) {
         const n = row.limit_up_days
-        const label = n >= 2 ? `${n}连板` : '首板'
-        children.push(h('span', {
-          title: n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)',
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 4px',
-            background: n >= 2 ? 'var(--red)' : 'var(--up-bg-muted)',
-            color: n >= 2 ? 'var(--on-emphasis)' : 'var(--up-fg)', borderRadius: '2px',
-            fontWeight: '700', lineHeight: '16px', verticalAlign: 'middle',
-            border: n >= 2 ? 'none' : '1px solid color-mix(in srgb, var(--up-fg) 30%, transparent)',
-          },
-        }, label))
+        children.push(chipTag(n >= 2 ? `${n}连板` : '首板', 'var(--up-fg)',
+          n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)'))
       }
-      // 小额: 今日虚拟全天成交额 < 20亿 (盘中按时点系数外推, 盘后用实际成交额)
-      // 每 10 分钟独立评估一次, 避免边缘票随 3s quote 闪烁
+      // 小额: 预估全天成交额 <20亿
       const smallEst = smallAmountMap.value.get(row.code)
       if (smallEst != null) {
-        const tip = `今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`
-        children.push(h('span', {
-          title: tip,
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: 'var(--warn-bg-muted)', color: 'var(--warn-fg)', borderRadius: '2px',
-            fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
-          },
-        }, '小额'))
+        children.push(chipTag('小额', 'var(--warn-fg)', `今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
       }
-      // 高换: turnover ≥ 15% — 短线情绪票 / 注意筹码松动
+      // 高换: 换手 ≥15%
       if (row.turnover != null && row.turnover >= 15) {
-        children.push(h('span', {
-          title: `换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`,
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: 'var(--danger-bg-muted)', color: 'var(--danger-fg)', borderRadius: '2px',
-            fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
-          },
-        }, '高换'))
+        children.push(chipTag('高换', 'var(--danger-fg)', `换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
       }
-      // 异动: volume_ratio > 3 — 突然放量 (相对前 5 日均量)
+      // 异动: 量比 ≥3x
       if (row.volume_ratio != null && row.volume_ratio >= 3) {
-        children.push(h('span', {
-          title: `量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`,
-          style: {
-            marginLeft: '4px', fontSize: '10px', padding: '0 3px',
-            background: 'var(--accent-bg-muted)', color: 'var(--accent-fg)', borderRadius: '2px',
-            fontWeight: 'normal', lineHeight: '16px', verticalAlign: 'middle',
-          },
-        }, '异动'))
+        children.push(chipTag('异动', 'var(--accent-fg)', `量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
       }
       // verdict 色块: 有买点信号时给名称加色条提示决策结论 (与展开行决策卡颜色一致)
       const verdictColor = getVerdictColor(row)
@@ -761,7 +718,7 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '成交额排名',
+    title: '成交',
     key: 'amount_rank',
     width: 84,
     align: 'center' as const,
@@ -966,7 +923,7 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    width: 132,
+    width: 152,
     fixed: 'right' as const,
     render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
       (() => {
@@ -1034,7 +991,7 @@ const NUM_KEYS = new Set(['price', 'pct_change', 'pct_5d', 'speed', 'amount', 'v
 
 // 列自定义 (v1.7.672): 可勾选隐藏的列(结构列 序号/代码/名称/操作 恒显不可关); 选择存 localStorage
 const HIDEABLE: { key: string; label: string }[] = [
-  { key: 'popularity_rank', label: '人气' }, { key: 'amount_rank', label: '成交额排名' },
+  { key: 'popularity_rank', label: '人气' }, { key: 'amount_rank', label: '成交' },
   { key: 'sparkline', label: '走势图' }, { key: 'price', label: '现价' },
   { key: 'pct_change', label: '涨幅' }, { key: 'pct_5d', label: '5日涨幅' },
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
@@ -1060,6 +1017,8 @@ function resetCols() { hiddenCols.value = new Set(); localStorage.removeItem(LS_
 const columns = computed(() => allColumns.value
   .filter((c: any) => !hiddenCols.value.has(c.key))
   .map((c: any) => NUM_KEYS.has(c.key) ? { ...c, className: [c.className, 'col-num'].filter(Boolean).join(' ') } : c))
+// 横向滚动宽度 = 当前可见列宽总和(动态: 加/删/隐藏列自动跟随, 避免写死值偏小导致最右列滚不到)
+const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum + (Number(c.width) || 120), 0) + 40)
 </script>
 
 <template>
@@ -1176,6 +1135,13 @@ const columns = computed(() => allColumns.value
 /* 表体数字列等宽对齐, 防 3s 行情刷新数字跳动 */
 .stock-table-wrap :deep(.n-data-table-td) {
   font-variant-numeric: tabular-nums;
+}
+/* 固定列(选择/操作)给不透明底: 防横向滚动时下面「策略」等列内容透出造成重叠遮挡 */
+.stock-table-wrap :deep(.n-data-table-td--fixed-left),
+.stock-table-wrap :deep(.n-data-table-td--fixed-right),
+.stock-table-wrap :deep(.n-data-table-th--fixed-left),
+.stock-table-wrap :deep(.n-data-table-th--fixed-right) {
+  background-color: var(--bg-surface);
 }
 .signal-expand {
   padding: 8px 12px;

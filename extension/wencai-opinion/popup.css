@@ -131,6 +131,15 @@ body {
 .login-tip .lt-txt { font-size: 12.5px; color: var(--warn); font-weight: 600; line-height: 1.4; }
 .login-tip .btn { flex-shrink: 0; }
 
+/* 账号登录状态: 已登录时按钮弱化成小链接, 状态文字染色 */
+.login-status.ok { color: var(--ok); font-weight: 600; }
+.login-status.out { color: var(--warn); font-weight: 600; }
+.relogin-link {
+  appearance: none; border: 0; background: transparent; padding: 2px 4px;
+  font: inherit; font-size: 11.5px; color: var(--ink-3); cursor: pointer; flex-shrink: 0;
+}
+.relogin-link:hover { color: var(--brand); text-decoration: underline; }
+
 /* ---------- 问答页 ---------- */
 .preset-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
 .preset-list button {

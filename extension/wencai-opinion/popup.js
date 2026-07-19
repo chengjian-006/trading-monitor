@@ -272,7 +272,17 @@ function setLoginUI(state) {
   // state: 'ok' | 'out' | 'unknown'
   $('loginTip').classList.toggle('hide', state !== 'out');
   const st = $('loginStatus');
-  if (st) st.textContent = state === 'ok' ? '已登录 ✓' : state === 'out' ? '未登录' : '检测中…';
+  if (st) {
+    st.textContent = state === 'ok' ? '已登录 ✓' : state === 'out' ? '未登录' : '检测中…';
+    st.className = 'login-status ' + (state === 'ok' ? 'ok' : state === 'out' ? 'out' : '');
+  }
+  const btn = $('reLogin');
+  if (btn) {
+    // 已登录时按钮弱化成不起眼的「切换账号」小链接, 避免误以为要重新登录; 未登录才给显眼按钮
+    if (state === 'ok') { btn.textContent = '切换账号'; btn.className = 'relogin-link'; }
+    else if (state === 'out') { btn.textContent = '去登录'; btn.className = 'btn primary'; }
+    else { btn.textContent = '登录'; btn.className = 'relogin-link'; }
+  }
 }
 
 let loginPollTimer = null;
