@@ -9,14 +9,16 @@ from backend.core.config import load_config
 logger = logging.getLogger(__name__)
 
 
-def _call_provider(provider: str, model: str, system_prompt: str, user_content: str,
+def _call_provider(provider: str, system_prompt: str, user_content: str,
                    max_tokens: int) -> str:
     """同步调具体 provider, 返回文本。deepseek 走 OpenAI 兼容, claude 走 anthropic。仅本模块内部用。"""
     cfg = load_config()
     if provider == "claude":
         import anthropic
+        model = cfg.get("ai_advisor_claude_model", "claude-sonnet-5")
+        base_url = cfg.get("ai_advisor_claude_base_url") or None
         client = anthropic.Anthropic(api_key=cfg.get("anthropic_api_key", ""),
-                                     base_url=cfg.get("ai_base_url") or None)
+                                     base_url=base_url)
         resp = client.messages.create(
             model=model, max_tokens=max_tokens,
             system=system_prompt,
@@ -25,6 +27,7 @@ def _call_provider(provider: str, model: str, system_prompt: str, user_content: 
         return "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
     # deepseek / OpenAI 兼容(复用 ai_analyst 现有做法)
     from openai import OpenAI
+    model = cfg.get("ai_model", "deepseek-chat")
     client = OpenAI(api_key=cfg.get("anthropic_api_key", ""),
                     base_url=cfg.get("ai_base_url", "https://api.deepseek.com/v1"))
     resp = client.chat.completions.create(
@@ -41,11 +44,10 @@ async def narrate(system_prompt: str, fact_sheet: dict, *, max_tokens: int = 409
     if not cfg.get("ai_advisor_enabled", False):
         return None
     provider = cfg.get("ai_advisor_provider", "deepseek")
-    model = cfg.get("ai_model", "deepseek-chat")
     user_content = json.dumps(fact_sheet, ensure_ascii=False, default=str)
     try:
         text = await asyncio.to_thread(
-            _call_provider, provider, model, system_prompt, user_content, max_tokens)
+            _call_provider, provider, system_prompt, user_content, max_tokens)
     except Exception as e:  # noqa: BLE001
         logger.error(f"[ai_advisor] narrate 调用失败({provider}): {e}")
         return None
