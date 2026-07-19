@@ -161,17 +161,31 @@ def _monthly_series(pairs: list[tuple[str, float]]) -> list[dict]:
 
 
 def _max_drawdown(pairs: list[tuple[str, float]]) -> float | None:
-    """逐笔权益曲线最大回撤(百分点正数): 按触发日升序, 等权累计净收益曲线(不复利, 与胜率口径一致),
-    取峰到谷最大跌幅。起点权益=0(即首笔前无浮盈), 故连亏序列回撤=累计亏损。样本<5笔 → None。"""
+    """等权组合权益曲线的最大回撤(百分点正数, 0~100)。样本<5笔 → None。
+
+    口径: 按触发日分批 —— 当日全部信号等权分资金, 批次收益=当日均值, 逐批复利。
+    读法: "一直跟这个模型做, 最难受时账户从高点缩水多少"。
+
+    v1.7.716 修口径错误: 旧算法把每笔当成一次独立满仓下注、直接累加百分点, 结果随样本数
+    线性膨胀 —— 弱势极限(2328笔/单笔均-0.88%)算出 -3134%, 既不可能(回撤不会超过-100%)
+    又不可跨模型比较(它显得比 133笔的竞价弱转强"危险25倍", 其实差别主要来自触发频率)。
+    """
     if len(pairs) < 5:
         return None
-    rets = [r for _, r in sorted(pairs)]
-    equity = peak = max_dd = 0.0
-    for r in rets:
-        equity += r * 100
+    from collections import defaultdict
+    by_day: dict[str, list[float]] = defaultdict(list)
+    for d, r in pairs:
+        by_day[str(d)[:10]].append(r)
+    equity = peak = 1.0
+    max_dd = 0.0
+    for d in sorted(by_day):
+        batch = by_day[d]
+        equity *= 1.0 + sum(batch) / len(batch)
+        if equity <= 0:                       # 单批不可能亏光, 纯防御
+            return 100.0
         peak = max(peak, equity)
-        max_dd = max(max_dd, peak - equity)
-    return round(max_dd, 1)
+        max_dd = max(max_dd, (peak - equity) / peak)
+    return round(min(max_dd, 1.0) * 100, 1)
 
 
 def _aggregate(acc: dict, anchor: str) -> list[dict]:
