@@ -30,6 +30,7 @@ def _is_st(stock: dict) -> bool:
 # 统一格式化 + 涨停判定(原本地副本已抽到 utils; 涨停判定顺带覆盖 301/689/92 等边界码)
 from backend.utils.formatting import fmt_amount as _fmt_amount
 from backend.utils.limit_calc import is_at_limit_up as _is_limit_up
+from backend.utils.limit_calc import is_new_listing as _is_new_listing
 
 
 # 进程级去重: { 日期字符串: {已推送板块名} }
@@ -334,6 +335,13 @@ async def scan_capital_inflow():
         leader_name = overview.get("leader_name", "")
         top_stocks = overview.get("top_stocks", []) or []
         leader_code = top_stocks[0].get("code", "") if top_stocks else ""
+        # v1.7.704: 新股(N/C 开头)当龙头不算数 —— 它在标识期内无涨跌幅限制, "龙头涨停"
+        # 这个条件对它天然恒真(首日可涨100%+), 于是任何板块只要当天有新股上市就可能被
+        # 误判成资金回流; 而新股暴涨反映的是打新情绪, 不是板块资金回流。
+        # 实测近一月 25 条信号里有 3 条(12%)龙头是 N 开头新股。
+        if _is_new_listing(leader_name):
+            logger.info(f"[capital_inflow] {sector_name} 龙头 {leader_name} 为次新股, 跳过")
+            continue
         if not _is_limit_up(leader_code, leader_pct):
             continue
 
