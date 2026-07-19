@@ -18,6 +18,7 @@ import { fetchTodayReports, fetchLatestReport, getSlotName, upsertReportFeedback
 const reports = ref<MarketReport[]>([])
 const reportLoading = ref(false)
 const reportCollapsed = ref(false)
+const showAiReport = false   // AI 市场分析板块先整体拿掉(需要恢复改回 true)
 const message = useGlobalMessage()
 
 // report_id -> 'up' | 'down' | null
@@ -107,7 +108,7 @@ function renderContent(text: string): string {
 }
 
 onMounted(() => {
-  loadReports()
+  if (showAiReport) loadReports()
 })
 </script>
 
@@ -134,17 +135,15 @@ onMounted(() => {
         <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
         <ThemeHeatPanel />
       </div>
-      <!-- 临近买点 (自选距四买点的触发/接近): 长清单最吃高度, 独占右栏做整列到底自滚动的盯盘轨 -->
+      <!-- 右栏: 临近买点(盯盘轨) + 问财观点(投顾档) 纵向堆叠; 问财观点撑满剩余高度自滚动, 消除临近买点较短时右栏下方空白 -->
       <div class="cockpit-side">
         <NearBuyPanel />
+        <WencaiOpinionPanel />
       </div>
     </div>
 
-    <!-- 问财观点 (v1.7.663: 原独立菜单页折进看板做紧凑面板, 最近几条+查看全部跳详情) -->
-    <WencaiOpinionPanel />
-
-    <!-- AI 市场分析 -->
-    <NCard size="small" class="report-card" :bordered="true">
+    <!-- AI 市场分析 (先整体拿掉: showAiReport=false; 需要恢复改回 true) -->
+    <NCard v-if="showAiReport" size="small" class="report-card" :bordered="true">
       <template #header>
         <div class="report-header">
           <NIcon :component="SparklesOutline" :size="16" class="report-icon" />
@@ -245,7 +244,7 @@ onMounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr);
   gap: 10px;
-  align-items: start;   /* 各栏顶端对齐, 右栏自身 sticky 不随左栏拉伸 */
+  align-items: stretch;   /* 右栏拉伸到与左栏等高, 便于问财观点撑满剩余高度 */
 }
 /* 左主栏: 情绪 → 板块轮动细条 → 情绪温度表 纵向堆叠 */
 .cockpit-main {
@@ -254,16 +253,20 @@ onMounted(() => {
   gap: 10px;
   min-width: 0;   /* 防内部宽表撑破栅格 */
 }
-/* 右栏: 临近买点整列到底, sticky 跟随, 内部自滚动(见 NearBuyPanel .list) */
+/* 右栏: 临近买点(自然高) + 问财观点(撑满剩余高度、内部自滚动), 消除临近买点较短时右栏下方空白 */
 .cockpit-side {
   min-width: 0;
-  position: sticky;
-  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
+.cockpit-side > :last-child { flex: 1 1 auto; min-height: 0; }
+.cockpit-side :deep(.wo-panel) { height: 100%; }
 @media (max-width: 960px) {
-  /* 窄屏回落单列: 右栏解除 sticky, 顺序=情绪/轮动/温度表/临近买点 */
+  /* 窄屏回落单列: 顺序=情绪/轮动/温度表/临近买点/问财观点, 各面板自然高不强制撑满 */
   .cockpit-grid { grid-template-columns: 1fr; }
-  .cockpit-side { position: static; }
+  .cockpit-side > :last-child { flex: none; }
+  .cockpit-side :deep(.wo-panel) { height: auto; }
 }
 .report-card {
   border-radius: 6px;

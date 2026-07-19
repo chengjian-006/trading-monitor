@@ -11,7 +11,7 @@ const router = useRouter()
 const opinions = ref<WencaiOpinion[]>([])
 const loading = ref(false)
 
-const latest = computed(() => opinions.value.slice(0, 4))
+const latest = computed(() => opinions.value.slice(0, 12))
 
 async function load() {
   loading.value = true
@@ -67,7 +67,7 @@ function primaryStocks(op: WencaiOpinion) {
 </template>
 
 <style scoped>
-.wo-panel { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 12px; }
+.wo-panel { background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 6px; padding: 10px 12px; display: flex; flex-direction: column; }
 .head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-muted); }
 .title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: .02em; color: var(--fg-default); }
 .title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; }
@@ -75,7 +75,7 @@ function primaryStocks(op: WencaiOpinion) {
 .all-link { appearance: none; border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--accent-fg); cursor: pointer; display: inline-flex; align-items: center; gap: 1px; }
 .all-link:hover { text-decoration: underline; }
 
-.list { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
+.list { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; flex: 1; min-height: 0; overflow-y: auto; }
 .op { border: 1px solid var(--border-muted); border-radius: 5px; padding: 8px 10px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
 .op:hover { border-color: var(--border-default); box-shadow: 0 2px 6px rgba(0,0,0,.06); }
 .op-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 5px; }

@@ -826,7 +826,7 @@ const allColumns = computed(() => [
   {
     title: '涨速',
     key: 'speed',
-    width: 68,
+    width: 74,
     sorter: numSorter('speed'),
     sortOrder: sortOrder('speed'),
     render: (row: Stock) => {
@@ -841,7 +841,7 @@ const allColumns = computed(() => [
   {
     title: '成交额',
     key: 'amount',
-    width: 72,
+    width: 84,
     sorter: numSorter('amount'),
     sortOrder: sortOrder('amount'),
     render: (row: Stock) => formatAmount(row.amount),
@@ -849,7 +849,7 @@ const allColumns = computed(() => [
   {
     title: '量比',
     key: 'volume_ratio',
-    width: 50,
+    width: 58,
     sorter: numSorter('volume_ratio'),
     sortOrder: sortOrder('volume_ratio'),
     render: (row: Stock) => row.volume_ratio != null ? row.volume_ratio.toFixed(2) : '-',
@@ -865,7 +865,7 @@ const allColumns = computed(() => [
   {
     title: '换手',
     key: 'turnover',
-    width: 58,
+    width: 64,
     sorter: numSorter('turnover'),
     sortOrder: sortOrder('turnover'),
     render: (row: Stock) => row.turnover != null ? row.turnover.toFixed(2) + '%' : '-',
@@ -1156,6 +1156,7 @@ const columns = computed(() => allColumns.value
 .n-data-table-td.col-num {
   font-family: var(--font-mono);
   letter-spacing: -0.01em;
+  white-space: nowrap;   /* 数字列(涨速/成交额/量比/换手/流通市值等)强制单行, 不在 亿/% 处折行 */
 }
 /* 让表格占满父级剩余高度, 配合 NDataTable flex-height: 仅表体内部滚动、表头吸顶不随页面动 */
 .stock-table-wrap {

@@ -12,6 +12,25 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.694',
+    date: '2026-07-19',
+    title: '看板布局收拾：消除右栏空白 + AI市场分析先隐藏 + 股票池数字列单行',
+    changes: [
+      {
+        text: '监控看板右栏「临近买点」较短时下方一大片空白：把「问财观点」从底部整行移进右栏、放临近买点下面，并撑满右栏剩余高度、内部自滚动（多显示几条填满），空白消除、信息架构更顺。',
+        tag: 'improve',
+      },
+      {
+        text: '「AI 市场分析」板块先整体拿掉（showAiReport 开关置 false，同时停掉其数据拉取；需要恢复改回 true）。',
+        tag: 'improve',
+      },
+      {
+        text: '股票池表格涨速/成交额/量比/换手/流通市值等数字列原来会在「亿」「%」处折成两行，改为强制单行（col-num 加 white-space:nowrap，并给最紧的几列补足列宽防裁切）。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.693',
     date: '2026-07-19',
     title: '修复长任务「跑完了却被记成失败」',
