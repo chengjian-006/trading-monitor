@@ -83,7 +83,7 @@ async def _fetch_one_ths_realhead(code: str) -> dict | None:
         free_cap = (free_shares * price) / 10000.0 if free_shares > 0 and price > 0 else None
         return {
             "speed": None,
-            "turnover": float(items.get("1968584")) / 10 if items.get("1968584") else None,
+            "turnover": float(items.get("1968584")) if items.get("1968584") else None,
             "volume_ratio": float(items.get("1771976")) if items.get("1771976") else None,
             "free_cap": free_cap,
             "industry": "",

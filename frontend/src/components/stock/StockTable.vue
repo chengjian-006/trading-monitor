@@ -613,7 +613,7 @@ const allColumns = computed(() => [
   {
     title: '名称',
     key: 'name',
-    width: 132,
+    width: 112,
     ellipsis: { tooltip: true },
     render: (row: Stock) => {
       const isFocused = !!row.focused
@@ -644,34 +644,30 @@ const allColumns = computed(() => [
       const popR = row.popularity_rank
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
+      // 标签统一缩成 1 字描边小签(省地方), 完整含义看悬停 title
       if (resoLevel) {
         const c = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
-        children.push(chipTag('共振', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
+        children.push(chipTag('共', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
       }
-      // 涨停 / 跌停
       if (isLimitUp(row)) {
-        children.push(chipTag('涨停', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        children.push(chipTag('涨', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       } else if (isLimitDown(row)) {
-        children.push(chipTag('跌停', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        children.push(chipTag('跌', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       }
-      // 连板: 首板 / N连板
       if (row.limit_up_days != null && row.limit_up_days >= 1) {
         const n = row.limit_up_days
-        children.push(chipTag(n >= 2 ? `${n}连板` : '首板', 'var(--up-fg)',
+        children.push(chipTag(n >= 2 ? `${n}板` : '首', 'var(--up-fg)',
           n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)'))
       }
-      // 小额: 预估全天成交额 <20亿
       const smallEst = smallAmountMap.value.get(row.code)
       if (smallEst != null) {
-        children.push(chipTag('小额', 'var(--warn-fg)', `今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
+        children.push(chipTag('额', 'var(--warn-fg)', `小额: 今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
       }
-      // 高换: 换手 ≥15%
       if (row.turnover != null && row.turnover >= 15) {
-        children.push(chipTag('高换', 'var(--danger-fg)', `换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
+        children.push(chipTag('换', 'var(--danger-fg)', `高换: 换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
       }
-      // 异动: 量比 ≥3x
       if (row.volume_ratio != null && row.volume_ratio >= 3) {
-        children.push(chipTag('异动', 'var(--accent-fg)', `量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
+        children.push(chipTag('动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
       }
       // verdict 色块: 有买点信号时给名称加色条提示决策结论 (与展开行决策卡颜色一致)
       const verdictColor = getVerdictColor(row)
@@ -855,46 +851,9 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '行业',
-    key: 'industry',
-    width: 80,
-    ellipsis: { tooltip: true },
-    sorter: strSorter('industry'),
-    sortOrder: sortOrder('industry'),
-    render: (row: Stock) => {
-      if (!row.industry) return '-'
-      const children: any[] = [h('span', {}, row.industry)]
-      if (row.sector_rank === 1) {
-        children.push(h('span', {
-          style: {
-            marginLeft: '3px',
-            padding: '0 3px',
-            fontSize: '9px',
-            fontWeight: '700',
-            lineHeight: '14px',
-            borderRadius: '2px',
-            background: 'linear-gradient(135deg, #ff6b00, #ff3b00)',
-            color: 'var(--on-emphasis)',
-            verticalAlign: 'middle',
-          },
-        }, '最强'))
-      }
-      return h('span', { style: { whiteSpace: 'nowrap' } }, children)
-    },
-  },
-  {
-    title: '板块内强弱',
-    key: 'board_rank',
-    width: 96,
-    align: 'center' as const,
-    sorter: (a: Stock, b: Stock) => boardPos(a) - boardPos(b),
-    sortOrder: sortOrder('board_rank'),
-    render: renderBoardStrength,
-  },
-  {
     title: '策略',
     key: 'strategy',
-    width: 140,
+    width: 118,
     ellipsis: true,
     render: (row: Stock) => {
       const text = row.strategy?.trim() || ''
@@ -997,8 +956,7 @@ const HIDEABLE: { key: string; label: string }[] = [
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
   { key: 'volume_ratio', label: '量比' }, { key: 'free_cap', label: '流通市值' },
   { key: 'turnover', label: '换手' }, { key: 'ma20', label: '距MA20' },
-  { key: 'industry', label: '行业' },
-  { key: 'board_rank', label: '板块内强弱' }, { key: 'strategy', label: '策略' },
+  { key: 'strategy', label: '策略' },
 ]
 const LS_HIDDEN = 'pool_hidden_cols'
 function loadHidden(): Set<string> {
@@ -1135,6 +1093,12 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 /* 表体数字列等宽对齐, 防 3s 行情刷新数字跳动 */
 .stock-table-wrap :deep(.n-data-table-td) {
   font-variant-numeric: tabular-nums;
+}
+/* 收紧列内边距, 整表更紧凑 */
+.stock-table-wrap :deep(.n-data-table-td),
+.stock-table-wrap :deep(.n-data-table-th) {
+  padding-left: 6px;
+  padding-right: 6px;
 }
 /* 固定列(选择/操作)给不透明底: 防横向滚动时下面「策略」等列内容透出造成重叠遮挡 */
 .stock-table-wrap :deep(.n-data-table-td--fixed-left),
