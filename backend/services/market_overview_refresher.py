@@ -17,6 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 async def refresh_market_overview():
+    from backend.core.trading_calendar import is_workday
+    if not is_workday():   # 原完全无日期闸: 节假日/周末照拉会覆盖 regime 用的涨跌停数、写陈旧快照
+        return
     loop = asyncio.get_event_loop()
     # 三个数据源是同步阻塞 IO (requests/akshare), 用线程池并发拉
     global_indices, a_indices, market_stats = await asyncio.gather(

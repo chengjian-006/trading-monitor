@@ -721,15 +721,15 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
         # 竞价弱转强: 前一交易日人气排名 ≤ 100 (v1.7.407)
         for sig in valid_sigs:
             if sig.signal_id == "BUY_AUCTION_STRENGTH":
+                from backend.models.repo.stocks import get_latest_popularity_rank
                 try:
-                    from backend.models.repo.stocks import get_latest_popularity_rank
                     rank = await get_latest_popularity_rank(code)
-                    if rank is not None and rank > 100:
-                        valid_sigs = [s for s in valid_sigs if s.signal_id != "BUY_AUCTION_STRENGTH"]
-                        if not valid_sigs:
-                            continue
-                except Exception:
-                    pass
+                except Exception as e:
+                    # 查不到不再静默放过: 保守当作排名靠后→拦下该信号(人气门槛是"确认前一日≤100"才放行)
+                    logger.warning(f"[scanner] 竞价弱转强人气门槛查询失败 code={code}, 保守拦截: {e}")
+                    rank = 999
+                if rank is not None and rank > 100:
+                    valid_sigs = [s for s in valid_sigs if s.signal_id != "BUY_AUCTION_STRENGTH"]
                 break
 
         if not valid_sigs:

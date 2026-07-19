@@ -22,8 +22,9 @@ HK_EXTRA_HOURS = [
 
 
 def _in_windows(windows: list[dict]) -> bool:
+    from backend.core.trading_calendar import is_workday
     now = datetime.now()
-    if now.weekday() >= 5:
+    if not is_workday(now):   # 含法定节假日剔除(原 weekday()>=5 会在节假日照拉写陈旧快照)
         return False
     t = now.strftime("%H:%M")
     return any(p["start"] <= t <= p["end"] for p in windows)

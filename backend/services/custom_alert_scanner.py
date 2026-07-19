@@ -27,8 +27,14 @@ _MA_MIN = {5: 4, 10: 7, 20: 15, 60: 40}
 _OP_LABEL = {"gte": "≥", "lte": "≤"}
 
 
-def _ma(closes: list[float], n: int) -> float | None:
-    """最近 n 根日收盘均值; 不足 _MA_MIN[n] 根 → None。"""
+def _ma(closes: list[float], n: int, price=None) -> float | None:
+    """今日均线 = (最近 n-1 根历史收盘 + 今日现价)/n, 与股票池 ma_with_today 同口径。
+    closes 为不含今日的历史收盘(DESC)。price 有效时用今日现价拼(v1.7.606 股票池已改此口径:
+    原本 cache 完整均值实为昨日均线, 却与今日现价比→系统偏差0.3~0.5%落在碰线判定敏感区);
+    price 缺省退回旧"完整日线均值"。不足 _MA_MIN[n] 根 → None。"""
+    if price:
+        from backend.services.quote_refresher import ma_with_today
+        return ma_with_today(closes, n, _MA_MIN.get(n, n), float(price))
     if not closes:
         return None
     avail = closes[:n]
@@ -39,11 +45,12 @@ def _ma(closes: list[float], n: int) -> float | None:
 
 def build_ctx(price, pct_change, closes: list[float]) -> dict:
     """把一只票的现价/涨跌幅/近 N 日收盘 → 求值上下文。closes 为最近在前(DESC)。"""
+    _px = float(price) if price not in (None, 0) else None
     return {
-        "price": float(price) if price not in (None, 0) else None,
+        "price": _px,
         "pct_change": float(pct_change) if pct_change is not None else None,
         "prev_close": float(closes[0]) if closes else None,
-        "ma": {n: _ma(closes, n) for n in _MA_KEYS},
+        "ma": {n: _ma(closes, n, _px) for n in _MA_KEYS},
     }
 
 

@@ -17,8 +17,9 @@ _last_run_time: datetime | None = None
 
 
 def _is_market_time() -> bool:
+    from backend.core.trading_calendar import is_workday
     now = datetime.now()
-    if now.weekday() >= 5:
+    if not is_workday(now):   # 含法定节假日剔除(节假日不该拉人气/烧AI)
         return False
     t = now.strftime("%H:%M")
     for period in EXTENDED_HOURS:
@@ -37,7 +38,8 @@ def _should_run() -> bool:
         return elapsed >= 900   # 15分钟
     # 收盘后定点补刷一次: 锁定收盘价, 堵住 15:05收盘~16:00全量重刷 之间约1小时的空档
     # (否则人气表会停在最后一次盘中快照, 若那一刻在下挫就出现"实际收红、表里显绿")
-    if now.weekday() < 5:
+    from backend.core.trading_calendar import is_workday
+    if is_workday(now):
         post_start = now.replace(hour=15, minute=1, second=0, microsecond=0)
         post_end = now.replace(hour=15, minute=30, second=0, microsecond=0)
         if post_start <= now <= post_end and _last_run_time < post_start:

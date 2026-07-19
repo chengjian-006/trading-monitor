@@ -126,10 +126,17 @@ async def _resolve_entry(code: str, signal_date: str, trigger_price: float):
 
 async def _ma(code: str, win: int):
     try:
-        df = await data_fetcher.get_daily_kline(code, days=60)
-        if df is None or df.empty or len(df) < win:
+        df = await data_fetcher.get_daily_kline(code, days=win + 25)
+        if df is None or df.empty:
             return None
-        return float(df["close"].tail(win).mean())
+        # 剔今日半根bar再取均: get_daily_kline盘中可能带当日未收盘bar, 直接tail会把今日现价
+        # 算进MA(自引用)、且与回测/全系统"完整日线MA"口径不一致。剩半破MA=今日价 vs 完整trailing均线。
+        from datetime import date
+        today = date.today().strftime("%Y-%m-%d")
+        hist = df[df["date"].astype(str).str[:10] < today]
+        if len(hist) < win:
+            return None
+        return float(hist["close"].tail(win).mean())
     except Exception:
         return None
 
