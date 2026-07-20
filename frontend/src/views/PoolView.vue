@@ -4,7 +4,7 @@ import {
   NInput, NButton, NSpace, NSpin, NModal,
   NList, NListItem, NTag, NIcon, NProgress, NSkeleton,
   NUpload, NUploadDragger, NSelect, NTabs, NTabPane, NPopconfirm,
-  NRadioGroup, NRadioButton, NInputNumber, NDropdown,
+  NRadioGroup, NRadioButton, NInputNumber, NDropdown, NPopover,
 } from 'naive-ui'
 import type { UploadFileInfo } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -33,13 +33,6 @@ const message = useGlobalMessage()
 const stockTableRef = ref<InstanceType<typeof StockTable> | null>(null)
 const showStrategyDrawer = ref(false)
 const showSparkline = ref(false)
-// 添加/筛选区默认折叠, 用户展开状态记 localStorage(未设过=折叠)
-const controlsCollapsed = ref(localStorage.getItem('pool_controls_collapsed') !== '0')
-function toggleControls() {
-  controlsCollapsed.value = !controlsCollapsed.value
-  localStorage.setItem('pool_controls_collapsed', controlsCollapsed.value ? '1' : '0')
-}
-
 // v1.7.x: SignalSummaryBar 从 StockTable 内部移到 PoolView 顶部 (避免与 StockTable 名称色块重复展示),
 // 由 PoolView 集中渲染一次, 同时供桌面/移动复用
 import { useSignalGrouping } from '../composables/useSignalGrouping'
@@ -339,116 +332,6 @@ async function handleThsImport(groupId: string) {
 
 <template>
   <div :class="['pool-view', { 'pool-view--fixed': !isPhone }]">
-    <div class="pool-controls">
-    <button class="pool-collapse-bar" :class="{ open: !controlsCollapsed }" @click="toggleControls" :aria-expanded="!controlsCollapsed">
-      <span class="pcb-arrow">{{ controlsCollapsed ? '▸' : '▾' }}</span>
-      <span class="pcb-label">添加股票 · 筛选</span>
-      <span v-if="pf.hasActiveFilter.value" class="pcb-active">● 已启用筛选</span>
-      <span class="pcb-hint">{{ controlsCollapsed ? '展开' : '收起' }}</span>
-    </button>
-    <div class="filter-bar" v-show="!controlsCollapsed">
-      <div class="filter-fields">
-        <div class="filter-item" style="flex: 2; min-width: 200px;">
-          <label>添加股票</label>
-          <div class="search-wrapper">
-            <NInput
-              :value="searchText"
-              @update:value="onSearchInput"
-              placeholder="输入代码或名称搜索..."
-              clearable
-              size="small"
-              @focus="showDropdown = searchResults.length > 0"
-            />
-            <div v-if="showDropdown" class="search-dropdown">
-              <div
-                v-for="item in searchResults"
-                :key="item.code"
-                class="search-item"
-                role="button"
-                tabindex="0"
-                @click="selectResult(item)"
-                @keydown.enter="selectResult(item)"
-              >
-                <span class="item-code">{{ item.code }}</span>
-                {{ item.name }}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="filter-actions">
-        <!-- 添加组 -->
-        <NSelect
-          v-model:value="tradeType"
-          :options="[{ label: '短线', value: 'short' }, { label: '中线', value: 'mid' }, { label: '指数', value: 'index' }]"
-          size="small"
-          style="width: 78px"
-        />
-        <NButton type="primary" size="small" :loading="addBusy" :disabled="addBusy" @click="handleAdd">
-          <template #icon><NIcon><AddOutline /></NIcon></template>添加
-        </NButton>
-        <NDropdown trigger="click" :options="importOptions" @select="onImportSelect">
-          <NButton size="small" secondary>
-            <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>导入
-          </NButton>
-        </NDropdown>
-        <span class="fa-divider" />
-        <!-- 数据组 -->
-        <NButton size="small" secondary circle title="刷新行情/数据" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
-          <template #icon><NIcon><RefreshOutline /></NIcon></template>
-        </NButton>
-        <span class="fa-divider" />
-        <!-- 视图 · 工具组 -->
-        <NButton size="small" :type="showSparkline ? 'success' : 'default'" secondary title="走势迷你图" @click="showSparkline = !showSparkline">
-          走势{{ showSparkline ? '开' : '关' }}
-        </NButton>
-        <NButton size="small" secondary @click="showStrategyDrawer = true">
-          <template #icon><NIcon><DocumentTextOutline /></NIcon></template>策略总览
-        </NButton>
-        <NButton v-if="!isPhone" size="small" secondary :disabled="stockStore.stocks.length === 0" title="导出 Excel" @click="stockTableRef?.exportXlsx()">
-          <template #icon><NIcon><DownloadOutline /></NIcon></template>导出
-        </NButton>
-        <NButton v-if="stockTableRef?.sortState" size="small" type="warning" secondary @click="stockTableRef?.resetSort()">
-          <template #icon><NIcon><SwapVerticalOutline /></NIcon></template>重置排序
-        </NButton>
-      </div>
-    </div>
-
-    <!-- 股票池筛选 (v1.7.419): 快捷胶囊 + 高级面板, 全部前端即时过滤 -->
-    <div class="pool-filter" v-show="!controlsCollapsed">
-      <div class="pf-row">
-        <NInput v-model:value="pf.fKeyword.value" size="small" clearable class="pf-search"
-          placeholder="代码 / 名称 / 拼音首字母 查找…（如 gzmt → 贵州茅台）">
-          <template #prefix><NIcon :component="SearchOutline" /></template>
-        </NInput>
-        <NRadioGroup v-model:value="pf.fStatus.value" size="small">
-          <NRadioButton value="all">全部</NRadioButton>
-          <NRadioButton value="hold">持仓</NRadioButton>
-          <NRadioButton value="watch">关注</NRadioButton>
-        </NRadioGroup>
-        <NRadioGroup v-model:value="pf.fUpDown.value" size="small">
-          <NRadioButton value="all">涨跌不限</NRadioButton>
-          <NRadioButton value="up">上涨</NRadioButton>
-          <NRadioButton value="down">下跌</NRadioButton>
-        </NRadioGroup>
-        <NSelect v-if="groupOptions.length" v-model:value="pf.fGroup.value" :options="groupOptions"
-          size="small" clearable placeholder="全部分组" class="pf-group" style="width:130px" />
-        <div class="pf-chips">
-          <NButton size="tiny" round :type="pf.fHasBuy.value ? 'primary' : 'default'" :tertiary="!pf.fHasBuy.value" @click="pf.fHasBuy.value = !pf.fHasBuy.value">今日有买点</NButton>
-          <NButton size="tiny" round :type="pf.fHasSell.value ? 'warning' : 'default'" :tertiary="!pf.fHasSell.value" @click="pf.fHasSell.value = !pf.fHasSell.value">今日有卖点</NButton>
-          <NButton size="tiny" round :type="pf.fLimitUp.value ? 'error' : 'default'" :tertiary="!pf.fLimitUp.value" @click="pf.fLimitUp.value = !pf.fLimitUp.value">涨停</NButton>
-          <NButton size="tiny" round :type="pf.fLianBan.value ? 'error' : 'default'" :tertiary="!pf.fLianBan.value" @click="pf.fLianBan.value = !pf.fLianBan.value">连板</NButton>
-          <NButton size="tiny" round :type="pf.fAboveMa20.value ? 'info' : 'default'" :tertiary="!pf.fAboveMa20.value" @click="pf.fAboveMa20.value = !pf.fAboveMa20.value; if (pf.fAboveMa20.value) pf.fBelowMa20.value = false">站上20线</NButton>
-          <NButton size="tiny" round :type="pf.fBelowMa20.value ? 'info' : 'default'" :tertiary="!pf.fBelowMa20.value" @click="pf.fBelowMa20.value = !pf.fBelowMa20.value; if (pf.fBelowMa20.value) pf.fAboveMa20.value = false">未站上20线</NButton>
-          <NButton size="tiny" round :type="pf.fNearMa10.value ? 'info' : 'default'" :tertiary="!pf.fNearMa10.value" @click="pf.fNearMa10.value = !pf.fNearMa10.value">近10线±2%</NButton>
-          <NButton size="tiny" round :type="pf.fNearMa60.value ? 'info' : 'default'" :tertiary="!pf.fNearMa60.value" @click="pf.fNearMa60.value = !pf.fNearMa60.value">近60线±2%</NButton>
-        </div>
-        <NButton v-if="pf.hasActiveFilter.value" size="tiny" type="warning" tertiary @click="pf.reset()">清空筛选</NButton>
-      </div>
-
-    </div>
-    </div>
-
     <NSkeleton v-if="stockStore.loading && stockStore.stocks.length === 0" :repeat="6" text style="margin-bottom: 16px" />
 
     <Transition v-else name="content-fade" appear>
@@ -456,6 +339,136 @@ async function handleThsImport(groupId: string) {
         <!-- v1.7.725: 今日预警从"独占一整条横幅"改成本行内的铃铛角标(点开看详情), 见 SignalSummaryBar.vue -->
         <div class="pool-summary-row">
           <SignalSummaryBar :signals-by-code="signalsByCode" />
+
+          <!--
+            v1.7.726: 原「添加股票 · 筛选」折叠条(独占一整行)整条移除,
+            添加区/筛选区收进本行的两个浮层按钮; 刷新/走势/策略总览/导出/重置排序
+            属高频操作, 保持常驻不进浮层。
+          -->
+          <div class="pool-quick-actions">
+            <!-- 添加浮层: 搜索框 + 结果下拉 + 交易类型/添加/导入 -->
+            <NPopover trigger="click" placement="bottom-start" :width="380" :style="{ maxWidth: '92vw' }">
+              <template #trigger>
+                <NButton size="small" secondary>
+                  <template #icon><NIcon><AddOutline /></NIcon></template>添加
+                </NButton>
+              </template>
+              <div class="pop-add">
+                <div class="filter-item">
+                  <label>添加股票</label>
+                  <div class="search-wrapper">
+                    <NInput
+                      :value="searchText"
+                      @update:value="onSearchInput"
+                      placeholder="输入代码或名称搜索..."
+                      clearable
+                      size="small"
+                      @focus="showDropdown = searchResults.length > 0"
+                    />
+                    <div v-if="showDropdown" class="search-dropdown">
+                      <div
+                        v-for="item in searchResults"
+                        :key="item.code"
+                        class="search-item"
+                        role="button"
+                        tabindex="0"
+                        @click="selectResult(item)"
+                        @keydown.enter="selectResult(item)"
+                      >
+                        <span class="item-code">{{ item.code }}</span>
+                        {{ item.name }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="pop-add-actions">
+                  <NSelect
+                    v-model:value="tradeType"
+                    :options="[{ label: '短线', value: 'short' }, { label: '中线', value: 'mid' }, { label: '指数', value: 'index' }]"
+                    size="small"
+                    style="width: 78px"
+                  />
+                  <NButton type="primary" size="small" :loading="addBusy" :disabled="addBusy" @click="handleAdd">
+                    <template #icon><NIcon><AddOutline /></NIcon></template>添加
+                  </NButton>
+                  <NDropdown trigger="click" :options="importOptions" @select="onImportSelect">
+                    <NButton size="small" secondary>
+                      <template #icon><NIcon><CloudDownloadOutline /></NIcon></template>导入
+                    </NButton>
+                  </NDropdown>
+                </div>
+              </div>
+            </NPopover>
+
+            <!-- 筛选浮层 (原 v1.7.419 筛选行): 浮层内改纵向分组排列, 绑定与逻辑一律不动 -->
+            <NPopover trigger="click" placement="bottom-start" :width="560" :style="{ maxWidth: '92vw' }">
+              <template #trigger>
+                <!-- 筛选生效时按钮转 primary 并带 ● 标记(接替原折叠条上的「● 已启用筛选」) -->
+                <NButton size="small" secondary :type="pf.hasActiveFilter.value ? 'primary' : 'default'">
+                  <template #icon><NIcon><SearchOutline /></NIcon></template>
+                  筛选<span v-if="pf.hasActiveFilter.value" class="pqa-dot">●</span>
+                </NButton>
+              </template>
+              <div class="pop-filter">
+                <div class="pf-row">
+                  <NInput v-model:value="pf.fKeyword.value" size="small" clearable class="pf-search"
+                    placeholder="代码 / 名称 / 拼音首字母 查找…（如 gzmt → 贵州茅台）">
+                    <template #prefix><NIcon :component="SearchOutline" /></template>
+                  </NInput>
+                </div>
+                <div class="pf-row">
+                  <NRadioGroup v-model:value="pf.fStatus.value" size="small">
+                    <NRadioButton value="all">全部</NRadioButton>
+                    <NRadioButton value="hold">持仓</NRadioButton>
+                    <NRadioButton value="watch">关注</NRadioButton>
+                  </NRadioGroup>
+                  <NRadioGroup v-model:value="pf.fUpDown.value" size="small">
+                    <NRadioButton value="all">涨跌不限</NRadioButton>
+                    <NRadioButton value="up">上涨</NRadioButton>
+                    <NRadioButton value="down">下跌</NRadioButton>
+                  </NRadioGroup>
+                  <NSelect v-if="groupOptions.length" v-model:value="pf.fGroup.value" :options="groupOptions"
+                    size="small" clearable placeholder="全部分组" class="pf-group" style="width:130px" />
+                </div>
+                <div class="pf-row">
+                  <div class="pf-chips">
+                    <NButton size="tiny" round :type="pf.fHasBuy.value ? 'primary' : 'default'" :tertiary="!pf.fHasBuy.value" @click="pf.fHasBuy.value = !pf.fHasBuy.value">今日有买点</NButton>
+                    <NButton size="tiny" round :type="pf.fHasSell.value ? 'warning' : 'default'" :tertiary="!pf.fHasSell.value" @click="pf.fHasSell.value = !pf.fHasSell.value">今日有卖点</NButton>
+                    <NButton size="tiny" round :type="pf.fLimitUp.value ? 'error' : 'default'" :tertiary="!pf.fLimitUp.value" @click="pf.fLimitUp.value = !pf.fLimitUp.value">涨停</NButton>
+                    <NButton size="tiny" round :type="pf.fLianBan.value ? 'error' : 'default'" :tertiary="!pf.fLianBan.value" @click="pf.fLianBan.value = !pf.fLianBan.value">连板</NButton>
+                    <NButton size="tiny" round :type="pf.fAboveMa20.value ? 'info' : 'default'" :tertiary="!pf.fAboveMa20.value" @click="pf.fAboveMa20.value = !pf.fAboveMa20.value; if (pf.fAboveMa20.value) pf.fBelowMa20.value = false">站上20线</NButton>
+                    <NButton size="tiny" round :type="pf.fBelowMa20.value ? 'info' : 'default'" :tertiary="!pf.fBelowMa20.value" @click="pf.fBelowMa20.value = !pf.fBelowMa20.value; if (pf.fBelowMa20.value) pf.fAboveMa20.value = false">未站上20线</NButton>
+                    <NButton size="tiny" round :type="pf.fNearMa10.value ? 'info' : 'default'" :tertiary="!pf.fNearMa10.value" @click="pf.fNearMa10.value = !pf.fNearMa10.value">近10线±2%</NButton>
+                    <NButton size="tiny" round :type="pf.fNearMa60.value ? 'info' : 'default'" :tertiary="!pf.fNearMa60.value" @click="pf.fNearMa60.value = !pf.fNearMa60.value">近60线±2%</NButton>
+                  </div>
+                </div>
+                <div v-if="pf.hasActiveFilter.value" class="pf-row">
+                  <NButton size="tiny" type="warning" tertiary @click="pf.reset()">清空筛选</NButton>
+                </div>
+              </div>
+            </NPopover>
+
+            <span class="fa-divider" />
+            <!-- 数据组 -->
+            <NButton size="small" secondary circle title="刷新行情/数据" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
+              <template #icon><NIcon><RefreshOutline /></NIcon></template>
+            </NButton>
+            <span class="fa-divider" />
+            <!-- 视图 · 工具组 -->
+            <NButton size="small" :type="showSparkline ? 'success' : 'default'" secondary title="走势迷你图" @click="showSparkline = !showSparkline">
+              走势{{ showSparkline ? '开' : '关' }}
+            </NButton>
+            <NButton size="small" secondary @click="showStrategyDrawer = true">
+              <template #icon><NIcon><DocumentTextOutline /></NIcon></template>策略总览
+            </NButton>
+            <NButton v-if="!isPhone" size="small" secondary :disabled="stockStore.stocks.length === 0" title="导出 Excel" @click="stockTableRef?.exportXlsx()">
+              <template #icon><NIcon><DownloadOutline /></NIcon></template>导出
+            </NButton>
+            <NButton v-if="stockTableRef?.sortState" size="small" type="warning" secondary @click="stockTableRef?.resetSort()">
+              <template #icon><NIcon><SwapVerticalOutline /></NIcon></template>重置排序
+            </NButton>
+          </div>
+
           <PoolStatsBar :stocks="stockStore.stocks" />
           <div class="table-summary">
             <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
@@ -677,47 +690,37 @@ async function handleThsImport(groupId: string) {
   display: flex;
   flex-direction: column;
 }
-/* 合并添加区+筛选区为一个卡片 (v1.7.680): 外卡机构描边, 内两行发丝线隔开, 收紧密度 */
-.pool-controls {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  overflow: hidden;
-  position: sticky;
-  top: 0;
-  z-index: 50;
-}
-/* 添加/筛选区折叠条 (默认折叠): 折叠时仅此条可见, 点击展开 */
-.pool-collapse-bar {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 8px 14px; background: transparent; border: 0; cursor: pointer;
-  font: inherit; text-align: left; color: var(--fg-default); transition: background .12s;
-}
-.pool-collapse-bar:hover { background: color-mix(in srgb, var(--fg-default) 4%, transparent); }
-.pool-collapse-bar.open { border-bottom: 1px solid var(--border-muted); }
-.pcb-arrow { color: var(--fg-subtle); font-size: 11px; width: 10px; flex-shrink: 0; }
-.pcb-label { font-size: 13px; font-weight: 700; letter-spacing: .02em; }
-.pcb-active { font-size: 11px; color: var(--accent-fg); font-weight: 600; }
-.pcb-hint { margin-left: auto; font-size: 12px; color: var(--accent-fg); }
-.filter-bar {
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-  padding: 10px 14px;
-  margin-bottom: 0;
-  border-bottom: 1px solid var(--border-muted);
+/* 状态行内的快捷操作组 (v1.7.726): 添加/筛选走浮层, 其余高频工具常驻 */
+.pool-quick-actions {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 10px 20px;
-  align-items: end;
+  gap: 8px;
+  flex: 0 0 auto;
 }
-.pool-filter {
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
-  padding: 10px 14px;
-  margin-bottom: 0;
+/* 筛选生效标记 */
+.pqa-dot {
+  margin-left: 4px;
+  font-size: 9px;
+  line-height: 1;
+}
+/* 添加浮层内部: 搜索框一行, 类型/添加/导入一行 */
+.pop-add {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pop-add-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* 筛选浮层内部: 纵向分组, 每组一行, 比原来横挤一行好读 */
+.pop-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 .pf-search {
   flex: 0 1 300px;
@@ -755,13 +758,6 @@ async function handleThsImport(groupId: string) {
 .pf-tilde {
   color: var(--text2);
 }
-.filter-fields {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  flex: 1;
-  min-width: 200px;
-}
 .filter-item {
   display: flex;
   flex-direction: column;
@@ -773,13 +769,6 @@ async function handleThsImport(groupId: string) {
   font-size: 12px;
   color: rgba(0, 0, 0, 0.6);
   white-space: nowrap;
-}
-.filter-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
 }
 /* 工具栏分组分隔线 (v1.7.676) */
 .fa-divider {
@@ -1157,46 +1146,33 @@ async function handleThsImport(groupId: string) {
     overflow-x: hidden;
   }
 
-  /* ── 添加/操作条: 不吸顶(省小屏纵向空间), 控件全宽换行 ── */
-  .filter-bar {
-    position: static;
-    padding: 12px 14px;
-    gap: 10px 12px;
-    align-items: stretch;
-  }
-  .filter-fields {
+  /* ── 状态行快捷操作组 (v1.7.726): 窄屏整行铺开, 按钮正常换行 ── */
+  .pool-quick-actions {
     flex: 1 1 100%;
     min-width: 0;
-    width: 100%;
+    justify-content: flex-start;
+  }
+
+  /* ── 添加浮层: 控件全宽, 触摸目标≥40px ── */
+  .pop-add {
+    max-width: 92vw;
   }
   .filter-item {
     flex: 1 1 100%;
     min-width: 0;
   }
-  .filter-item[style] {
-    flex: 1 1 100% !important;
-    min-width: 0 !important;
-  }
-  .filter-actions {
-    width: 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    align-items: stretch;
-    gap: 8px;
-  }
-  /* 添加条里的下拉不再固定 80px, 跟随内容; 按钮触摸目标≥40px */
-  .filter-actions :deep(.n-base-selection) {
+  .pop-add-actions :deep(.n-base-selection) {
     min-height: 40px;
   }
-  .filter-bar :deep(.n-button),
-  .filter-bar :deep(.n-input .n-input__input-el),
-  .filter-bar :deep(.n-base-selection) {
+  .pop-add :deep(.n-button),
+  .pop-add :deep(.n-input .n-input__input-el),
+  .pop-add :deep(.n-base-selection) {
     min-height: 40px;
   }
 
-  /* ── 股票池筛选: 单列堆叠, 每个控件占满整行 ── */
-  .pool-filter {
-    padding: 10px 14px;
+  /* ── 筛选浮层: 单列堆叠, 每个控件占满整行 ── */
+  .pop-filter {
+    max-width: 92vw;
   }
   .pf-row {
     gap: 10px;
@@ -1232,16 +1208,16 @@ async function handleThsImport(groupId: string) {
     flex: 1 1 auto;
   }
 
-  /* 触摸目标≥40px: 筛选区所有可点控件 */
-  .pool-filter :deep(.n-button),
-  .pool-filter :deep(.n-input .n-input__input-el),
-  .pool-filter :deep(.n-radio-button),
-  .pool-filter :deep(.n-base-selection),
-  .pool-filter :deep(.n-input-number) {
+  /* 触摸目标≥40px: 筛选浮层内所有可点控件 */
+  .pop-filter :deep(.n-button),
+  .pop-filter :deep(.n-input .n-input__input-el),
+  .pop-filter :deep(.n-radio-button),
+  .pop-filter :deep(.n-base-selection),
+  .pop-filter :deep(.n-input-number) {
     min-height: 40px;
   }
-  .pool-filter :deep(.n-radio-button__state-border),
-  .pool-filter :deep(.n-radio-group) {
+  .pop-filter :deep(.n-radio-button__state-border),
+  .pop-filter :deep(.n-radio-group) {
     min-height: 40px;
   }
 

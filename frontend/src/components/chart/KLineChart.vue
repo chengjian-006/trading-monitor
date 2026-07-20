@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
-import { createChart, type IChartApi, type ISeriesApi } from 'lightweight-charts'
+import { createChart, LineStyle, type IChartApi, type ISeriesApi, type IPriceLine } from 'lightweight-charts'
 import type { KLineBar } from '../../types'
 import type { DailyMarker } from '../../api/kline'
 import { useResponsive } from '../../composables/useResponsive'
@@ -41,6 +41,18 @@ let resizeObs: ResizeObserver | null = null
 let markersByDate: Record<string, DailyMarker[]> = {}
 // 买卖点 markers(常驻) 与 最高/最低价 markers(随可见区间变) 分开存, 每次合并 setMarkers
 let signalMarkers: any[] = []
+// 可见区间高/低价的两条水平虚线(v1.7.730 取代原实心圆点 marker)。
+// 区间一变就要重算, 故存引用以便先删后建 —— 不删会越堆越多条线。
+let hiLine: IPriceLine | null = null
+let loLine: IPriceLine | null = null
+function clearExtremeLines() {
+  if (candle) {
+    if (hiLine) candle.removePriceLine(hiLine)
+    if (loLine) candle.removePriceLine(loLine)
+  }
+  hiLine = null
+  loLine = null
+}
 let dataArr: KLineBar[] = []
 let idxByDate: Record<string, number> = {}
 
@@ -92,11 +104,23 @@ function refreshExtremes(fromLogical: number, toLogical: number) {
     if (dataArr[i].high > hi) { hi = dataArr[i].high; hiIdx = i }
     if (dataArr[i].low < lo) { lo = dataArr[i].low; loIdx = i }
   }
-  const ex: any[] = [
-    { time: dataArr[hiIdx].date as any, position: 'aboveBar', color: A_UP, shape: 'circle', text: hi.toFixed(2) },
-    { time: dataArr[loIdx].date as any, position: 'belowBar', color: A_DOWN, shape: 'circle', text: lo.toFixed(2) },
-  ]
-  candle.setMarkers([...signalMarkers, ...ex].sort((a, b) => (a.time < b.time ? -1 : 1)))
+  // v1.7.730: 原来用 setMarkers 打两个实心圆点(shape:'circle')标高低价, 两个毛病:
+  //   ① 圆点压在最高/最低那根 K 线的极值端上, 恰好挡住最想看的地方;
+  //   ② 与买卖点走的是同一套 markers, 视觉同级 → 圆点容易被误读成"这里有个信号"。
+  // 改用原生 createPriceLine 画水平虚线 + 价格轴标签: 完全不遮挡 K 线, 与买卖点标记彻底分层,
+  // 且虚线本身是可对照的基准 —— 能一眼看出现价距区间高/低点还有多远。
+  // 高低点随可见区间变(缩放/拖动都会重算), 故每次先删旧线再建新线。
+  clearExtremeLines()
+  hiLine = candle.createPriceLine({
+    price: hi, color: A_UP, lineWidth: 1, lineStyle: LineStyle.Dashed,
+    axisLabelVisible: true, title: '高',
+  })
+  loLine = candle.createPriceLine({
+    price: lo, color: A_DOWN, lineWidth: 1, lineStyle: LineStyle.Dashed,
+    axisLabelVisible: true, title: '低',
+  })
+  // markers 现在只承载买卖点, 语义干净
+  candle.setMarkers([...signalMarkers].sort((a, b) => (a.time < b.time ? -1 : 1)))
 }
 
 function destroy() {
@@ -105,6 +129,10 @@ function destroy() {
   chart?.remove()
   chart = null
   candle = null
+  // chart.remove() 已连带销毁价格线, 这里只需清引用 —— 若留着旧引用, 下次 clearExtremeLines
+  // 会拿它去新的 series 上 removePriceLine, 那是另一个图表的对象。
+  hiLine = null
+  loLine = null
 }
 
 function render() {
