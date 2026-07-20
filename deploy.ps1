@@ -16,11 +16,16 @@ function Pause-Exit {
 # 停在 [5/7], 【第 6 步重启服务根本没跑到】, 而前面各步都打了 Done, 看着像部署成功了。
 # 注: 交互式终端里 stderr 不会被包成 ErrorRecord, 所以手敲跑通常没事 —— 但被工具/CI 调用时必炸,
 # 且"无害警告有权终止部署"这件事本身就不该成立。
+# 刻意【不写 param 块】: 带 [Parameter()] 的 param 会把函数变成高级函数, 于是 `-i`(ssh/scp 的
+# 私钥参数)会被当成 PowerShell 通用参数去匹配 -InformationAction/-InformationVariable 而报
+# "parameter name 'i' is ambiguous"。无 param 块时所有实参(含 -i 这种)原样进 $args, 不做绑定。
 function Invoke-Native {
-    param([Parameter(Mandatory)][string]$Exe, [Parameter(ValueFromRemainingArguments)][string[]]$Arguments)
+    $exe = $args[0]
+    $rest = @()
+    if ($args.Count -gt 1) { $rest = $args[1..($args.Count - 1)] }
     $prev = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
-    try { & $Exe @Arguments } finally { $ErrorActionPreference = $prev }
+    try { & $exe @rest } finally { $ErrorActionPreference = $prev }
 }
 
 $SERVER = "124.71.75.5"
@@ -158,6 +163,12 @@ Write-Host "  Done" -ForegroundColor Green
 
 Write-Host "[6/7] Restarting service..." -ForegroundColor Yellow
 Invoke-Native ssh -i $KEY "${USER}@${SERVER}" "systemctl restart trading-monitor && systemctl status trading-monitor --no-pager -l | head -5"
+# 这里原本无脑打 Done 不查退出码 —— 重启失败也照样往下走并宣布 Deploy OK
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Restart failed! (ssh/systemctl exit $LASTEXITCODE)" -ForegroundColor Red
+    Pause-Exit
+    exit 1
+}
 Write-Host "  Done" -ForegroundColor Green
 
 Remove-Item "$PROJECT_DIR\$ARCHIVE" -ErrorAction SilentlyContinue
@@ -179,22 +190,31 @@ if (Test-Path $idxPath) {
     $m = [regex]::Match((Get-Content $idxPath -Raw), 'index-[A-Za-z0-9_-]+\.js')
     if ($m.Success) { $localIndex = $m.Value }
 }
-$probe = 'for i in 1 2 3 4 5 6 7 8; do CODE=$(curl -s -o /dev/null -w %{http_code} http://127.0.0.1/api/stocks); case $CODE in 000|502|503) sleep 5 ;; *) break ;; esac; done; echo ACTIVE=$(systemctl is-active trading-monitor); echo HTTP=$CODE; echo INDEX=$(grep -c __INDEX__ __DIR__/frontend/dist/index.html)'
+# 重试循环必须【同时】等 systemd 状态和接口: 只等接口不够 —— 实测 systemctl restart 期间服务会
+# 在 deactivating 停留一阵, 这时采样拿到的是 deactivating + 502, 那是重启中间态不是故障。
+# 上限 18 次 x 5 秒 = 90 秒(停机可能几十秒, 启动还要拉行情初始化 20-40 秒)。
+$probe = 'for i in $(seq 1 18); do ST=$(systemctl is-active trading-monitor); CODE=$(curl -s -o /dev/null -w %{http_code} http://127.0.0.1/api/stocks); if [ $ST = active ]; then case $CODE in 000|502|503) ;; *) break ;; esac; fi; sleep 5; done; echo ACTIVE=$ST; echo HTTP=$CODE; echo INDEX=$(grep -c __INDEX__ __DIR__/frontend/dist/index.html)'
 $probe = $probe.Replace('__DIR__', $REMOTE_DIR).Replace('__INDEX__', $localIndex)
 $out = Invoke-Native ssh -i $KEY "${USER}@${SERVER}" $probe
+$probeExit = $LASTEXITCODE
 
 $active = ($out | Where-Object { $_ -like 'ACTIVE=*' }) -replace '^ACTIVE=', ''
 $http   = ($out | Where-Object { $_ -like 'HTTP=*' })   -replace '^HTTP=', ''
 $idxHit = ($out | Where-Object { $_ -like 'INDEX=*' })  -replace '^INDEX=', ''
 
+# 自检取不到数据必须【判失败】, 不能当通过 —— 第一版就栽在这: ssh 返回空, 三个值全空,
+# 结果每条断言都"没不满足", 于是打印 Done + Deploy OK。没验成 ≠ 验过了。
 $fail = @()
-if ($active -ne 'active')            { $fail += "服务状态 = $active (应为 active)" }
-if ($http -in @('000','502','503'))  { $fail += "接口 HTTP $http (后端没起来 / nginx 转发不到)" }
-if ($localIndex -and $idxHit -eq '0'){ $fail += "线上 index.html 没有引用本机刚 build 的 $localIndex (新前端没上线)" }
+if ($probeExit -ne 0)                 { $fail += "自检 ssh 失败(exit $probeExit), 没能验到任何东西" }
+if (-not $active -or -not $http)      { $fail += "自检没拿到服务状态/接口返回码, 无法确认部署结果" }
+elseif ($active -ne 'active')         { $fail += "服务状态 = $active (应为 active)" }
+elseif ($http -in @('000','502','503')) { $fail += "接口 HTTP $http (后端没起来 / nginx 转发不到)" }
+if ($localIndex -and $idxHit -ne '1') { $fail += "线上 index.html 没有引用本机刚 build 的 $localIndex (新前端没上线, grep 命中=$idxHit)" }
+if (-not $localIndex)                 { $fail += "本机 frontend/dist/index.html 里找不到 index-*.js, 无法核对前端是否真上线" }
 
-Write-Host "    服务: $active" -ForegroundColor DarkGray
-Write-Host "    接口: HTTP $http  (401=要登录, 属正常)" -ForegroundColor DarkGray
-Write-Host "    前端: $localIndex $(if ($idxHit -eq '0') { '未匹配' } else { '已上线' })" -ForegroundColor DarkGray
+Write-Host "    服务: $(if ($active) { $active } else { '(没取到)' })" -ForegroundColor DarkGray
+Write-Host "    接口: HTTP $(if ($http) { $http } else { '(没取到)' })  (401=要登录, 属正常)" -ForegroundColor DarkGray
+Write-Host "    前端: $localIndex $(if ($idxHit -eq '1') { '已上线' } else { '未匹配' })" -ForegroundColor DarkGray
 
 if ($fail.Count -gt 0) {
     Write-Host ""
