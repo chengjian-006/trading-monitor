@@ -1,24 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { computed } from 'vue'
+import { NPopover } from 'naive-ui'
 import type { Signal } from '../../types'
+
+// v1.7.725: 从"页面顶部整条横幅"改成"状态行上的铃铛角标 + 点开浮层"。
+// 原因: 原横幅高度固定(标题独占一行 + 个股行/板块行各带一个标签列), 与内容多少无关 ——
+// 只有 2 条预警时也占满一大条, 右侧大片空白。改成角标后占地恒定极小, 详情按需展开。
+// 顺带去掉了原来的折叠状态(collapsed/localStorage)与板块 Top6 截断(浮层里直接列全部, 不用再"+N 更多")。
 
 const props = defineProps<{
   signalsByCode: Map<string, Signal[]>
 }>()
-
-const collapsed = ref(false)
-const sectorExpanded = ref(false)
-const SECTOR_DEFAULT_LIMIT = 6
-
-onMounted(() => {
-  const saved = localStorage.getItem('signal-summary-collapsed')
-  if (saved === 'true') collapsed.value = true
-})
-
-function toggle() {
-  collapsed.value = !collapsed.value
-  localStorage.setItem('signal-summary-collapsed', String(collapsed.value))
-}
 
 function formatTime(dateStr: string) {
   if (!dateStr) return ''
@@ -176,12 +168,8 @@ const sectorCards = computed<SectorCard[]>(() => {
   return cards
 })
 
-const visibleSectorCards = computed<SectorCard[]>(() =>
-  sectorExpanded.value ? sectorCards.value : sectorCards.value.slice(0, SECTOR_DEFAULT_LIMIT)
-)
-const hiddenSectorCount = computed(() =>
-  Math.max(0, sectorCards.value.length - SECTOR_DEFAULT_LIMIT)
-)
+// v1.7.725: 原有 visibleSectorCards / hiddenSectorCount(板块默认只显 Top6 + "+N 更多")已删 ——
+// 改成浮层展示后不再受横幅宽度约束, 浮层内直接列全部板块, 不需要截断再展开。
 
 // 板块卡颜色按"龙头涨幅"档分级
 function sectorCardClass(c: SectorCard): string {
@@ -203,166 +191,148 @@ const sectorRawCount = computed(() =>
 </script>
 
 <template>
-  <div v-if="totalCodes > 0" class="signal-summary-bar">
-    <div class="summary-header" role="button" tabindex="0"
-      :aria-expanded="!collapsed" :aria-label="collapsed ? '展开今日预警' : '收起今日预警'"
-      @click="toggle" @keydown.enter="toggle">
-      <span class="summary-title">
-        🔔 今日预警 ({{ totalCodes }}只/{{ totalSignals }}信号)
-      </span>
-      <span class="summary-toggle">{{ collapsed ? '展开 ▼' : '收起 ▲' }}</span>
-    </div>
+  <!-- v1.7.725: 整条横幅 → 铃铛角标 + 点开浮层。占地从"固定一大条"变成一枚角标。 -->
+  <NPopover v-if="totalCodes > 0" trigger="click" placement="bottom-start" :width="400" raw>
+    <template #trigger>
+      <button class="alert-bell" :aria-label="`今日预警 ${totalCodes}只 ${totalSignals}信号，点击查看`">
+        <span class="ab-ic">🔔</span>
+        <span class="ab-count">{{ totalSignals }}</span>
+      </button>
+    </template>
 
-    <div v-if="!collapsed" class="summary-body">
-      <!-- 个股行 -->
-      <div v-if="stockList.length" class="row row-stocks">
-        <span class="row-label row-label-stock">📈 个股 {{ stockList.length }}/{{ stockSignalCount }}</span>
-        <div class="stocks-track">
-          <span v-for="e in stockList" :key="e.code" class="stock-item">
-            <span class="stock-name">{{ e.name }}</span>
-            <span v-for="s in e.signals" :key="s.signal_name + s.triggered_at" class="sig-pair">
-              <span class="sig-time">{{ formatTimeShort(s) }}</span>
+    <div class="alert-pop">
+      <div class="ap-head">今日预警 <b>{{ totalCodes }}</b> 只 / <b>{{ totalSignals }}</b> 信号</div>
+
+      <!-- 个股 -->
+      <div v-if="stockList.length" class="ap-sec">
+        <div class="ap-label">📈 个股 {{ stockList.length }}/{{ stockSignalCount }}</div>
+        <div v-for="e in stockList" :key="e.code" class="ap-row">
+          <span class="ap-name">{{ e.name }}</span>
+          <span class="ap-sigs">
+            <span v-for="s in e.signals" :key="s.signal_name + s.triggered_at" class="ap-sig">
+              <span class="ap-time">{{ formatTimeShort(s) }}</span>
               <span :class="['sig-tag', severityClass(s)]">{{ s.signal_name }}</span>
             </span>
           </span>
         </div>
       </div>
 
-      <!-- 板块卡片网格 (按龙头去重 + 默认 Top 6) -->
-      <div v-if="sectorCards.length" class="row row-sectors">
-        <span class="row-label row-label-sector">
+      <!-- 板块 (按龙头去重; 浮层内列全部, 不再截断) -->
+      <div v-if="sectorCards.length" class="ap-sec">
+        <div class="ap-label">
           📊 板块 {{ sectorCards.length }}{{ sectorCards.length < sectorRawCount ? ` (已合并自 ${sectorRawCount} 条)` : '' }}
-        </span>
-        <div class="sector-grid">
-          <div v-for="c in visibleSectorCards" :key="c.key" :class="['sector-card', sectorCardClass(c)]">
-            <div class="sc-head">
-              <span class="sc-names" :title="c.sectorNames.join(' / ')">
-                {{ c.sectorNames.length > 1 ? `${c.sectorNames[0]} +${c.sectorNames.length - 1}` : c.sectorNames[0] }}
-              </span>
-              <span class="sc-time">{{ c.latestTime }}</span>
-            </div>
-            <div class="sc-foot">
-              <template v-if="c.leaderName">
-                <span class="sc-leader">{{ c.leaderName }}</span>
-                <span class="sc-pct">{{ c.leaderPct }}</span>
-              </template>
-              <span v-else class="sc-no-leader">资金回流</span>
-            </div>
-          </div>
-
-          <button
-            v-if="hiddenSectorCount > 0 && !sectorExpanded"
-            class="sector-more"
-            @click="sectorExpanded = true"
-          >
-            + {{ hiddenSectorCount }} 更多 ▾
-          </button>
-          <button
-            v-else-if="sectorExpanded && sectorCards.length > SECTOR_DEFAULT_LIMIT"
-            class="sector-more sector-collapse"
-            @click="sectorExpanded = false"
-          >
-            收起 ▴
-          </button>
+        </div>
+        <div v-for="c in sectorCards" :key="c.key" :class="['ap-row', 'ap-sector', sectorCardClass(c)]">
+          <span class="ap-name" :title="c.sectorNames.join(' / ')">
+            {{ c.sectorNames.length > 1 ? `${c.sectorNames[0]} +${c.sectorNames.length - 1}` : c.sectorNames[0] }}
+          </span>
+          <span class="ap-mid">
+            <template v-if="c.leaderName">{{ c.leaderName }}</template>
+            <template v-else>资金回流</template>
+          </span>
+          <span v-if="c.leaderName" class="ap-pct">{{ c.leaderPct }}</span>
+          <span class="ap-time">{{ c.latestTime }}</span>
         </div>
       </div>
     </div>
-  </div>
+  </NPopover>
 </template>
 
 <style scoped>
-.signal-summary-bar {
-  background: var(--warn-bg-muted);
-  border: 1px solid var(--border-default);
-  border-radius: 8px;
-  padding: 10px 14px;
-  margin-bottom: 8px;
-}
-.summary-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  cursor: pointer;
-  user-select: none;
-  touch-action: manipulation;
-}
-.summary-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--warn-fg);
-}
-.summary-toggle {
-  font-size: 11px;
-  color: var(--fg-subtle);
-}
-.summary-body {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-/* ── 行布局 ── */
-.row {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.row-label {
-  flex: 0 0 auto;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 10px;
-  border-radius: 10px;
-  white-space: nowrap;
-  margin-top: 3px;
-}
-.row-label-stock {
-  background: var(--warn-bg-muted);
-  color: var(--warn-fg);
-}
-.row-label-sector {
-  background: var(--accent-bg-muted);
-  color: var(--accent-fg);
-}
-
-/* ── 个股行 ── */
-.stocks-track {
-  flex: 1 1 auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  align-items: center;
-  line-height: 1.7;
-}
-.stock-item {
+/* ── 铃铛角标 (v1.7.725) ──
+   原来是页面顶部一整条横幅, 高度固定与内容量无关: 只有 2 条预警时也占满一大条、右侧大片空白。
+   改成角标后占地恒定极小, 详情走浮层按需展开。 */
+.alert-bell {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
   padding: 2px 8px 2px 6px;
-  border-radius: 4px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-muted);
-}
-.stock-name {
-  font-weight: 600;
+  border: 1px solid var(--warn-line, var(--border-default));
+  border-radius: 999px;
+  background: var(--warn-bg-muted);
   color: var(--warn-fg);
-  margin-right: 2px;
-  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: filter .15s, transform .12s;
 }
-.sig-pair {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-left: 2px;
-}
-.sig-time {
-  font-family: monospace;
-  font-size: 10px;
-  color: var(--fg-subtle);
+.alert-bell:hover { filter: brightness(1.06); transform: translateY(-1px); }
+.alert-bell:active { transform: none; }
+.ab-ic { font-size: 13px; }
+.ab-count {
+  min-width: 16px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── 浮层 ── */
+.alert-pop {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  box-shadow: var(--shadow-float, 0 8px 28px rgba(0, 0, 0, .14));
+  padding: 10px 12px 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.ap-head {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--fg-default);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-muted);
+}
+.ap-head b { color: var(--warn-fg); }
+.ap-sec + .ap-sec { margin-top: 12px; }
+.ap-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-muted);
+  letter-spacing: .03em;
+  margin-bottom: 5px;
+}
+.ap-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.ap-row:hover { background: var(--bg-sunken, rgba(0, 0, 0, .03)); }
+.ap-name {
+  font-weight: 600;
+  color: var(--fg-default);
+  flex-shrink: 0;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-sigs { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 0; }
+.ap-sig { display: inline-flex; align-items: center; gap: 3px; }
+.ap-mid { color: var(--fg-muted); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-pct { font-weight: 700; color: var(--up-fg); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.ap-time {
+  margin-left: auto;
+  color: var(--fg-subtle);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* 板块行按龙头涨幅分强弱, 沿用原卡片的三档语义(左侧色条替代原来的整卡描边) */
+.ap-sector { border-left: 3px solid transparent; padding-left: 7px; }
+.ap-sector.card-strong { border-left-color: var(--up-fg); }
+.ap-sector.card-mid    { border-left-color: var(--warn-fg); }
+.ap-sector.card-soft   { border-left-color: var(--fg-subtle); }
+
+/* 信号标签配色沿用原横幅口径, 未改 */
 .sig-tag {
   color: var(--on-emphasis);
   padding: 0 6px;
@@ -378,111 +348,8 @@ const sectorRawCount = computed(() =>
 .sig-tag.tag-sev-info { background: var(--accent-fg); }
 .sig-tag.tag-reduce { background: var(--warn-bg-muted); color: var(--warn-fg); }
 
-/* ── 板块卡片网格 ── */
-.sector-grid {
-  flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 6px;
-}
-.sector-card {
-  background: var(--bg-surface);
-  border-radius: 4px;
-  padding: 5px 9px;
-  font-size: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  border-left: 3px solid var(--fg-subtle);
-  border-top: 1px solid var(--border-muted);
-  border-right: 1px solid var(--border-muted);
-  border-bottom: 1px solid var(--border-muted);
-  transition: box-shadow 0.15s;
-}
-.sector-card:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-}
-.sector-card.card-strong { border-left-color: var(--up-fg); background: linear-gradient(90deg, var(--up-bg-muted) 0%, var(--bg-surface) 30%); }
-.sector-card.card-mid    { border-left-color: var(--warn-fg); background: linear-gradient(90deg, var(--warn-bg-muted) 0%, var(--bg-surface) 30%); }
-.sector-card.card-soft   { border-left-color: var(--fg-subtle); }
-.sc-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-}
-.sc-names {
-  font-weight: 600;
-  color: var(--fg-default);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.sc-time {
-  font-family: monospace;
-  font-size: 10px;
-  color: var(--fg-subtle);
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-.sc-foot {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  font-size: 11px;
-}
-.sc-leader {
-  color: var(--fg-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.sc-pct {
-  font-family: monospace;
-  font-weight: 700;
-  color: var(--up-fg);
-  flex: 0 0 auto;
-  font-variant-numeric: tabular-nums;
-}
-.sc-no-leader {
-  font-size: 10px;
-  color: var(--fg-subtle);
-  font-style: italic;
-}
-
-.sector-more {
-  align-self: stretch;
-  background: var(--accent-bg-muted);
-  border: 1px dashed var(--accent-fg);
-  border-radius: 4px;
-  font-size: 11px;
-  color: var(--accent-fg);
-  cursor: pointer;
-  font-weight: 500;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px;
-  touch-action: manipulation;
-}
-.sector-more:hover {
-  background: var(--accent-bg-muted);
-}
-.sector-more.sector-collapse {
-  grid-column: 1 / -1;
-  padding: 4px;
-}
-
-/* ── 响应式 ── */
 @media (max-width: 768px) {
-  .sector-grid {
-    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  }
-  .sc-names { font-size: 11px; }
+  .alert-pop { max-height: 55vh; }
+  .ap-name { max-width: 72px; }
 }
 </style>

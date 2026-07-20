@@ -450,8 +450,9 @@ async function handleThsImport(groupId: string) {
 
     <Transition v-else name="content-fade" appear>
       <div :class="{ 'pool-content': !isPhone }">
-        <SignalSummaryBar :signals-by-code="signalsByCode" />
+        <!-- v1.7.725: 今日预警从"独占一整条横幅"改成本行内的铃铛角标(点开看详情), 见 SignalSummaryBar.vue -->
         <div class="pool-summary-row">
+          <SignalSummaryBar :signals-by-code="signalsByCode" />
           <PoolStatsBar :stocks="stockStore.stocks" />
           <div class="table-summary">
             <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>

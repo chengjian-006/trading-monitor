@@ -71,11 +71,9 @@
   margin-left: 0 !important;
 }
 
-/* Message 居中 + 放大 */
-.n-message-container {
-  top: 50% !important;
-  transform: translateY(-50%);
-}
+/* Message 放大 (v1.7.725 去掉"垂直居中": 原 top:50% 把提示挪到屏幕正中, 既挡住正在看的内容,
+   又正好落在鼠标最常停留处 —— 与 keepAliveOnHover:true 叠加导致提示悬停不消失、常年挂着。
+   现回到顶部弹出, keepAliveOnHover 同版改 false, 见 useGlobalMessage.ts。) */
 .n-message-container .n-message {
   font-size: 15px;
   padding: 12px 24px;
