@@ -131,6 +131,18 @@ body {
 .login-tip .lt-txt { font-size: 12.5px; color: var(--warn); font-weight: 600; line-height: 1.4; }
 .login-tip .btn { flex-shrink: 0; }
 
+/* 首次上手提示条: 与登录提示同结构, 但走品牌蓝而非告警黄 —— 它是邀请不是警告 */
+.first-run-tip {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 11px 13px; margin-bottom: 12px; border-radius: var(--r);
+  background: var(--brand-soft); border: 1px solid var(--brand-line);
+  animation: fadein .2s ease;
+}
+.first-run-tip .lt-l { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.first-run-tip .lt-ic { font-size: 16px; flex-shrink: 0; }
+.first-run-tip .lt-txt { font-size: 12.5px; color: var(--brand); font-weight: 600; line-height: 1.4; }
+.first-run-tip .btn { flex-shrink: 0; }
+
 /* 账号登录状态: 已登录时按钮弱化成小链接, 状态文字染色 */
 .login-status.ok { color: var(--ok); font-weight: 600; }
 .login-status.out { color: var(--warn); font-weight: 600; }

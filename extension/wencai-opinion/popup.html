@@ -37,6 +37,12 @@
         <button id="ltGo" class="btn primary">登录问财</button>
       </div>
 
+      <!-- 一次都没问过时才出现: 新用户打开弹窗先看到的是几个不知道点了会怎样的按钮, 给条回引导页的路 -->
+      <div id="firstRunTip" class="first-run-tip hide">
+        <div class="lt-l"><span class="lt-ic">💡</span><span class="lt-txt">第一次用？三步上手引导，一分钟看完</span></div>
+        <button id="frGo" class="btn ghost">看引导</button>
+      </div>
+
       <div class="sec-label">快捷提问 <span class="sec-hint">后台跑，不用开问财页</span></div>
       <div id="askBtns" class="preset-list"></div>
 
@@ -79,6 +85,12 @@
       <button id="openOptions" class="options-entry">
         <span class="oe-ic">⚙</span>
         <span class="oe-txt">打开完整设置页<small>宽屏编辑预置问题 / 定时 / 上报规则</small></span>
+        <span class="oe-go">→</span>
+      </button>
+
+      <button id="openWelcome" class="options-entry">
+        <span class="oe-ic">💡</span>
+        <span class="oe-txt">重看上手引导<small>三步清单 / 完成情况会自动打勾</small></span>
         <span class="oe-go">→</span>
       </button>
 

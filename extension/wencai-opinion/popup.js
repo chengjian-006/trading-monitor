@@ -82,7 +82,7 @@ const saveDebounced = () => { clearTimeout(saveTimer); saveTimer = setTimeout(sa
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area === 'sync' && ch.deepResearch) { saving = true; $('deepResearch').checked = !!ch.deepResearch.newValue; saving = false; }
   if (area === 'local' && ch.runState) renderRunState(ch.runState.newValue);
-  if (area === 'local' && ch.history) loadHistory();
+  if (area === 'local' && ch.history) { loadHistory(); refreshFirstRunTip(); }
   if (area === 'local' && ch.updateInfo) renderUpdateBar(ch.updateInfo.newValue);
 });
 
@@ -362,6 +362,18 @@ $('openOptions').onclick = () => {
   else chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
 };
 
+// ---------- 上手引导 ----------
+const openWelcome = () => chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+$('openWelcome').onclick = openWelcome;
+$('frGo').onclick = openWelcome;
+
+// 首次提示只在「一次都没问过」时出现; history 与引导页第三步同一个判据, 问过一次两边一起消失。
+function refreshFirstRunTip() {
+  chrome.storage.local.get({ history: [] }, (o) => {
+    $('firstRunTip').classList.toggle('hide', (o.history || []).length > 0);
+  });
+}
+
 // ---------- 启动 ----------
-loadSettings(); loadHistory(); loadQuota(); initUpdateUI();
+loadSettings(); loadHistory(); loadQuota(); initUpdateUI(); refreshFirstRunTip();
 chrome.storage.local.get({ runState: null }, (o) => renderRunState(o.runState));

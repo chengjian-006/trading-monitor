@@ -3,32 +3,194 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>欢迎使用 · 问财观点</title>
+  <title>上手引导 · 问财观点</title>
   <style>
-    body { margin: 0; background: #f3f4f6; color: #1f2937; font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
-    .page { max-width: 640px; margin: 40px auto; background: #fff; border-radius: 18px; box-shadow: 0 8px 32px rgba(0,0,0,.1); overflow: hidden; }
-    .hd { background: linear-gradient(135deg,#2563eb,#1e40af); color: #fff; padding: 28px 32px; }
-    .hd h1 { margin: 0 0 6px; font-size: 22px; } .hd p { margin: 0; opacity: .85; font-size: 14px; }
-    .bd { padding: 24px 32px; font-size: 14.5px; line-height: 1.8; }
-    .step { display: flex; gap: 14px; margin-bottom: 18px; }
-    .num { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; background: #eff6ff; color: #2563eb; font-weight: 700; display: flex; align-items: center; justify-content: center; }
-    .step b { color: #0f172a; }
-    .tip { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 12px 14px; border-radius: 10px; font-size: 13px; margin-top: 10px; }
-    .red { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
-    kbd { background: #f1f5f9; border: 1px solid #d1d9e3; border-radius: 5px; padding: 1px 6px; font-size: 12px; }
-    @media (prefers-color-scheme: dark) { body { background:#0f172a; color:#e2e8f0; } .page { background:#1e293b; } .bd b { color:#f1f5f9; } .num { background:#172033; } kbd { background:#334155; border-color:#475569; } }
+    :root {
+      --brand: #2563eb; --brand-dk: #1e40af; --brand-soft: #eff6ff; --brand-line: #bfdbfe;
+      --ink: #1f2937; --ink-2: #475569; --ink-3: #94a3b8; --ink-hi: #0f172a;
+      --card: #fff; --page: #f3f4f6; --line: #e5e7eb;
+      --ok: #16a34a; --ok-soft: #f0fdf4; --ok-line: #bbf7d0;
+      --warn: #b45309; --warn-soft: #fffbeb; --warn-line: #fde68a;
+      --red: #b91c1c; --red-soft: #fef2f2; --red-line: #fecaca;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--page); color: var(--ink);
+      font-family: -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    }
+    .page { max-width: 660px; margin: 40px auto 60px; background: var(--card); border-radius: 18px; box-shadow: 0 8px 32px rgba(0,0,0,.1); overflow: hidden; }
+
+    /* ---------- 头部 + 进度 ---------- */
+    .hd { background: linear-gradient(135deg,var(--brand),var(--brand-dk)); color: #fff; padding: 26px 32px 22px; }
+    .hd h1 { margin: 0 0 5px; font-size: 22px; }
+    .hd .sub { margin: 0; opacity: .85; font-size: 13.5px; }
+    .prog { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+    .prog .track { flex: 1; height: 6px; border-radius: 99px; background: rgba(255,255,255,.25); overflow: hidden; }
+    .prog .fill { display: block; height: 100%; width: 0; border-radius: 99px; background: #fff; transition: width .35s ease; }
+    .prog .txt { font-size: 12px; font-weight: 700; letter-spacing: .04em; opacity: .95; min-width: 54px; text-align: right; }
+
+    .bd { padding: 22px 32px 28px; font-size: 14px; line-height: 1.75; }
+
+    /* ---------- 单步 ---------- */
+    .step { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line); }
+    .step:last-of-type { border-bottom: 0; }
+    .mark {
+      flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%;
+      background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand-line);
+      font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center;
+      transition: background .2s, color .2s, border-color .2s;
+    }
+    .step.done .mark { background: var(--ok); border-color: var(--ok); color: #fff; }
+    .step.done .mark::after { content: "✓"; }
+    .step.done .mark span { display: none; }
+    .step.locked { opacity: .5; }
+    .body { min-width: 0; flex: 1; }
+    .t { font-weight: 700; color: var(--ink-hi); font-size: 14.5px; }
+    .step.done .t { color: var(--ok); }
+    .d { margin: 4px 0 0; color: var(--ink-2); font-size: 13.5px; }
+    .state { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; margin-top: 8px; }
+    .state.ok { color: var(--ok); } .state.wait { color: var(--ink-3); } .state.no { color: var(--warn); }
+
+    .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+    .btn {
+      appearance: none; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      border-radius: 9px; padding: 8px 14px; border: 1px solid var(--brand); background: var(--brand); color: #fff;
+      transition: filter .15s, opacity .15s;
+    }
+    .btn:hover { filter: brightness(1.07); }
+    .btn.ghost { background: transparent; color: var(--brand); }
+    .btn.ghost:hover { background: var(--brand-soft); }
+    .btn[disabled] { opacity: .45; cursor: not-allowed; filter: none; }
+    .hint { font-size: 12px; color: var(--ink-3); }
+
+    /* 固定图钉的三格图示 */
+    .pin-demo { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+    .pin-demo .cell {
+      display: flex; align-items: center; gap: 6px; background: var(--page); border: 1px solid var(--line);
+      border-radius: 8px; padding: 6px 10px; font-size: 12.5px; color: var(--ink-2);
+    }
+    .pin-demo .cell b { color: var(--ink-hi); font-weight: 600; }
+    .pin-demo .arw { color: var(--ink-3); font-size: 13px; }
+
+    /* 试问结果 */
+    .try-box { margin-top: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--page); padding: 11px 13px; font-size: 13px; }
+    .try-box .q { color: var(--ink-2); font-size: 12.5px; margin-bottom: 6px; }
+    .try-box .q b { color: var(--ink-hi); }
+    .try-box .out { white-space: pre-wrap; word-break: break-word; color: var(--ink); line-height: 1.7; }
+    .try-box .err { color: var(--red); }
+    .try-box .stocks { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 5px; }
+    .try-box .tag { background: var(--brand-soft); color: var(--brand); border: 1px solid var(--brand-line); border-radius: 6px; padding: 1px 7px; font-size: 12px; }
+    .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--brand-line); border-top-color: var(--brand); border-radius: 50%; animation: sp .7s linear infinite; vertical-align: -2px; }
+    @keyframes sp { to { transform: rotate(360deg); } }
+
+    /* 完成条 */
+    .done-bar {
+      display: none; align-items: flex-start; gap: 10px; margin-top: 18px;
+      background: var(--ok-soft); border: 1px solid var(--ok-line); color: #14532d;
+      border-radius: 12px; padding: 14px 16px; font-size: 13.5px; line-height: 1.7;
+    }
+    .done-bar.show { display: flex; }
+    .done-bar .ic { font-size: 18px; line-height: 1.3; }
+    .done-bar b { color: #14532d; }
+
+    .tip { background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn); padding: 11px 14px; border-radius: 10px; font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
+    .tip.red { background: var(--red-soft); border-color: var(--red-line); color: var(--red); }
+    .foot { margin-top: 18px; text-align: center; font-size: 12px; color: var(--ink-3); }
+    .foot a { color: var(--ink-3); }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ink: #e2e8f0; --ink-2: #b6c2d2; --ink-3: #8494a8; --ink-hi: #f1f5f9;
+        --card: #1e293b; --page: #0f172a; --line: #334155;
+        --brand-soft: #172033; --brand-line: #1e3a8a;
+        --ok-soft: #052e16; --ok-line: #166534;
+        --warn-soft: #2a1f06; --warn-line: #78350f; --warn: #fbbf24;
+        --red-soft: #2b0d0d; --red-line: #7f1d1d; --red: #fca5a5;
+      }
+      .done-bar { color: #bbf7d0; } .done-bar b { color: #dcfce7; }
+    }
   </style>
 </head>
 <body>
   <div class="page">
-    <div class="hd"><h1>💡 问财观点 · 装好了</h1><p>用口语问一句同花顺问财，把智能调度的投顾式推荐存进股小察。</p></div>
+
+    <div class="hd">
+      <h1>💡 问财观点 · 上手引导</h1>
+      <p class="sub">三步就能用起来。每完成一步会<b>自动打勾</b>，不用手动确认。</p>
+      <div class="prog">
+        <span class="track"><i id="progFill" class="fill"></i></span>
+        <span id="progTxt" class="txt">0 / 3</span>
+      </div>
+    </div>
+
     <div class="bd">
-      <div class="step"><div class="num">1</div><div>点浏览器右上角 <b>🧩 拼图图标 → 把「问财观点」固定📌</b> 到工具栏。点它可打开<b>设置</b>（零配置开箱即用，可设昵称/预置问题/定时）。</div></div>
-      <div class="step"><div class="num">2</div><div><b>前台用</b>：打开 <b>iwencai（问财）</b>任意页，右下角有 <b>💡 悬浮按钮</b>，点它选问题 → 浮层实时显示答案，可复制/重新问/追问，点个股跳行情。</div></div>
-      <div class="step"><div class="num">3</div><div><b>后台用</b>：直接点工具栏 💡 图标 → 弹窗里问，<b>不用开问财页</b>也能跑，完成弹系统通知。也可按快捷键 <kbd>Alt+Shift+W</kbd> 快速问第一条预置。</div></div>
-      <div class="tip">前提：这浏览器<b>登录过问财</b>且 cookie 没过期。若提示未登录，去 iwencai 登录一次即可。</div>
-      <div class="tip red">这是 <b>LLM 投顾观点</b>，不是回测背书的买卖信号，仅供参考。「定时自动问」默认关——开了是自动化操作，理论上有被同花顺风控/封号的风险，自己权衡。</div>
+
+      <!-- ① 固定到工具栏 -->
+      <section class="step" id="s1">
+        <div class="mark"><span>1</span></div>
+        <div class="body">
+          <div class="t">把插件固定到工具栏</div>
+          <p class="d">固定后地址栏右边会常驻一个 💡 图标，以后<b>点它就能问</b>，不用每次翻菜单。</p>
+          <div class="pin-demo">
+            <span class="cell">点右上角 <b>🧩</b></span>
+            <span class="arw">→</span>
+            <span class="cell">找到 <b>问财观点</b></span>
+            <span class="arw">→</span>
+            <span class="cell">点旁边的 <b>📌</b></span>
+          </div>
+          <div id="s1State" class="state wait">检测中…</div>
+          <div class="acts">
+            <button id="s1Manual" class="btn ghost" hidden>我固定好了</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ② 登录问财 -->
+      <section class="step" id="s2">
+        <div class="mark"><span>2</span></div>
+        <div class="body">
+          <div class="t">在这个浏览器登录问财</div>
+          <p class="d">插件是<b>借你自己的问财账号</b>去问的，所以得先登录一次。登录完这里会自动打勾，不用回来点。</p>
+          <div id="s2State" class="state wait">检测中…</div>
+          <div class="acts">
+            <button id="s2Go" class="btn">去登录问财 →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ③ 试问一句 -->
+      <section class="step" id="s3">
+        <div class="mark"><span>3</span></div>
+        <div class="body">
+          <div class="t">试着问一句</div>
+          <p class="d">就在这页问，不用跳走。答案会同时<b>存进股小察</b>，以后能回头看当时问出来的观点准不准。</p>
+          <div id="s3State" class="state wait">还没问过</div>
+          <div class="acts">
+            <button id="s3Go" class="btn" disabled>就在这里问一句</button>
+            <span class="hint">大概要等 10～40 秒</span>
+          </div>
+          <div id="s3Box" class="try-box" hidden></div>
+        </div>
+      </section>
+
+      <div id="doneBar" class="done-bar">
+        <span class="ic">🎉</span>
+        <div>
+          <b>上手完成，可以正常用了。</b><br>
+          以后有两种问法：点工具栏的 <b>💡</b> 随时问（不用开问财页）；或者在 <b>iwencai 问财页</b>右下角点悬浮的 💡，能看到答案一个字一个字出来、还能追问。
+        </div>
+      </div>
+
+      <div class="tip red">
+        问出来的是 <b>LLM 投顾观点</b>，不是回测背书的买卖信号，仅供参考，别直接照着下单。<br>
+        设置里的「定时自动问」<b>默认关着</b>——开了属于自动化操作，理论上有被同花顺风控的风险，自己权衡。
+      </div>
+
+      <div class="foot">这页随时能回来看：点工具栏 💡 → <b>设置</b> → <b>重看上手引导</b></div>
+
     </div>
   </div>
+
+  <script src="welcome.js"></script>
 </body>
 </html>
