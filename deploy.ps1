@@ -47,33 +47,75 @@ if (-not (Test-Path $KEY)) {
     exit 1
 }
 
-# ── 预检: 工作区必须干净 ──────────────────────────────────────────────
-# 打包用的是 `tar ... .`,【打的是工作区, 不是提交状态】—— 全程不查 git。所以任何没提交完的
-# 半成品, 只要文件在盘上就会原样上生产; 前端更狠, 会先被 build 进 dist 一起传。
-# 多会话并行改同一个仓库时这个坑必踩: 2026-07-20 就把另一个会话正在改的 extension/ 半成品
-# 打包传了上去(那次不对外, 没造成影响)。换成 frontend/ 或 backend/ 就是半成品直接进生产。
-# 规矩是 commit → push → deploy, 所以部署时工作区本就该是干净的; 脏就说明有人还在改。
+# ── 预检 ────────────────────────────────────────────────────────────────
+# 核心事实: 打包用的是 `tar ... .`,【打的是工作区, 不是提交状态】, 全程不查 git。由此有两个坑,
+# 都在多会话并行改同一仓库时会踩(2026-07-20 两个都真踩到了):
+#
+#   坑一 · 脏工作区: 任何没提交完的半成品, 只要文件在盘上就会原样上生产; 前端更狠, 会先被
+#     build 进 dist 一起传。那天把另一个会话正在改的 extension/ 半成品打包传了上去(不对外,
+#     没造成影响); 换成 frontend/ 或 backend/ 就是半成品直接进生产。
+#     规矩是 commit → push → deploy, 所以部署时工作区本就该干净; 脏就说明有人还在改。
+#
+#   坑二 · 树落后于 origin/main: 因为部署是"解压覆盖", 从落后的树部署会把别人已经上线的改动
+#     【直接冲回旧版本】, 而且 git 层面毫无痕迹 —— 你根本没动那些文件。共用一个工作目录时这
+#     反而不会发生(别人的提交天然在你树里), 一旦按会话拆 worktree 就必踩。
+#     所以工作流定成: worktree 里随便开工, 合回 main、push 完, 再从 main 部署。
+#     这道闸就是这条工作流的执行者 —— 只允许从 main 且与 origin/main 同步的树部署。
+#
 # 非交互(工具/CI)下 Read-Host 拿不到输入 → 按 N 处理 → 中止, 这是安全的默认。要强上加 -Force。
 Push-Location $PROJECT_DIR
+$issues = @()
+
+# 坑一: 工作区脏
 $dirty = Invoke-Native git status --porcelain
-Pop-Location
-if ($dirty -and -not $Force) {
-    Write-Host ""
-    Write-Host "工作区不干净, 以下改动会被【原样打包上生产】:" -ForegroundColor Yellow
-    $dirty | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
-    Write-Host ""
-    Write-Host "如果这里面有别的会话没改完的东西, 现在停下来。" -ForegroundColor Yellow
-    $ans = ''
-    try { $ans = Read-Host '确认继续部署? (y/N)' } catch { }
-    if ($ans -notmatch '^[yY]$') {
-        Write-Host "已中止。先提交/暂存(git stash)再部署, 或用 .\deploy.ps1 -Force 强上。" -ForegroundColor Red
-        Pause-Exit
-        exit 1
+if ($dirty) {
+    $issues += "工作区不干净, 以下改动会被【原样打包上生产】:"
+    $dirty | ForEach-Object { $issues += "      $_" }
+    $issues += "    → 如果这里面有别的会话没改完的东西, 现在停下来。先 commit 或 git stash。"
+}
+
+# 坑二之一: 不在 main 上
+$branch = (Invoke-Native git rev-parse --abbrev-ref HEAD | Select-Object -First 1)
+if ($branch -ne 'main') {
+    $issues += "当前在分支 [$branch], 不是 main。"
+    $issues += "    → 部署只从 main 出发。先把这个分支合回 main 再部署, 否则线上会变成半条支线。"
+}
+
+# 坑二之二: 与 origin/main 不同步。fetch 失败就当"没验成"处理 —— 没验成 != 验过了。
+Invoke-Native git fetch origin main --quiet
+if ($LASTEXITCODE -ne 0) {
+    $issues += "git fetch origin main 失败(exit $LASTEXITCODE), 无法确认本地是否落后于远端。"
+    $issues += "    → 网络不通就先修网络; 带着不确定部署可能把别人的改动冲掉。"
+} else {
+    $counts = (Invoke-Native git rev-list --left-right --count origin/main...HEAD | Select-Object -First 1)
+    $behind, $ahead = ($counts -split '\s+') | Where-Object { $_ -ne '' }
+    if ([int]$behind -gt 0) {
+        $issues += "本地落后 origin/main $behind 个提交(领先 $ahead 个)。"
+        $issues += "    → 部署是解压覆盖, 从落后的树部署会把别人已上线的改动冲回旧版本。先 git pull。"
+    } elseif ([int]$ahead -gt 0) {
+        # 领先不危险(线上会比 origin 新), 但破坏"线上 == origin/main"这个前提, 出事不好回溯
+        Write-Host "提示: 本地领先 origin/main $ahead 个提交, 建议先 git push 再部署。" -ForegroundColor DarkYellow
     }
-    Write-Host "  已确认, 继续。" -ForegroundColor DarkGray
-} elseif ($dirty -and $Force) {
-    Write-Host "工作区不干净, 但指定了 -Force, 跳过确认:" -ForegroundColor DarkYellow
-    $dirty | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+}
+Pop-Location
+
+if ($issues.Count -gt 0) {
+    Write-Host ""
+    Write-Host "部署预检未通过:" -ForegroundColor Yellow
+    $issues | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkYellow }
+    Write-Host ""
+    if ($Force) {
+        Write-Host "  指定了 -Force, 跳过确认继续。" -ForegroundColor DarkYellow
+    } else {
+        $ans = ''
+        try { $ans = Read-Host '仍要继续部署? (y/N)' } catch { }
+        if ($ans -notmatch '^[yY]$') {
+            Write-Host "已中止。处理完上面的问题再部署, 或用 .\deploy.ps1 -Force 强上。" -ForegroundColor Red
+            Pause-Exit
+            exit 1
+        }
+        Write-Host "  已确认, 继续。" -ForegroundColor DarkGray
+    }
 }
 
 # [1/6] 本地 build 前端 —— v1.7.584 事故后改: 前端在【本机】build, 服务器不再跑 npm/vite build。
