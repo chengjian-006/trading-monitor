@@ -607,7 +607,8 @@ const allColumns = computed(() => [
   {
     title: '名称',
     key: 'name',
-    width: 112,
+    // v1.7.723: 删掉 96px 的策略列后, 名称列多挂一枚「策」签, 回吐 12px 给它 (112 → 124)
+    width: 124,
     ellipsis: { tooltip: true },
     render: (row: Stock) => {
       const isFocused = !!row.focused
@@ -662,6 +663,16 @@ const allColumns = computed(() => [
       }
       if (row.volume_ratio != null && row.volume_ratio >= 3) {
         children.push(chipTag('动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
+      }
+      // v1.7.723: 独立「策略」列删掉, 改成名称后挂一枚紫签 —— 那一列占 96px 却只塞得下 8 个字,
+      // 「扫一眼哪些票有计划」这个唯一价值, 一枚签就够, 全文照旧悬停出富卡。行情类签在前, 主观计划签压尾。
+      const stratText = row.strategy?.trim()
+      if (stratText) {
+        children.push(h(NPopover, { trigger: 'hover', placement: 'top-start', delay: 200, style: { maxWidth: '320px' } }, {
+          trigger: () => chipTag('策', '#7c3aed', '已写操作策略 — 悬停看全文, 编辑点右侧操作列的铅笔'),
+          header: () => h('div', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text2)' } }, `${row.code} ${row.name} · 操作策略`),
+          default: () => h(StrategyText, { text: stratText }),
+        }))
       }
       // verdict 色块: 有买点信号时给名称加色条提示决策结论 (与展开行决策卡颜色一致)
       const verdictColor = getVerdictColor(row)
@@ -845,32 +856,6 @@ const allColumns = computed(() => [
     },
   },
   {
-    title: '策略',
-    key: 'strategy',
-    // v1.7.720: 本列改回【纯展示】—— 编辑入口(原「+ 添加策略」/铅笔)全部搬进右侧固定的「操作」列。
-    // 历史: 这个格子里的点击目标被 sticky 的操作列盖住, v1.7.702/705/709/719 修过四次(调滚动宽度/
-    // 加宽操作列/压窄本列/把本列也钉到右边)都没根治 —— 最后一次并排堆叠反而更糟。
-    // 症结在于"把点击目标放在最后一个可滚动列里"这件事本身: 最后一列天然压在 sticky 浮层底下, 只有
-    // 滚到绝对最右端才完整露出, 这是 sticky 的固有行为而非 bug。既然如此就别跟它较劲 —— 点击目标挪去
-    // 恒定可见的操作列, 本列只剩文字和悬浮卡(被盖住一截也不影响"扫一眼有没有策略"), 于是本列不再需要
-    // fixed, 拖拽调宽也一并拿回来。
-    width: 96,
-    ellipsis: true,
-    render: (row: Stock) => {
-      const text = row.strategy?.trim() || ''
-      if (!text) return h('span', { style: { color: 'var(--text3, var(--text2))', fontSize: '12px' } }, '-')
-      const cell = h('span', {
-        style: { fontSize: '12px', color: '#7c3aed', fontWeight: 500 },
-      }, text.length > 8 ? text.slice(0, 8) + '…' : text)
-      // 悬浮富卡(功能A): 完整策略 + 目标/止损/仓位高亮(编辑走操作列的铅笔按钮)
-      return h(NPopover, { trigger: 'hover', placement: 'top-start', delay: 200, style: { maxWidth: '320px' } }, {
-        trigger: () => cell,
-        header: () => h('div', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text2)' } }, `${row.code} ${row.name} · 操作策略`),
-        default: () => h(StrategyText, { text }),
-      })
-    },
-  },
-  {
     title: '操作',
     key: 'action',
     // v1.7.720: 多了一个策略按钮, 152 → 176(4 个 tiny 按钮 + 4px 间距原本就贴着 152 的边)
@@ -963,7 +948,6 @@ const HIDEABLE: { key: string; label: string }[] = [
   { key: 'speed', label: '涨速' }, { key: 'amount', label: '成交额' },
   { key: 'volume_ratio', label: '量比' }, { key: 'free_cap', label: '流通市值' },
   { key: 'turnover', label: '换手' }, { key: 'ma20', label: '距MA20' },
-  { key: 'strategy', label: '策略' },
 ]
 const LS_HIDDEN = 'pool_hidden_cols'
 function loadHidden(): Set<string> {
@@ -1167,7 +1151,7 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
    (v1.7.722 病根之二)。固定列改用 color-mix 把同样的色【混成实色】压在 --bg-surface 上,
    肉眼效果与半透明一致, 但完全不透。选择器多一个类(0-2-1)以压过上面 Edit 的 0-2-0 实底规则。 */
 /* 持仓行: .row-hold 的底色打在 <tr> 上, 固定列 td 变实底后会盖掉它, 导致持仓行在
-   选择/策略/操作三列缺一块蓝。用同色实混补回。(--accent-bg-muted = rgba(22,104,220,.10))
+   选择/操作两个固定列缺一块蓝。用同色实混补回。(--accent-bg-muted = rgba(22,104,220,.10))
    ⚠ 顺序要在 row-below-ma20 之前: 两者特指度同为 0-2-1, 靠后者胜出。非固定列那边
    `.row-below-ma20 td`(!important) 是压过 `.row-hold` 的, 即【弱势色优先】; 固定列必须
    保持同一口径, 否则"持仓且跌破MA20"的行会左右两半不同色。 */
