@@ -3,7 +3,7 @@ import { computed, h, ref } from 'vue'
 import { NTag, NButton, NIcon, NPopconfirm } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
-import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications, PricetagsOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications, PricetagsOutline, Create, CreateOutline } from '@vicons/ionicons5'
 import type { Stock } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -11,6 +11,8 @@ import { useSignalStore } from '../../stores/signal'
 import SubstanceCheckDrawer from './SubstanceCheckDrawer.vue'
 import StockAlertModal from './StockAlertModal.vue'
 import StockMetaModal from './StockMetaModal.vue'
+import StrategyEditModal from './StrategyEditModal.vue'
+import StrategyText from './StrategyText.vue'
 import { useUiStore } from '../../stores/ui'
 import { useStockAlerts } from '../../composables/useStockAlerts'
 import { onMounted } from 'vue'
@@ -100,6 +102,15 @@ function openAlert(s: Stock) {
   alertStock.value = s
   showAlertModal.value = true
 }
+// 个股策略 (v1.7.721 补手机端): 此前只有宽表能看/能改策略, 手机卡片版完全没有入口。
+// 卡片内直接展开策略正文(手机没有 hover, 悬浮富卡那套用不了), 点正文或底部「策略」按钮都进编辑。
+const showStrategyModal = ref(false)
+const strategyStock = ref<Stock | null>(null)
+function openStrategy(s: Stock) { strategyStock.value = s; showStrategyModal.value = true }
+function onStrategySaved(code: string, text: string) {
+  const hit = props.stocks.find((s) => s.code === code)
+  if (hit) hit.strategy = text
+}
 // 分组/标签/备注 (v1.7.670)
 const showMetaModal = ref(false)
 const metaStock = ref<Stock | null>(null)
@@ -168,6 +179,13 @@ onMounted(() => { loadAlerts() })
         <span v-for="t in (s.tags || '').split(',').filter(Boolean)" :key="t" class="m-tag">{{ t }}</span>
         <span v-if="s.note" class="m-note">{{ s.note }}</span>
       </div>
+      <!-- 操作策略 (v1.7.721): 有策略才占位, 整块可点进编辑(手机上比小按钮好按) -->
+      <div v-if="s.strategy && s.strategy.trim()" class="stock-strategy" role="button" tabindex="0"
+        :aria-label="`编辑 ${s.name} 的操作策略`"
+        @click="openStrategy(s)" @keydown.enter="openStrategy(s)">
+        <span class="strat-label">策略</span>
+        <StrategyText :text="s.strategy" />
+      </div>
       <div class="stock-bottom">
         <NTag size="tiny" :type="s.status === 'hold' ? 'success' : 'default'" :bordered="false">
           {{ s.status === 'hold' ? '持仓' : '观察' }}
@@ -181,6 +199,10 @@ onMounted(() => { loadAlerts() })
           <NButton size="small" :type="summaryFor(s.code) ? (summaryFor(s.code)!.triggered > 0 ? 'warning' : 'primary') : 'default'" secondary @click="openAlert(s)">
             <template #icon><NIcon><component :is="summaryFor(s.code) ? Notifications : NotificationsOutline" /></NIcon></template>
             预警<span v-if="summaryFor(s.code)">{{ summaryFor(s.code)!.triggered > 0 ? '!' : summaryFor(s.code)!.active }}</span>
+          </NButton>
+          <NButton size="small" :type="(s.strategy && s.strategy.trim()) ? 'primary' : 'default'" secondary @click="openStrategy(s)">
+            <template #icon><NIcon><component :is="(s.strategy && s.strategy.trim()) ? Create : CreateOutline" /></NIcon></template>
+            策略
           </NButton>
           <NButton size="small" :type="(s.grp || s.tags || s.note) ? 'primary' : 'default'" secondary @click="openMeta(s)">
             <template #icon><NIcon><PricetagsOutline /></NIcon></template>
@@ -218,6 +240,13 @@ onMounted(() => { loadAlerts() })
       :code="alertStock?.code || ''"
       :name="alertStock?.name || ''"
       @changed="reloadAlerts"
+    />
+    <StrategyEditModal
+      v-model:show="showStrategyModal"
+      :code="strategyStock?.code || ''"
+      :name="strategyStock?.name || ''"
+      :text="strategyStock?.strategy || ''"
+      @saved="onStrategySaved"
     />
     <StockMetaModal
       v-model:show="showMetaModal"
@@ -429,6 +458,35 @@ onMounted(() => { loadAlerts() })
 }
 .stock-metrics b.down {
   color: var(--green);
+}
+/* 操作策略块 (v1.7.721 手机端): 紫色左边线沿用宽表策略列的紫色主题; 正文保留换行, 最多 4 行后截断 */
+.stock-strategy {
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  border-left: 3px solid #7c3aed;
+  border-radius: 0 4px 4px 0;
+  background: color-mix(in srgb, #7c3aed 7%, transparent);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.stock-strategy .strat-label {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, #7c3aed 40%, transparent);
+  border-radius: 3px;
+  color: #7c3aed;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  vertical-align: 1px;
 }
 .stock-bottom {
   display: flex;

@@ -989,8 +989,14 @@ const columns = computed(() => allColumns.value
     if (col.key && col.key !== 'action' && !col.fixed) col.resizable = true
     return col
   }))
-// 横向滚动宽度 = 当前可见列宽总和(动态: 加/删/隐藏列自动跟随, 避免写死值偏小导致最右列滚不到)
-const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum + (Number(c.width) || 120), 0) + 40)
+// 横向滚动宽度 = 当前可见列宽总和(动态: 加/删/隐藏列自动跟随)
+// v1.7.721 修两处: 一是这个 computed 从 v1.7.702 加进来起就【没绑到模板】(模板写死 :scroll-x="1418"),
+// 所以那次「横向滚动修复」实际一行没生效; 二是 `Number(c.width) || 120` 会把 expand 列的 width:0
+// 当成假值算成 120(该列 CSS 强制 0 宽, 实际不占位), 平白多算 120px。
+// 不留富余量: scroll-x 比真实列宽和大多少, 表格就被撑宽多少, 差额由各列摊掉 → 声明宽 ≠ 渲染宽,
+// 固定列的 sticky 偏移按声明宽算就会错位。写死 1418 时只要在「列设置」里藏过列, 富余就从 8px 变成
+// 上百 px, 列被拉得东倒西歪 —— 正是这个。
+const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum + (Number(c.width ?? 120) || 0), 0))
 </script>
 
 <template>
@@ -1060,7 +1066,7 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
       size="small"
       :resizable-columns="true"
       :row-key="(row: Stock) => row.code"
-      :scroll-x="1418"
+      :scroll-x="scrollX"
       flex-height
       virtual-scroll
       style="flex: 1; min-height: 0"
