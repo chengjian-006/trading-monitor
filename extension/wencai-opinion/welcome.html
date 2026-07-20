@@ -95,7 +95,9 @@
 
     .tip { background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn); padding: 11px 14px; border-radius: 10px; font-size: 12.5px; margin-top: 14px; line-height: 1.7; }
     .tip.red { background: var(--red-soft); border-color: var(--red-line); color: var(--red); }
-    .foot { margin-top: 18px; text-align: center; font-size: 12px; color: var(--ink-3); }
+    /* 关掉这页: 一直在, 不用等三步走完 —— 老用户回来只是想瞄一眼进度, 也得给条出去的路 */
+    .close-row { margin-top: 18px; text-align: center; }
+    .foot { margin-top: 12px; text-align: center; font-size: 12px; color: var(--ink-3); }
     .foot a { color: var(--ink-3); }
 
     @media (prefers-color-scheme: dark) {
@@ -184,6 +186,10 @@
       <div class="tip red">
         问出来的是 <b>LLM 投顾观点</b>，不是回测背书的买卖信号，仅供参考，别直接照着下单。<br>
         设置里的「定时自动问」<b>默认关着</b>——开了属于自动化操作，理论上有被同花顺风控的风险，自己权衡。
+      </div>
+
+      <div class="close-row">
+        <button id="closeTab" class="btn ghost">关掉这页</button>
       </div>
 
       <div class="foot">这页随时能回来看：点工具栏 💡 → <b>设置</b> → <b>重看上手引导</b></div>

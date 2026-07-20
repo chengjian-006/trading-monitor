@@ -21,6 +21,8 @@ function paint() {
   $('s3').classList.toggle('locked', !done.s2 && !done.s3);
   $('s3Go').disabled = !done.s2 || asking;
   $('doneBar').classList.toggle('show', n === 3);
+  // 三步走完, 关页从次要动作升级成主按钮 —— 那时候关掉正是该干的事
+  $('closeTab').className = n === 3 ? 'btn' : 'btn ghost';
 }
 
 function setState(id, cls, txt) {
@@ -165,6 +167,20 @@ $('s3Go').onclick = async () => {
     renderTry(null, String((e && e.message) || e));
   }
   paint();
+};
+
+// ---------- 关掉这页 ----------
+// window.close() 只对"脚本自己开的窗口"有效, 而这页是 chrome.tabs.create 开的标签页, 直接调多半不动。
+// 扩展页要关自己得走 tabs.getCurrent → tabs.remove(两个都不需要 "tabs" 权限)。window.close 留作兜底。
+$('closeTab').onclick = () => {
+  try {
+    chrome.tabs.getCurrent((tab) => {
+      if (tab && tab.id != null) chrome.tabs.remove(tab.id);
+      else window.close();
+    });
+  } catch (e) {
+    window.close();
+  }
 };
 
 // ---------- 启动与轮询 ----------
