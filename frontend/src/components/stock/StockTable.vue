@@ -1121,12 +1121,22 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
   padding-left: 6px;
   padding-right: 6px;
 }
-/* 固定列(选择/操作)给不透明底: 防横向滚动时下面「策略」等列内容透出造成重叠遮挡 */
-.stock-table-wrap :deep(.n-data-table-td--fixed-left),
-.stock-table-wrap :deep(.n-data-table-td--fixed-right),
-.stock-table-wrap :deep(.n-data-table-th--fixed-left),
-.stock-table-wrap :deep(.n-data-table-th--fixed-right) {
-  background-color: var(--bg-surface);
+/* 固定列(选择/策略/操作)必须【全不透明】—— 它们浮在可滚动列上方, 一旦透出下层就会叠字。
+   v1.7.722 真病根 —— 与"哪列固定/列多宽"完全正交, 历次 v1.7.702/705/709/719 改的都是宽度和
+   钉哪列(那本就是 sticky 的正常行为), v1.7.720 把编辑入口搬进操作列是对的方向但也治不了这层:
+   ① 本 <style> 是【非 scoped】的, 而 :deep() 只有 scoped 块才会被 Vue 编译掉。非 scoped 下
+      它原样进产物(构建产物里可见 `.stock-table-wrap :deep(...)` 原文), 而 :deep() 不是合法
+      CSS 伪类 → 浏览器把整条选择器判为无效直接丢弃。也就是说 v1.7.705 加的这条"固定列不透明底"
+      【从来没有生效过】。
+   ② naive-ui 自带的 td 不透明底, 又被下面 .row-below-ma20 td 的半透明 !important 覆盖掉,
+      所以【只有弱势行】的固定列会透出下层滚动内容 —— 正是"流通市值的字和策略/操作的字叠在一起",
+      也解释了为什么只有一部分行有、为什么是叠字而不是干净遮挡。
+   前几次改的全是列宽和钉哪列(那是 sticky 的正常行为, 本就不是病根), 所以一直修不好。 */
+.stock-table-wrap .n-data-table-td--fixed-left,
+.stock-table-wrap .n-data-table-td--fixed-right,
+.stock-table-wrap .n-data-table-th--fixed-left,
+.stock-table-wrap .n-data-table-th--fixed-right {
+  background-color: var(--bg-surface) !important;
 }
 .signal-expand {
   padding: 8px 12px;
@@ -1152,6 +1162,26 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 }
 .row-below-ma20:hover td {
   background: rgba(88, 104, 130, 0.20) !important;
+}
+/* 行级染色遇上固定列: 上面两条是【半透明】底, 直接盖在固定列上会让下层滚动内容透出来叠字
+   (v1.7.722 病根之二)。固定列改用 color-mix 把同样的色【混成实色】压在 --bg-surface 上,
+   肉眼效果与半透明一致, 但完全不透。选择器多一个类(0-2-1)以压过上面 Edit 的 0-2-0 实底规则。 */
+/* 持仓行: .row-hold 的底色打在 <tr> 上, 固定列 td 变实底后会盖掉它, 导致持仓行在
+   选择/策略/操作三列缺一块蓝。用同色实混补回。(--accent-bg-muted = rgba(22,104,220,.10))
+   ⚠ 顺序要在 row-below-ma20 之前: 两者特指度同为 0-2-1, 靠后者胜出。非固定列那边
+   `.row-below-ma20 td`(!important) 是压过 `.row-hold` 的, 即【弱势色优先】; 固定列必须
+   保持同一口径, 否则"持仓且跌破MA20"的行会左右两半不同色。 */
+.row-hold td.n-data-table-td--fixed-left,
+.row-hold td.n-data-table-td--fixed-right {
+  background: color-mix(in srgb, rgb(22, 104, 220) 10%, var(--bg-surface)) !important;
+}
+.row-below-ma20 td.n-data-table-td--fixed-left,
+.row-below-ma20 td.n-data-table-td--fixed-right {
+  background: color-mix(in srgb, rgb(88, 104, 130) 13%, var(--bg-surface)) !important;
+}
+.row-below-ma20:hover td.n-data-table-td--fixed-left,
+.row-below-ma20:hover td.n-data-table-td--fixed-right {
+  background: color-mix(in srgb, rgb(88, 104, 130) 20%, var(--bg-surface)) !important;
 }
 /* 列设置工具栏 + 菜单 (v1.7.672, 本 style 非 scoped, popover 内容可命中) */
 /* 不独占一行: 绝对定位浮到表格右上角, 回收整行竖向空间 */

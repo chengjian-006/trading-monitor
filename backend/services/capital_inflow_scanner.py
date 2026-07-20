@@ -20,11 +20,30 @@ from backend.services import alert_throttle
 logger = logging.getLogger(__name__)
 
 
-from backend.core.trading_calendar import is_trading_time as _is_trading_time, is_workday as _is_workday  # v1.7.x 统一来源
+from backend.core.trading_calendar import is_continuous_auction as _is_continuous_auction  # v1.7.x 统一来源
 
 
 def _is_st(stock: dict) -> bool:
     return "ST" in (stock.get("name") or "").upper().strip()
+
+
+def _first_num(*values) -> float:
+    """取第一个"有效"数值(非 None 且非 0), 都没有则 0.0。
+
+    v1.7.722 新增。替代 `rt.get(k, fallback)` 这种写法 —— dict.get 只在【键不存在】时才用默认值,
+    而行情源常见的是"键在、值是 0/None", 那种写法的回退意图永远不会生效(0720 全 +0.00% 空卡的成因)。
+    注: 真实涨幅恰为 0 时会继续往后取, 但后备源同样是 0, 结果仍是 0, 不影响正确性。
+    """
+    for v in values:
+        if v is None:
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if f != 0:
+            return f
+    return 0.0
 
 
 # 统一格式化 + 涨停判定(原本地副本已抽到 utils; 涨停判定顺带覆盖 301/689/92 等边界码)
@@ -240,7 +259,14 @@ alert_throttle.register(
 
 
 async def scan_capital_inflow():
-    if not _is_trading_time():
+    # v1.7.722 闸门修正: 原用 is_trading_time() —— 生产 config 的 trading_hours 起点是 09:15,
+    # 且该函数注释即写明"含集合竞价撮合", 于是本扫描器从 09:15 就每 30s 开跑。
+    # 0720 事故: 09:23:26 推出"半导体 自选票22只"卡, 22 只全是 +0.00% / 成交-。
+    #   竞价时段板块榜已有撮合涨幅(半导体+1.48%)足以过"龙头涨停+前N均涨"的筛子 → 信号成立;
+    #   但个股还没有连续成交, 逐票取价全 0 → 渲染出一张以成交额为主体的空卡。
+    # 资金回流本质是【连续交易中的资金流向】, 竞价数据表达不了它 —— is_continuous_auction
+    # (09:30 起, 不含集合竞价)的 docstring 正是为这类判断写的: "9:25 的集合竞价数据噪音过大不应触发"。
+    if not _is_continuous_auction():
         return
 
     today = str(date_cls.today())
@@ -299,7 +325,9 @@ async def scan_capital_inflow():
         from backend.routers.market_report import _fetch_amount_rank_top100
         amount_rank = await _fetch_amount_rank_top100()
     except Exception as e:
-        logger.warning(f"[capital_inflow] 成交额排名取数失败: {e}")
+        # v1.7.722: 原为 {e}, 遇上无 message 的异常打出来就是"取数失败:"空信息(0720 日志实例),
+        # 排查时完全看不出所以然。改 {e!r} 带上异常类型。
+        logger.warning(f"[capital_inflow] 成交额排名取数失败: {e!r}")
         amount_rank = {}
 
     pushed_count = 0
@@ -364,8 +392,19 @@ async def scan_capital_inflow():
                                    *(t.get("code", "") for t in top_n_stocks)} if c]
         try:
             quotes = await data_fetcher.get_realtime_quotes(quote_codes) if quote_codes else {}
-        except Exception:
-            quotes = {}
+        except Exception as e:
+            # v1.7.722: 原来这里静默吞异常(except Exception: quotes = {}), 取价整体失败也照发卡,
+            # 推出来就是一张全 0 空卡。降级必须留痕 —— 同 0713"行情冻结致止损检查静默跳过"的教训。
+            logger.warning(f"[capital_inflow] {sector_name} 取价失败, 跳过本板块: {e!r}")
+            continue
+
+        # v1.7.722 护栏: 整批取价一只都没有成交额 → 说明这批行情不可用(非交易时段/源降级),
+        # 而这张卡主体正是"涨幅+成交额", 硬发就是 22 只全 +0.00%/成交-。宁可不发也不发空卡。
+        if not any(float((v or {}).get("amount") or 0) > 0 for v in quotes.values()):
+            logger.warning(
+                f"[capital_inflow] {sector_name} 整批行情无成交额({len(quote_codes)}只), "
+                f"判定行情不可用, 跳过本板块不推空卡")
+            continue
 
         # 板块前N股结构化行(名称/涨幅/成交额); 实时取不到则回退榜单自带涨幅
         sector_top_rows = []
@@ -374,19 +413,25 @@ async def scan_capital_inflow():
             rt = quotes.get(tc, {}) or {}
             sector_top_rows.append({
                 "name": t.get("name", ""), "code": tc,
-                "pct": float(rt.get("pct_change", t.get("pct_change", 0)) or 0),
-                "amt": float(rt.get("amount", 0) or 0),
+                # v1.7.722: 原为 rt.get("pct_change", t.get("pct_change", 0)) —— dict.get 只在
+                # 【键不存在】时取默认值。行情源返回了这只票但 pct_change 是 0/None 时键是存在的,
+                # 回退到榜单涨幅的意图【永远不会生效】, 直接渲染成 +0.00%。改成显式取首个有效值。
+                "pct": _first_num(rt.get("pct_change"), t.get("pct_change")),
+                "amt": float(rt.get("amount") or 0),
                 "rank": amount_rank.get(tc),
             })
 
         # 自选个股结构化行 + 文本行
+        # v1.7.722: 自选票原来连回退都没写(rt.get("pct_change", 0)), 取不到就是 0。
+        # 板块榜里若有这只票, 用榜单涨幅兜底。
+        board_pct = {t.get("code", ""): t.get("pct_change") for t in top_stocks if t.get("code")}
         stock_lines = []
         stock_rows = []   # {name, code, pct, amt}
         for s in my_stocks:
             rt = quotes.get(s["code"], {}) or {}
             price = rt.get("price") or 0
-            pct = float(rt.get("pct_change", 0) or 0)
-            amt = float(rt.get("amount", 0) or 0)
+            pct = _first_num(rt.get("pct_change"), board_pct.get(s["code"]))
+            amt = float(rt.get("amount") or 0)
             pct_str = f"+{pct:.2f}%" if pct >= 0 else f"{pct:.2f}%"
             stock_lines.append(f"  • {s['name']}({s['code']})  价格 {price:.2f}  涨幅 {pct_str}  "
                                f"成交 {_fmt_amount(amt)}  额排名{_fmt_rank(amount_rank.get(s['code']))}")

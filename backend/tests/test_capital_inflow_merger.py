@@ -11,6 +11,7 @@ from backend.services.capital_inflow_scanner import (
     _merge_capital_inflow,
     _group_by_leader,
     _fmt_pct_range,
+    _first_num,
 )
 
 
@@ -133,3 +134,36 @@ class TestMergeCapitalInflow:
         text = _merge_capital_inflow(items)
         assert "你自选的该板块个股 (1只)" in text
         assert "宁德时代(300750)" in text
+
+
+class TestFirstNum:
+    """v1.7.722: `_first_num` 取代 `dict.get(k, fallback)` 的回退写法。
+
+    0720 事故: 09:23 集合竞价时段推出"半导体 自选票22只"卡, 22 只全是 +0.00% / 成交-。
+    成因之一就是 `rt.get("pct_change", t.get("pct_change", 0))` —— dict.get 只在【键不存在】
+    时取默认值, 而行情源返回了这只票、只是 pct_change 为 0/None 时键是存在的, 于是
+    "回退到板块榜涨幅"的意图永远不生效。这组用例把该回归钉死。
+    """
+
+    def test_takes_first_valid(self):
+        assert _first_num(3.21, 9.9) == 3.21
+
+    def test_falls_back_when_primary_is_zero(self):
+        # 病根场景: 主源键存在但值为 0 → 必须继续回退, 不能直接返回 0
+        assert _first_num(0, 1.48) == 1.48
+
+    def test_falls_back_when_primary_is_none(self):
+        assert _first_num(None, 1.48) == 1.48
+
+    def test_all_missing_returns_zero(self):
+        assert _first_num(None, 0, None) == 0.0
+
+    def test_ignores_non_numeric(self):
+        assert _first_num("abc", None, 2.5) == 2.5
+
+    def test_negative_is_valid(self):
+        # 跌幅是有效值, 不能被当成缺失continue掉
+        assert _first_num(-3.4, 9.9) == -3.4
+
+    def test_numeric_string_accepted(self):
+        assert _first_num("1.48") == 1.48
