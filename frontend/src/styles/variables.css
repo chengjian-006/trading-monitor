@@ -88,9 +88,21 @@
 /* zoom 1.25 已退役（v1.7.646）：字号按 tokens.css 阶梯真实尺寸定准 */
 /* H(v1.7.660) 整体字号统一放大：全站 599 处硬编码 px 无法靠 token 统一, 用根级 zoom 按比例放大
    (Chromium 重排清晰不糊, 字+间距一起大更协调)。仅桌面>768px; 移动端由 mobile.css 自控不叠加。
-   1.1=大一成, 想更大/更小改这一个数即可。Naive 弹层默认 teleport 到 body 故一并缩放, 观感一致。 */
+   1.1=大一成, 想更大/更小改这一个数即可。
+
+   v1.7.724: 挂载点从 body 改到 #app —— 原注释说"Naive 弹层默认 teleport 到 body 故一并缩放,
+   观感一致", 但只顾了观感没顾坐标, 后果是弹层【定位错乱且飞出屏幕】:
+     naive(vueuc VFollower) 取触发元素 getBoundingClientRect() 拿到的是【视觉坐标】(已乘 1.1),
+     把它写进 teleport 到 body 的弹层 style.left, 而该弹层身处 body 的缩放上下文里 → 【再乘一次 1.1】,
+     于是右偏约 10%。更要命的是这同时废掉了 naive 自己的 flip 避让: 它按 CSS 坐标判断"放得下",
+     实际乘完放不下, 既不翻转也不收边, 直接溢出屏幕。
+   playwright 隔离复现(视口1280, 触发按钮贴最右, 含 flip 逻辑)量化:
+     无zoom → 菜单右缘 1272 ✅在屏内 / zoom挂body → 1398 ❌溢出118px / zoom挂#app → 1271 ✅在屏内
+   改挂 #app 后, 弹层 teleport 到 body 就落在缩放上下文【之外】, 坐标不再翻倍, flip 恢复正常。
+   代价: 弹层/模态框内文字不再被放大(比页面其余部分小约一成); 若观感不可接受, 可给弹层【内容层】
+   (.n-dropdown-menu/.n-popover 等, 注意不是被定位的 .v-binder-follower-content)单独补 zoom 找回。 */
 @media (min-width: 769px) {
-  body { zoom: 1.1; }
+  #app { zoom: 1.1; }
 }
 
 body {
