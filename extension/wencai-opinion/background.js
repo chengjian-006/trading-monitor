@@ -136,23 +136,95 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 function hhmm(d) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+
+// 本地日期。原来用 now.toISOString().slice(0,10) 取去重键的日期 —— 那是 **UTC**,
+// 早于 08:00(CST) 的时点会被算成前一天, 去重键跟着错位。
+function ymd(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// 时间点归一化: '9:35' → '09:35'。
+// 这是老版本最致命的坑 —— 设置页的校验正则是 /^\d{1,2}:\d{2}$/, '9:35' 能通过、被正常存下来,
+// 但触发时是拿它跟 hhmm() 生成的 '09:35' 做【精确字符串相等】比较, 于是永远不相等 →
+// 用户以为设好了, 实际一次都没跑过, 且没有任何报错。这里在【运行时】也归一化一遍,
+// 老用户存量里那些 '9:35' 无需重新设置即可生效。
+function normTime(t) {
+  // 冒号兼容中文全角「：」—— 与 popup.js/options.js 的同名函数保持一致口径。
+  // (存量里其实不会有全角冒号: 老版校验正则只认半角, 全角输入当场被丢弃。但同名函数
+  //  在不同文件里行为不一致本身就是雷, 以后谁指望它一样宽容就会静默失败。)
+  const m = /^(\d{1,2})\s*[:：]\s*(\d{1,2})$/.exec(String(t || '').trim());
+  if (!m) return '';
+  const h = Number(m[1]), mi = Number(m[2]);
+  if (h > 23 || mi > 59) return '';
+  return String(h).padStart(2, '0') + ':' + String(mi).padStart(2, '0');
+}
+const toMin = (t) => { const p = t.split(':'); return Number(p[0]) * 60 + Number(p[1]); };
+
+// 收盘后不再补跑(避免开着浏览器到深夜时把当天漏掉的时点一股脑补上)
+const CATCHUP_UNTIL_MIN = 15 * 60;   // 15:00
+
+// 交易日判定: 问服务器(后端有 chinese-calendar 权威日历, **认法定节假日**), 按日期缓存, 一天一次。
+// 原来扩展只用 getDay()===0||6 跳周末 → 国庆/春节整周照跑, 白耗问财额度还平添封号风险。
+// 服务器不可达时回退到原来的周末判断: 宁可多跑, 也不因服务器抖动导致整天不跑。
+async function isTradingDay(now) {
+  const day = ymd(now);
+  const cached = await new Promise((res) => chrome.storage.local.get(['tradingDayCache'], (o) => res(o.tradingDayCache)));
+  if (cached && cached.date === day) return cached.ok;
+  try {
+    const s = await getSettings();
+    const r = await fetch(s.serverUrl + '/api/wencai/ext/trading-day', { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    const ok = !!j.is_trading_day;
+    chrome.storage.local.set({ tradingDayCache: { date: day, ok } });
+    return ok;
+  } catch (e) {
+    return !(now.getDay() === 0 || now.getDay() === 6);
+  }
+}
+
+const setLastRun = (rec) => chrome.storage.local.set({ schedLastRun: { at: Date.now(), ...rec } });
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'wop-verchk') { checkExtVersion(false).catch(() => {}); return; }
   if (alarm.name !== 'wop-tick') return;
   const s = await getSettings();
   if (!s.schedule || !s.schedule.enabled) return;
+
   const now = new Date();
-  if (now.getDay() === 0 || now.getDay() === 6) return;
-  const cur = hhmm(now);
-  if ((s.schedule.times || []).indexOf(cur) < 0) return;
-  const key = 'wop_ran_' + now.toISOString().slice(0, 10) + '_' + cur;
-  const seen = await new Promise((res) => chrome.storage.local.get([key], (o) => res(o[key])));
-  if (seen) return;
-  chrome.storage.local.set({ [key]: 1 });
-  const qs = (s.schedule.questions && s.schedule.questions.length) ? s.schedule.questions : [(s.presets || [])[0]].filter(Boolean);
-  for (const q of qs) {
-    try { await runBg(q, { silent: false }); } catch (e) { notify('问财观点 · 定时失败', q.slice(0, 18) + '：' + (e.message || e)); }
-    await new Promise((r) => setTimeout(r, 3000));
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  if (nowMin > CATCHUP_UNTIL_MIN) return;
+  if (!(await isTradingDay(now))) return;
+
+  // 「过点未跑就补跑」, 不再要求正好落在那一分钟。
+  // 原来是 times.indexOf(hhmm(now)) 精确匹配 —— MV3 的 Service Worker 会被浏览器回收、
+  // 电脑可能正在休眠, 只要错过那 60 秒, 当天就彻底跳过, 而且不会有任何提示。
+  const day = ymd(now);
+  const due = (s.schedule.times || [])
+    .map(normTime).filter(Boolean)
+    .filter((t) => toMin(t) <= nowMin)
+    .sort();
+
+  for (const t of due) {
+    const key = 'wop_ran_' + day + '_' + t;
+    const seen = await new Promise((res) => chrome.storage.local.get([key], (o) => res(o[key])));
+    if (seen) continue;
+    chrome.storage.local.set({ [key]: 1 });
+
+    const qs = (s.schedule.questions && s.schedule.questions.length)
+      ? s.schedule.questions : [(s.presets || [])[0]].filter(Boolean);
+    let okCount = 0, lastErr = '';
+    for (const q of qs) {
+      try { await runBg(q, { silent: false }); okCount++; } catch (e) {
+        lastErr = String(e && e.message || e);
+        notify('问财观点 · 定时失败', q.slice(0, 18) + '：' + lastErr);
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+    // 记一笔运行结果给设置页显示 —— 老版本跑没跑过、成没成功界面上一个字都没有,
+    // 配合上面那个"设错格式静默不跑", 用户可能开了几个月一次都没成功还不知道。
+    setLastRun({ time: t, total: qs.length, ok: okCount, error: okCount ? '' : lastErr });
+    break;   // 一轮 tick 只补一个时点, 避免开机时几个漏掉的时点一起轰出去
   }
 });
 

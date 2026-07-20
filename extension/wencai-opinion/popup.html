@@ -3,6 +3,64 @@
 <head>
   <meta charset="utf-8">
   <link rel="stylesheet" href="popup.css">
+  <style>
+    /* ===== 定时自动问 · 时间点/问题选择器 =====
+       只放在 popup.html / options.html 两处内联, 与 popup.css 变量同一套配色 */
+    .sched-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .sched-quick label {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--card); font-size: 12px; cursor: pointer; user-select: none;
+    }
+    .sched-quick label.on { border-color: var(--brand-line); background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+    .sched-quick input { margin: 0; }
+    .sched-quick .q-lbl { color: var(--ink-3); font-weight: 400; }
+    .sched-quick label.on .q-lbl { color: var(--brand); }
+    .sched-add { display: flex; gap: 6px; align-items: center; }
+    .sched-add input[type=time] {
+      flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line);
+      border-radius: 8px; background: var(--card); color: var(--ink);
+      font-size: 12px; font-family: inherit;
+    }
+    .sched-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .sched-tags .ttag {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 6px 3px 9px; border-radius: 999px;
+      background: var(--brand-soft); border: 1px solid var(--brand-line);
+      color: var(--brand); font-size: 12px; font-weight: 700;
+    }
+    .sched-tags .ttag button {
+      border: 0; background: transparent; color: inherit; cursor: pointer;
+      font-size: 13px; line-height: 1; padding: 0 2px; opacity: .6;
+    }
+    .sched-tags .ttag button:hover { opacity: 1; }
+    .sched-tags .empty, .sched-qlist .empty { color: var(--ink-3); font-size: 12px; padding: 2px 0; }
+    .sched-qlist { display: flex; flex-direction: column; gap: 5px; }
+    .sched-qlist label {
+      display: flex; align-items: flex-start; gap: 7px; padding: 6px 8px;
+      border: 1px solid var(--line); border-radius: 8px; background: var(--card);
+      font-size: 12px; line-height: 1.45; cursor: pointer;
+    }
+    .sched-qlist label.on { border-color: var(--brand-line); background: var(--brand-soft); }
+    .sched-qlist input { margin: 2px 0 0; flex-shrink: 0; }
+    .sched-qlist .orphan {
+      display: flex; align-items: center; gap: 7px; padding: 6px 8px;
+      border: 1px solid var(--warn); border-radius: 8px; background: var(--warn-soft);
+      font-size: 12px; line-height: 1.45;
+    }
+    .sched-qlist .orphan .o-txt { flex: 1; color: var(--ink-2); }
+    .sched-qlist .orphan .o-tip { display: block; color: var(--warn); font-size: 11px; margin-top: 2px; }
+    .sched-qlist .orphan button {
+      border: 0; background: transparent; color: var(--warn);
+      cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
+    }
+    .sched-note { font-size: 11px; color: var(--warn); margin-top: 9px; line-height: 1.5; }
+    .sched-lastrun {
+      margin-top: 9px; padding: 7px 9px; border-radius: 8px;
+      background: var(--line-soft); color: var(--ink-2); font-size: 12px;
+    }
+    .sched-lastrun.bad { background: var(--err-soft); color: var(--err); }
+  </style>
 </head>
 <body>
 <div class="app">
@@ -133,13 +191,24 @@
         </label>
         <div id="schedBody" class="sched-body">
           <div class="field">
-            <label for="schedTimes">时间点（逗号分隔）</label>
-            <input id="schedTimes" type="text" placeholder="09:35,13:05">
+            <label>时间点</label>
+            <!-- 常用时间点直接勾, 自定义走 input[type=time]: 原生就产出零填充 HH:MM,
+                 从根上避免手敲出 "9:35"/中文逗号这类后台永远匹配不上的值 -->
+            <div id="schedQuick" class="sched-quick"></div>
+            <div class="sched-add">
+              <input id="schedCustomTime" type="time" step="60" aria-label="自定义时间点">
+              <button id="schedAddTime" class="btn ghost" type="button">添加</button>
+            </div>
+            <div id="schedTimeTags" class="sched-tags"></div>
           </div>
           <div class="field">
-            <label for="schedQuestions">定时跑哪些问题（每行一条）</label>
-            <textarea id="schedQuestions" rows="2" placeholder="留空 = 跑第一条预置问题"></textarea>
+            <label>定时跑哪些问题</label>
+            <!-- 从预置问题里勾选, 不再让用户把问题重抄一遍(抄完两边就不同步了) -->
+            <div id="schedQList" class="sched-qlist"></div>
+            <div id="schedQHint" class="field-hint"></div>
           </div>
+          <div class="sched-note">浏览器必须保持开着才会执行（关机/退出浏览器期间不会跑）。</div>
+          <div id="schedLastRun" class="sched-lastrun">上次运行：还没跑过</div>
         </div>
       </div>
 

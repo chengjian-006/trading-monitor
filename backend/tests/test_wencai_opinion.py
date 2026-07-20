@@ -151,3 +151,18 @@ def test_ext_download_is_loadable_zip():
     names = zipfile.ZipFile(io.BytesIO(bytes(r.body))).namelist()
     assert any(n.endswith("wencai-opinion/manifest.json") for n in names)
     assert all(n.startswith("wencai-opinion/") for n in names)
+
+
+def test_ext_trading_day_matches_calendar():
+    """/ext/trading-day 给扩展「定时自动问」判断今天要不要跑。
+
+    存在的理由: 扩展自己只会 getDay()===0||6 跳周末, **不认法定节假日**, 于是国庆/春节
+    整周照跑。后端有 chinese-calendar 权威日历(v1.7.464 起), 这里把它暴露给扩展。
+    断言口径与 trading_calendar.is_workday 一致 —— 不写死某天真假, 否则用例本身会随日期翻车。
+    """
+    from backend.core.trading_calendar import is_workday
+
+    r = asyncio.run(wc.ext_trading_day())
+    assert re.match(r"^\d{4}-\d{2}-\d{2}$", r["date"])
+    assert isinstance(r["is_trading_day"], bool)
+    assert r["is_trading_day"] is bool(is_workday())

@@ -76,6 +76,20 @@ async def ext_version():
     return _read_dist_versions()
 
 
+@router.get("/ext/trading-day")
+async def ext_trading_day():
+    """给扩展「定时自动问」判断今天要不要跑 —— 免鉴权, 同 /ext/version。
+
+    起因: 扩展自己只会 `getDay()===0||6` 跳周末, **不认法定节假日**, 于是国庆/春节整周照跑,
+    白耗问财额度还平添封号风险。而后端早已接 chinese-calendar(v1.7.464 修休市日误推), 有权威
+    交易日历 —— 与其让扩展自己猜, 不如问服务器一次。扩展侧按日期缓存结果, 取不到时回退它自己
+    的周末判断(宁可多跑也不要因为服务器不可达就整天不跑)。
+    """
+    from backend.core.trading_calendar import is_workday
+
+    return {"date": datetime.now().date().isoformat(), "is_trading_day": bool(is_workday())}
+
+
 @router.get("/ext/download")
 async def ext_download():
     """现场把 extension/wencai-opinion/ 打包成 zip 下载(顶层保留 wencai-opinion/ 便于解压加载)。"""
