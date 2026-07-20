@@ -3,7 +3,7 @@ import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox, N
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
-import { StarOutline, Star, TrashOutline, SwapVerticalOutline, CreateOutline, ReorderThreeOutline, NotificationsOutline, Notifications, OptionsOutline, EllipsisHorizontalOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SwapVerticalOutline, Create, CreateOutline, ReorderThreeOutline, NotificationsOutline, Notifications, OptionsOutline, EllipsisHorizontalOutline } from '@vicons/ionicons5'
 import type { Stock, Signal } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -847,36 +847,22 @@ const allColumns = computed(() => [
   {
     title: '策略',
     key: 'strategy',
-    // v1.7.718 「操作列遮挡策略列」终修: 病根不是列宽也不是滚动宽度 —— 用 playwright 隔离复现证过,
-    // 滚到最右时无论富余量取 +40/0/-60/-150 都不遮挡(列会自行吸收差额, sticky 用 right:0 自动对齐)。
-    // 真因是【结构】: 策略原来是最后一个可滚动列, 正好压在 152px 的 sticky 操作列底下, 于是只要没
-    // 滚到最右端就被浮在上面的操作列盖住 —— 这是 sticky 列的固有行为, 不是 bug。而用户不会每次都
-    // 把表格拖到绝对底。这也解释了历史三次都没修好: v1.7.702 调滚动宽度/v1.7.705 加宽操作列并给固定列
-    // 加不透明底/v1.7.709 压窄策略列, 改的全是宽度, 没有一次把策略列挪出浮层底下(v1.7.705 那次只是把
-    // "透出重叠"变成了"遮挡")。
-    // 修法: 策略也钉到右边, naive 会把两个 fixed:'right' 列并排堆叠, 彼此不重叠、且恒定可见。
-    // 代价: 策略列固定占 96px 视宽, 并失去拖拽调宽(下面 resizable 判定排除 fixed 列) —— 后者反而
-    // 消掉了"拖宽后 scrollX 用的仍是声明宽度"的隐患。
-    fixed: 'right' as const,
+    // v1.7.720: 本列改回【纯展示】—— 编辑入口(原「+ 添加策略」/铅笔)全部搬进右侧固定的「操作」列。
+    // 历史: 这个格子里的点击目标被 sticky 的操作列盖住, v1.7.702/705/709/719 修过四次(调滚动宽度/
+    // 加宽操作列/压窄本列/把本列也钉到右边)都没根治 —— 最后一次并排堆叠反而更糟。
+    // 症结在于"把点击目标放在最后一个可滚动列里"这件事本身: 最后一列天然压在 sticky 浮层底下, 只有
+    // 滚到绝对最右端才完整露出, 这是 sticky 的固有行为而非 bug。既然如此就别跟它较劲 —— 点击目标挪去
+    // 恒定可见的操作列, 本列只剩文字和悬浮卡(被盖住一截也不影响"扫一眼有没有策略"), 于是本列不再需要
+    // fixed, 拖拽调宽也一并拿回来。
     width: 96,
     ellipsis: true,
     render: (row: Stock) => {
       const text = row.strategy?.trim() || ''
-      const handler = (e: Event) => { e.stopPropagation(); openStrategyModal(row) }
-      if (!text) {
-        return h('span', {
-          style: { color: 'var(--text2)', cursor: 'pointer', fontSize: '12px' },
-          onClick: handler,
-        }, '+ 添加策略')
-      }
+      if (!text) return h('span', { style: { color: 'var(--text3, var(--text2))', fontSize: '12px' } }, '-')
       const cell = h('span', {
-        style: { cursor: 'pointer', fontSize: '12px', color: '#7c3aed', fontWeight: 500 },
-        onClick: handler,
-      }, [
-        h('span', {}, text.length > 8 ? text.slice(0, 8) + '…' : text),
-        h(NIcon, { size: 12, style: { marginLeft: '3px', verticalAlign: 'middle', opacity: 0.6 } }, { default: () => h(CreateOutline) }),
-      ])
-      // 悬浮富卡(功能A): 完整策略 + 目标/止损/仓位高亮; 点击仍进编辑
+        style: { fontSize: '12px', color: '#7c3aed', fontWeight: 500 },
+      }, text.length > 8 ? text.slice(0, 8) + '…' : text)
+      // 悬浮富卡(功能A): 完整策略 + 目标/止损/仓位高亮(编辑走操作列的铅笔按钮)
       return h(NPopover, { trigger: 'hover', placement: 'top-start', delay: 200, style: { maxWidth: '320px' } }, {
         trigger: () => cell,
         header: () => h('div', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text2)' } }, `${row.code} ${row.name} · 操作策略`),
@@ -887,9 +873,25 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    width: 152,
+    // v1.7.720: 多了一个策略按钮, 152 → 176(4 个 tiny 按钮 + 4px 间距原本就贴着 152 的边)
+    width: 176,
     fixed: 'right' as const,
     render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
+      // v1.7.720: 策略编辑入口从「策略」列搬到这里 —— 操作列恒定可见, 不会被 sticky 浮层盖住
+      (() => {
+        const hasStrategy = !!row.strategy?.trim()
+        const title = hasStrategy ? '编辑操作策略' : '添加操作策略'
+        return h(NButton, {
+          size: 'tiny',
+          quaternary: true,
+          type: hasStrategy ? 'primary' : 'default',
+          title,
+          'aria-label': title,
+          onClick: (e: Event) => { e.stopPropagation(); openStrategyModal(row) },
+        }, {
+          icon: () => h(NIcon, { size: 15 }, { default: () => h(hasStrategy ? Create : CreateOutline) }),
+        })
+      })(),
       (() => {
         const sm = summaryFor(row.code)
         const hasTriggered = !!sm && sm.triggered > 0

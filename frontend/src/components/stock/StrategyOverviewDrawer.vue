@@ -65,7 +65,7 @@ function onSaved(_code: string, text: string) {
   <NDrawer :show="show" @update:show="emit('update:show', $event)" :width="420" placement="right">
     <NDrawerContent :title="`我的策略 (${list.length})`" closable :native-scrollbar="false">
       <NEmpty v-if="list.length === 0" description="还没有任何个股策略" style="margin-top: 40px">
-        <template #extra>去股票池点「+ 添加策略」给票写计划</template>
+        <template #extra>去股票池，点某只票「操作」列的铅笔按钮写计划</template>
       </NEmpty>
       <div v-else class="strat-list">
         <div v-for="s in list" :key="s.code" class="strat-card">
