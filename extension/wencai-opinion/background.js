@@ -81,7 +81,7 @@ async function runBg(question, opts) {
     pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: finalConc, deep: !!s.deepResearch, ts: Date.now() });
     setRunState({ status: 'done', q: question, deep: !!s.deepResearch, startedAt, finishedAt: Date.now(), skipped: !!r.skipped, stockItems: items, conclusion: finalConc, answerLen: res.answer.length });
     if (!opts.silent) {
-      if (r.skipped) notify('问财观点 · 未上报', '「' + question.slice(0, 20) + '」没抽出个股，按设置未入库。');
+      if (r.skipped) notify('问财观点 · 未存档', '「' + question.slice(0, 20) + '」没抽出个股，按设置没存进股小察。');
       else notify('问财观点 · 已存档', '「' + question.slice(0, 18) + '」→ ' + ((r.stocks || []).join('、') || '未识别出个股') + '（' + res.answer.length + '字）');
     }
     return { ...r, answerLen: res.answer.length, stocks: r.stocks || [] };

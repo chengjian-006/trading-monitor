@@ -25,7 +25,7 @@
       chrome.runtime.sendMessage({ type: 'upload', url: serverUrl + '/api/wencai/opinion', payload }, (resp) => {
         if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
         if (resp && resp.ok) resolve(resp.data || {});
-        else reject(new Error((resp && (resp.error || (resp.data && resp.data.detail) || ('HTTP ' + (resp.status || '?')))) || '上报失败'));
+        else reject(new Error((resp && (resp.error || (resp.data && resp.data.detail) || ('HTTP ' + (resp.status || '?')))) || '存档失败'));
       });
     });
   }
@@ -238,7 +238,7 @@
     renderResult(WOP.extractConclusion(rawAnswer, []), res.answer, []);      // 先按标记出决策卡(主推名来自标记, 无个股代码故暂无距现价%)
 
     const doUpload = async () => {
-      setStage('上报中', 'blue', true);
+      setStage('存档中', 'blue', true);
       try {
         const conc = WOP.extractConclusion(rawAnswer, []);
         const r = await uploadOpinion(s.serverUrl, { token: s.token, question, answer_text: res.answer, reasoning: res.reasoning || '', conclusion: conc, trace_id: res.traceId, agent_mode: res.agentMode || (s.deepResearch ? 'deep_research' : 'normal'), uploader: s.uploader || getCookie('userid') || '', only_with_stock: !!s.onlyWithStock });
@@ -246,17 +246,17 @@
         const c2 = WOP.extractConclusion(rawAnswer, items);              // 有代码后重算(主推可点 + 取现价算距现价%)
         renderResult(c2, res.answer, items);
         pushHistory({ q: question, answer: res.answer, stocks: items, conclusion: c2, ts: Date.now() });
-        if (r.skipped) { setStage('未上报', 'amber'); renderFoot([], res.sources, question, res.answer, '按「仅识别出个股才上报」，本次没抽出个股，未入库。'); }
+        if (r.skipped) { setStage('未存档', 'amber'); renderFoot([], res.sources, question, res.answer, '按「没识别出个股就不存」，这次没抽出个股，没存进股小察。'); }
         else { setStage('✓ 已存档', 'green'); renderFoot(items, res.sources, question, res.answer, ''); }
-      } catch (e) { setStage('上报失败', 'red'); setFoot('上报失败：' + esc(e.message)); }
+      } catch (e) { setStage('存档失败', 'red'); setFoot('没存进股小察：' + esc(e.message)); }
     };
     if (s.autoUpload) doUpload();
-    else { pushHistory({ q: question, answer: res.answer, stocks: [], conclusion: WOP.extractConclusion(rawAnswer, []), ts: Date.now() }); const ft = setFoot('<span class="lbl">已获取答案（设置为不自动上报）。</span>' + actsHtml(question, res.answer, [], true)); wireActs(ft, question, res.answer, []); ft.querySelector('#op-up').onclick = doUpload; }
+    else { pushHistory({ q: question, answer: res.answer, stocks: [], conclusion: WOP.extractConclusion(rawAnswer, []), ts: Date.now() }); const ft = setFoot('<span class="lbl">答案拿到了（设置为不自动存档）。</span>' + actsHtml(question, res.answer, [], true)); wireActs(ft, question, res.answer, []); ft.querySelector('#op-up').onclick = doUpload; }
   }
 
   function actsHtml(question, answer, items, withUpload) {
     return '<div class="acts">'
-      + (withUpload ? '<button class="btn" id="op-up">上报到股小察</button>' : '<a class="btn" id="op-page" href="#" target="_blank">去「问财观点」页 →</a>')
+      + (withUpload ? '<button class="btn" id="op-up">存进股小察</button>' : '<a class="btn" id="op-page" href="#" target="_blank">去「问财观点」页 →</a>')
       + '<button class="btn ghost" id="op-nt">🔎 新标签</button>'
       + '<button class="btn ghost" id="op-cp">复制全文</button>'
       + '<button class="btn ghost" id="op-re">重新问</button>'

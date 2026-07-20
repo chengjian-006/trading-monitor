@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "问财观点 · 股小察",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "在同花顺问财用口语问一句, 把智能调度的投顾式推荐存进股小察「问财观点」。支持前台浮层/后台静默/定时。",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": {

@@ -205,7 +205,7 @@ function renderResultCard(st) {
     foot.appendChild(retry); body.appendChild(foot);
   } else {
     head.classList.add(st.skipped ? 'skip' : 'ok');
-    head.textContent = st.skipped ? '⚠ 未抽出个股，按设置未上报' : '✓ 已存档';
+    head.textContent = st.skipped ? '⚠ 没抽出个股，按设置没存' : '✓ 已存档';
     const items = st.stockItems || [];
     const dc = document.createElement('div'); dc.className = 'pdc'; body.appendChild(dc);
     fillPopupDc(dc, st.conclusion || {}, items, null);
