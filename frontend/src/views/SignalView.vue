@@ -143,10 +143,13 @@ onMounted(() => {
         <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵, 追踪主线兴起/退潮 -->
         <ThemeHeatPanel />
       </div>
-      <!-- 右栏: 临近买点(盯盘轨) + 问财观点(投顾档) 纵向堆叠; 问财观点撑满剩余高度自滚动, 消除临近买点较短时右栏下方空白 -->
-      <div class="cockpit-side">
-        <NearBuyPanel />
-        <WencaiOpinionPanel />
+      <!-- 右栏: 临近买点(盯盘轨) + 问财观点(投顾档) 纵向堆叠。外层 wrap 绝对定位脱离栅格测高,
+           行高只由左主栏决定 —— 右栏更矮时问财观点撑满, 右栏更高时内部滚动而不再把左栏顶出大片留白。 -->
+      <div class="cockpit-side-wrap">
+        <div class="cockpit-side">
+          <NearBuyPanel />
+          <WencaiOpinionPanel />
+        </div>
       </div>
     </div>
 
@@ -269,20 +272,34 @@ onMounted(() => {
   gap: 10px;
   min-width: 0;   /* 防内部宽表撑破栅格 */
 }
-/* 右栏: 临近买点(自然高) + 问财观点(撑满剩余高度、内部自滚动), 消除临近买点较短时右栏下方空白 */
+/* 右栏容器: 绝对定位让右栏不参与栅格行高测量, 行高只由左主栏决定 —— 右栏再长也不会顶出左侧留白 */
+.cockpit-side-wrap { position: relative; min-width: 0; }
+/* 右栏: 临近买点(自然高、空间不够内部滚) + 问财观点(撑满剩余高度、内部自滚动) */
 .cockpit-side {
+  position: absolute;
+  inset: 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  overflow-y: auto;   /* 兜底: 两个面板都压到最小高仍装不下时整栏可滚 */
 }
-.cockpit-side > :last-child { flex: 1 1 auto; min-height: 0; }
+.cockpit-side > :first-child { flex: 0 1 auto; min-height: 240px; }
+.cockpit-side > :last-child { flex: 1 1 auto; min-height: 160px; }
 .cockpit-side :deep(.wo-panel) { height: 100%; }
+/* 临近买点在右栏内也要能内部滚动, 否则挤不下时会溢出右栏 */
+.cockpit-side :deep(.nearbuy-panel) { display: flex; flex-direction: column; min-height: 0; }
+.cockpit-side :deep(.nearbuy-panel .list) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 @media (max-width: 960px) {
   /* 窄屏回落单列: 顺序=情绪/轮动/温度表/临近买点/问财观点, 各面板自然高不强制撑满 */
   .cockpit-grid { grid-template-columns: 1fr; }
-  .cockpit-side > :last-child { flex: none; }
+  .cockpit-side-wrap { position: static; }
+  .cockpit-side { position: static; overflow: visible; }
+  .cockpit-side > :first-child { flex: none; min-height: 0; }
+  .cockpit-side > :last-child { flex: none; min-height: 0; }
   .cockpit-side :deep(.wo-panel) { height: auto; }
+  .cockpit-side :deep(.nearbuy-panel) { display: block; }
+  .cockpit-side :deep(.nearbuy-panel .list) { overflow: visible; }
 }
 .report-card {
   border-radius: 6px;
