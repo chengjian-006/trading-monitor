@@ -7,6 +7,7 @@ import { resetPaperAccount, updatePaperSettings, type AccountKey } from '../api/
 import FilterPanel from '../components/common/FilterPanel.vue'
 import { fetchKline } from '../api/kline'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
+import { useSubmitGuard } from '../composables/useSubmitGuard'
 import PaperEquityChart from '../components/common/PaperEquityChart.vue'
 
 const store = usePaperStore()
@@ -51,14 +52,18 @@ async function onSwitchAccount(key: AccountKey) {
   loadHoldingKlines()
 }
 
-async function onSaveSettings() {
+// 防连点重复写入账户配置(并发 PUT 会让最终落地值不确定); 与重置各用一份 busy, 互不禁用
+const { busy: savingSettings, guard: guardSave } = useSubmitGuard()
+const onSaveSettings = guardSave(async () => {
   try { await updatePaperSettings(initCap.value, maxPos.value, store.accountKey); message.success('设置已保存(本金在下次重置生效)'); await store.loadAll() }
   catch (e: any) { message.error('保存失败: ' + (e?.message || e)) }
-}
-async function onReset() {
+})
+// 防重复重置: 确认键连点会并发多次清空持仓/成交/净值曲线, 本页最高危写操作
+const { busy: resetting, guard: guardReset } = useSubmitGuard()
+const onReset = guardReset(async () => {
   try { await resetPaperAccount(initCap.value, maxPos.value, store.accountKey); message.success('已重置当前账户'); await store.loadAll(); loadHoldingKlines() }
   catch (e: any) { message.error('重置失败: ' + (e?.message || e)) }
-}
+})
 
 // ── 格式化 ──
 function fmtTime(raw?: string): string { return !raw ? '-' : raw.replace('T', ' ').slice(0, 19) }
@@ -389,9 +394,9 @@ const modelCols = [
             <span>初始资金</span><NInputNumber v-model:value="initCap" :min="10000" :step="10000" style="width:160px" />
             <template v-if="!isUnlimited"><span>最大持仓数</span><NInputNumber v-model:value="maxPos" :min="1" :max="50" style="width:120px" /></template>
             <span v-else class="muted">无限子弹账户不限持仓数</span>
-            <NButton size="small" @click="onSaveSettings">保存设置</NButton>
+            <NButton size="small" :loading="savingSettings" @click="onSaveSettings">保存设置</NButton>
             <NPopconfirm @positive-click="onReset">
-              <template #trigger><NButton size="small" type="warning">重置账户</NButton></template>
+              <template #trigger><NButton size="small" type="warning" :loading="resetting">重置账户</NButton></template>
               确认用初始资金 {{ initCap }} 重置(清空持仓/流水/曲线)?
             </NPopconfirm>
           </div>

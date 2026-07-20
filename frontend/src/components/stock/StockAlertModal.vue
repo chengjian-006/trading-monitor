@@ -5,6 +5,7 @@ import { ref, watch, computed } from 'vue'
 import { NModal, NButton, NSelect, NInputNumber, NInput, NSwitch, NTag, NIcon, NEmpty, NSpin, NPopconfirm } from 'naive-ui'
 import { AddOutline, TrashOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
+import { useKeyedSubmitGuard } from '../../composables/useSubmitGuard'
 import { useResponsive } from '../../composables/useResponsive'
 import {
   fetchStockAlerts, createAlert, updateAlert, deleteAlert, togglePresetAlert,
@@ -172,7 +173,12 @@ function editAlert(a: StockAlert) {
   draftNote.value = a.note || ''
 }
 
-async function toggleEnabled(a: StockAlert, val: boolean) {
+// 防重复提交: 快速拨动启停开关会让两次 PUT 乱序返回, 最终库里状态与界面显示相反。按预警 id 守卫, 只锁被点的那一条
+const { isBusy: enableBusy, guardKey: guardEnable } = useKeyedSubmitGuard()
+// 防重复提交: 「重启」连点会重复 PUT 同一条预警。按预警 id 守卫, 只锁被点的那一条
+const { isBusy: restartBusy, guardKey: guardRestart } = useKeyedSubmitGuard()
+
+const toggleEnabled = guardEnable((a: StockAlert, _val: boolean) => String(a.id), async (a: StockAlert, val: boolean) => {
   try {
     await updateAlert(a.id, { enabled: val ? 1 : 0 })
     a.enabled = val ? 1 : 0
@@ -180,9 +186,9 @@ async function toggleEnabled(a: StockAlert, val: boolean) {
   } catch {
     message.error('操作失败')
   }
-}
+})
 
-async function restartAlert(a: StockAlert) {
+const restartAlert = guardRestart((a: StockAlert) => String(a.id), async (a: StockAlert) => {
   try {
     await updateAlert(a.id, { status: 'active' })
     message.success('已重新启用')
@@ -191,7 +197,7 @@ async function restartAlert(a: StockAlert) {
   } catch {
     message.error('操作失败')
   }
-}
+})
 
 async function removeAlert(a: StockAlert) {
   try {
@@ -246,8 +252,10 @@ const modalWidth = computed(() => (isPhone.value ? '94vw' : '600px'))
           </div>
           <div class="alert-row-actions">
             <NSwitch v-if="a.status !== 'triggered'" size="small" :value="!!a.enabled"
+              :loading="enableBusy(String(a.id))" :disabled="enableBusy(String(a.id))"
               @update:value="(v: boolean) => toggleEnabled(a, v)" />
-            <NButton v-if="a.status === 'triggered'" size="tiny" type="primary" secondary @click="restartAlert(a)">
+            <NButton v-if="a.status === 'triggered'" size="tiny" type="primary" secondary
+              :loading="restartBusy(String(a.id))" :disabled="restartBusy(String(a.id))" @click="restartAlert(a)">
               <template #icon><NIcon><RefreshOutline /></NIcon></template>
               重启
             </NButton>

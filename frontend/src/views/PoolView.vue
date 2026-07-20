@@ -12,6 +12,7 @@ import { AddOutline, SearchOutline, CloudDownloadOutline, DownloadOutline, SwapV
 import { useStockStore } from '../stores/stock'
 import { useSignalStore } from '../stores/signal'
 import { useResponsive } from '../composables/useResponsive'
+import { useSubmitGuard } from '../composables/useSubmitGuard'
 import { searchStock, ocrRecognize, batchImportStocks, batchDeleteStocks } from '../api/stocks'
 import { fetchThsGroups, importThsGroup, compareThsUpload } from '../api/config'
 import type { ThsCompareResult } from '../types'
@@ -120,7 +121,9 @@ function selectResult(item: { code: string; name: string }) {
   showDropdown.value = false
 }
 
-async function handleAdd() {
+// 防连点「添加」并发建同一只股票(POST /api/stocks): 在途时早退, 按钮同步转 loading
+const { busy: addBusy, guard: addGuard } = useSubmitGuard()
+const handleAdd = addGuard(async () => {
   let stock = selectedStock.value
   if (!stock) {
     const val = searchText.value.trim()
@@ -139,7 +142,7 @@ async function handleAdd() {
   } catch {
     message.error(`添加 ${stock.code} 失败`)
   }
-}
+})
 
 async function openThsImport() {
   showThsModal.value = true
@@ -381,7 +384,7 @@ async function handleThsImport(groupId: string) {
           size="small"
           style="width: 78px"
         />
-        <NButton type="primary" size="small" @click="handleAdd">
+        <NButton type="primary" size="small" :loading="addBusy" :disabled="addBusy" @click="handleAdd">
           <template #icon><NIcon><AddOutline /></NIcon></template>添加
         </NButton>
         <NDropdown trigger="click" :options="importOptions" @select="onImportSelect">
@@ -527,7 +530,8 @@ async function handleThsImport(groupId: string) {
             <div class="cmp-summary">
               <span v-if="cmpResult.source" class="cmp-source">{{ cmpResult.source }}</span>
               同花顺 <b>{{ cmpResult.ths_count }}</b> 只 · 系统 <b>{{ cmpResult.system_count }}</b> 只 · 共有 <b>{{ cmpResult.both }}</b> 只
-              <NButton size="tiny" quaternary style="margin-left: auto" @click="runThsCompare">刷新</NButton>
+              <!-- 防连点「刷新」重复上传同一份自选文件对比(POST /api/ths/compare-upload), 复用已有 cmpLoading -->
+              <NButton size="tiny" quaternary style="margin-left: auto" :loading="cmpLoading" :disabled="cmpLoading" @click="runThsCompare">刷新</NButton>
             </div>
 
             <!-- 同花顺有 · 系统缺 -->
@@ -638,10 +642,12 @@ async function handleThsImport(groupId: string) {
       </div>
       <!-- 上传区域 -->
       <div v-else>
+        <!-- 识别在途禁止再次选图, 防连传并发多个 OCR 请求(POST /api/stocks/ocr-recognize), 复用已有 ocrLoading -->
         <NUpload
           accept="image/*"
           :max="1"
           :default-upload="false"
+          :disabled="ocrLoading"
           @change="handleOcrUpload"
           :show-file-list="false"
         >

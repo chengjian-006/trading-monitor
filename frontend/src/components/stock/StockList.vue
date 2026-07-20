@@ -15,6 +15,7 @@ import StrategyEditModal from './StrategyEditModal.vue'
 import StrategyText from './StrategyText.vue'
 import { useUiStore } from '../../stores/ui'
 import { useStockAlerts } from '../../composables/useStockAlerts'
+import { useKeyedSubmitGuard } from '../../composables/useSubmitGuard'
 import { onMounted } from 'vue'
 
 const stockStore = useStockStore()
@@ -84,15 +85,22 @@ async function handleDelete(code: string, name: string) {
   }
 }
 
-async function handleToggleFocus(s: Stock) {
-  const next = s.focused ? 0 : 1
-  try {
-    await stockStore.updateStock(s.code, { focused: String(next) })
-    s.focused = next
-  } catch {
-    message.error('操作失败')
-  }
-}
+// 关注 切换在途保护(按卡片 code 分别守卫, 点这张卡不禁用别的卡):
+// 防的是快速连点 true→false→true 请求体每次都不同(API 层相同请求去重拦不住),
+// 多个请求乱序返回后最终关注状态与用户所点相反。
+const { isBusy: focusBusy, guardKey: guardFocus } = useKeyedSubmitGuard()
+const handleToggleFocus = guardFocus(
+  (s: Stock) => s.code,
+  async (s: Stock) => {
+    const next = s.focused ? 0 : 1
+    try {
+      await stockStore.updateStock(s.code, { focused: String(next) })
+      s.focused = next
+    } catch {
+      message.error('操作失败')
+    }
+  },
+)
 
 // ── 自定义预警 ──
 const { loadAlerts, reloadAlerts, summaryFor } = useStockAlerts()
@@ -208,7 +216,9 @@ onMounted(() => { loadAlerts() })
             <template #icon><NIcon><PricetagsOutline /></NIcon></template>
             标签
           </NButton>
-          <NButton size="small" :type="s.focused ? 'warning' : 'primary'" :secondary="!s.focused" @click="handleToggleFocus(s)">
+          <!-- 在途时禁点(仅本卡片): 防连点乱序返回导致最终关注状态与用户所点相反 -->
+          <NButton size="small" :type="s.focused ? 'warning' : 'primary'" :secondary="!s.focused"
+            :loading="focusBusy(s.code)" :disabled="focusBusy(s.code)" @click="handleToggleFocus(s)">
             <template #icon><NIcon><component :is="s.focused ? Star : StarOutline" /></NIcon></template>
             {{ s.focused ? '已关注' : '关注' }}
           </NButton>

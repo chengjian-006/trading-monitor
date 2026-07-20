@@ -325,7 +325,8 @@ const summary = computed(() => result.value?.summary)
           <div class="history-note">该日按本次粘贴替换（先清当日旧记录再写入），防与交割单同日重复计数。</div>
         </NTabPane>
         <NTabPane name="upload" tab="文件上传">
-          <NUpload :default-upload="false" accept=".xlsx,.xls" :max="1"
+          <!-- 导入在途时禁用上传: 防交割单重复入库(历史上重复导入产生过幽灵持仓) -->
+          <NUpload :default-upload="false" accept=".xlsx,.xls" :max="1" :disabled="loading"
             @change="({ file }: any) => file.status === 'pending' && handleFileUpload({ file })">
             <NUploadDragger>
               <div style="padding: 20px 0;">

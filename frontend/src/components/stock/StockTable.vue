@@ -20,6 +20,7 @@ import StrategyEditModal from './StrategyEditModal.vue'
 import StockAlertModal from './StockAlertModal.vue'
 import StockMetaModal from './StockMetaModal.vue'
 import { useStockAlerts } from '../../composables/useStockAlerts'
+import { useSubmitGuard, useKeyedSubmitGuard } from '../../composables/useSubmitGuard'
 
 const stockStore = useStockStore()
 const signalStore = useSignalStore()
@@ -37,13 +38,23 @@ const props = defineProps<{ stocks: Stock[]; showSparkline?: boolean }>()
 const { sparklineMap } = useIntradaySparklines(() => props.stocks.map(s => s.code))
 const { rankMap: amountRankMap } = useAmountRank()
 
+// 排序在途保护: 拖拽 与 置顶/置底 都是提交【全量顺序数组】的整页级操作,
+// 防的是快速连拖/连点时多个请求乱序返回, 后端最后落库的是旧数组, 最终顺序与用户所拖相反。
+const { busy: reorderBusy, guard: guardReorder } = useSubmitGuard()
+const guardedReorderTo = guardReorder(async (src: string, target: string) => {
+  await stockStore.reorderTo(src, target)
+})
+const guardedMoveToEdge = guardReorder(async (code: string, edge: 'top' | 'bottom') => {
+  await stockStore.moveToEdge(code, edge)
+})
+
 // 拖拽排序: 记录正在拖的票, 松手落到目标行即重排
 const dragCode = ref<string | null>(null)
 function onRowDrop(targetCode: string) {
   const src = dragCode.value
   dragCode.value = null
   if (!src || src === targetCode) return
-  stockStore.reorderTo(src, targetCode)
+  void guardedReorderTo(src, targetCode)
 }
 
 // 点代码 → 全局通用个股详情弹窗(内容复用 StockCharts, 与整页 /intraday 同源)
@@ -250,25 +261,38 @@ async function handleDelete(code: string, name: string) {
   }
 }
 
-async function handleToggleHold(row: Stock) {
-  const next = row.status === 'hold' ? 'watch' : 'hold'
-  try {
-    await stockStore.updateStock(row.code, { status: next })
-    row.status = next
-  } catch {
-    message.error('操作失败')
-  }
-}
+// 持仓/观察 切换在途保护(按行 key, 点这一行不影响别的行):
+// 防的是快速连点 持仓→观察→持仓 时请求体每次都不同(API 层相同请求去重拦不住),
+// 多个请求乱序返回后最终状态与用户所点相反。
+const { isBusy: holdBusy, guardKey: guardHold } = useKeyedSubmitGuard()
+const handleToggleHold = guardHold(
+  (row: Stock) => row.code,
+  async (row: Stock) => {
+    const next = row.status === 'hold' ? 'watch' : 'hold'
+    try {
+      await stockStore.updateStock(row.code, { status: next })
+      row.status = next
+    } catch {
+      message.error('操作失败')
+    }
+  },
+)
 
-async function handleToggleFocus(row: Stock) {
-  const next = row.focused ? 0 : 1
-  try {
-    await stockStore.updateStock(row.code, { focused: String(next) })
-    row.focused = next
-  } catch {
-    message.error('操作失败')
-  }
-}
+// 关注 切换在途保护(按行 key): 同理, true→false→true 请求体各不相同,
+// 防的是乱序返回导致最终关注状态与用户所点相反。
+const { isBusy: focusBusy, guardKey: guardFocus } = useKeyedSubmitGuard()
+const handleToggleFocus = guardFocus(
+  (row: Stock) => row.code,
+  async (row: Stock) => {
+    const next = row.focused ? 0 : 1
+    try {
+      await stockStore.updateStock(row.code, { focused: String(next) })
+      row.focused = next
+    } catch {
+      message.error('操作失败')
+    }
+  },
+)
 
 // ── 操作策略编辑 ──
 const showStrategyModal = ref(false)
@@ -336,16 +360,18 @@ async function batchSetGroup() {
 function rowMenuOptions(row: Stock) {
   return [
     { label: (row.grp || row.tags || row.note) ? '编辑 分组/标签/备注' : '设 分组/标签/备注', key: 'meta' },
-    { label: '置顶', key: 'top', disabled: !!sortState.value },
-    { label: '置底', key: 'bottom', disabled: !!sortState.value },
-    { label: row.status === 'hold' ? '标记为观察' : '标记为持仓', key: 'hold' },
+    // 置顶/置底 与拖拽共用整页排序在途标志: 在途时禁点, 防乱序全量数组把顺序写反
+    { label: '置顶', key: 'top', disabled: !!sortState.value || reorderBusy.value },
+    { label: '置底', key: 'bottom', disabled: !!sortState.value || reorderBusy.value },
+    // 持仓/观察 在途时禁点, 防乱序返回导致最终状态与所点相反
+    { label: row.status === 'hold' ? '标记为观察' : '标记为持仓', key: 'hold', disabled: holdBusy(row.code) },
   ]
 }
 function rowMenuSelect(key: string, row: Stock) {
   if (key === 'meta') openMetaModal(row)
-  else if (key === 'top') stockStore.moveToEdge(row.code, 'top')
-  else if (key === 'bottom') stockStore.moveToEdge(row.code, 'bottom')
-  else if (key === 'hold') handleToggleHold(row)
+  else if (key === 'top') void guardedMoveToEdge(row.code, 'top')
+  else if (key === 'bottom') void guardedMoveToEdge(row.code, 'bottom')
+  else if (key === 'hold') void handleToggleHold(row)
 }
 
 async function batchDelete() {
@@ -541,7 +567,8 @@ const allColumns = computed(() => [
     width: 30,
     align: 'center' as const,
     render: (row: Stock) => {
-      const canDrag = !sortState.value
+      // 排序请求在途时禁拖: 防连续快拖产生多个全量顺序数组乱序返回, 最终顺序与所拖相反
+      const canDrag = !sortState.value && !reorderBusy.value
       return h('span', {
         draggable: canDrag,
         style: {
@@ -901,7 +928,10 @@ const allColumns = computed(() => [
         secondary: !row.focused,
         title: row.focused ? '取消关注' : '关注',
         'aria-label': row.focused ? '取消关注' : '关注',
-        onClick: () => handleToggleFocus(row),
+        // 在途时禁点(仅本行): 防连点乱序返回导致最终关注状态与用户所点相反
+        loading: focusBusy(row.code),
+        disabled: focusBusy(row.code),
+        onClick: () => { void handleToggleFocus(row) },
       }, {
         icon: () => h(NIcon, { size: 14 }, { default: () => h(row.focused ? Star : StarOutline) }),
       }),

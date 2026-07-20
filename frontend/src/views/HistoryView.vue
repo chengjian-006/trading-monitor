@@ -7,6 +7,7 @@ import { upsertSignalExecution, deleteSignalExecution, fetchSignalExecutions, ty
 import FilterPanel from '../components/common/FilterPanel.vue'
 import { fetchIntraday, type IntradayPoint } from '../api/kline'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
+import { useKeyedSubmitGuard } from '../composables/useSubmitGuard'
 import { useResponsive } from '../composables/useResponsive'
 import IntradayChart from '../components/chart/IntradayChart.vue'
 import ResponsiveTable from '../components/common/ResponsiveTable.vue'
@@ -327,7 +328,12 @@ async function saveExecution() {
   }
 }
 
-async function markSkipped(row: Signal) {
+// 防重复提交: 「跳过」连点会重复 POST 同一条信号; 按信号 pk 守卫, 只锁被点的那一行
+const { isBusy: skipBusy, guardKey: guardSkip } = useKeyedSubmitGuard()
+// 防重复提交: 「清除」连点第二次 DELETE 会 404 → 误弹"清除失败"; 按信号 pk 守卫, 只锁被点的那一行
+const { isBusy: clearBusy, guardKey: guardClear } = useKeyedSubmitGuard()
+
+const markSkipped = guardSkip((row: Signal) => String(row.id), async (row: Signal) => {
   try {
     const res = await upsertSignalExecution({
       signal_pk: row.id, code: row.code, action: 'skipped',
@@ -344,9 +350,9 @@ async function markSkipped(row: Signal) {
   } catch {
     message.error('标记失败')
   }
-}
+})
 
-async function clearExecution(signalPk: number) {
+const clearExecution = guardClear((signalPk: number) => String(signalPk), async (signalPk: number) => {
   try {
     await deleteSignalExecution(signalPk)
     const next = { ...executionMap.value }
@@ -355,7 +361,7 @@ async function clearExecution(signalPk: number) {
   } catch {
     message.error('清除失败')
   }
-}
+})
 
 const sortedStats = computed(() =>
   Object.values(stats.value).sort((a, b) => b.count - a.count)
@@ -425,6 +431,7 @@ function renderExecutionCell(row: Signal) {
       }, () => '✓ 已执行'),
       h(NButton, {
         size: 'tiny', quaternary: true,
+        loading: skipBusy(String(row.id)), disabled: skipBusy(String(row.id)),
         onClick: (e: any) => { e.stopPropagation?.(); markSkipped(row) },
       }, () => '跳过'),
     ])
@@ -434,7 +441,14 @@ function renderExecutionCell(row: Signal) {
       h(NTag, { size: 'tiny', type: 'default', bordered: false }, () => '✗ 已跳过'),
       h('span', {
         role: 'button', tabindex: 0, 'aria-label': '清除执行记录',
-        style: { fontSize: '10px', color: 'var(--text2)', cursor: 'pointer', textDecoration: 'underline' },
+        // 在途置灰并屏蔽点击, 防重复 DELETE(第二次 404 会误弹"清除失败")
+        'aria-disabled': clearBusy(String(row.id)),
+        style: {
+          fontSize: '10px', color: 'var(--text2)', textDecoration: 'underline',
+          cursor: clearBusy(String(row.id)) ? 'not-allowed' : 'pointer',
+          opacity: clearBusy(String(row.id)) ? 0.5 : 1,
+          pointerEvents: clearBusy(String(row.id)) ? 'none' : 'auto',
+        },
         onClick: () => clearExecution(row.id),
         onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clearExecution(row.id) } },
       }, '清除'),
@@ -464,7 +478,14 @@ function renderExecutionCell(row: Signal) {
       }, '编辑'),
       h('span', {
         role: 'button', tabindex: 0, 'aria-label': '清除执行记录',
-        style: { fontSize: '10px', color: 'var(--text3)', cursor: 'pointer' },
+        // 在途置灰并屏蔽点击, 防重复 DELETE(第二次 404 会误弹"清除失败")
+        'aria-disabled': clearBusy(String(row.id)),
+        style: {
+          fontSize: '10px', color: 'var(--text3)',
+          cursor: clearBusy(String(row.id)) ? 'not-allowed' : 'pointer',
+          opacity: clearBusy(String(row.id)) ? 0.5 : 1,
+          pointerEvents: clearBusy(String(row.id)) ? 'none' : 'auto',
+        },
         onClick: () => clearExecution(row.id),
         onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); clearExecution(row.id) } },
       }, '清除'),

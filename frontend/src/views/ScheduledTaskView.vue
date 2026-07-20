@@ -5,6 +5,7 @@ import {
   NForm, NFormItem, NInput, NInputNumber, NSelect, NSkeleton,
 } from 'naive-ui'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
+import { useKeyedSubmitGuard } from '../composables/useSubmitGuard'
 import { PlayOutline, CreateOutline, RefreshOutline } from '@vicons/ionicons5'
 import type { ScheduledTask } from '../types'
 import {
@@ -90,16 +91,22 @@ function formatTime(ts: string | null): string {
   return `${hh}:${mm}:${ss}`
 }
 
-async function handleToggle(task: ScheduledTask, enabled: boolean) {
-  try {
-    await toggleScheduledTask(task.job_id, enabled)
-    task.enabled = enabled
-    message.success(enabled ? `${task.name} 已启用` : `${task.name} 已停用`)
-    await loadTasks()
-  } catch {
-    message.error('操作失败')
-  }
-}
+// 防重复提交: 快速拨动开关会让两次 toggle 乱序返回, UI 状态与调度器真实状态不一致(显示已停实际还在跑)。按 job_id 守卫, 只锁被点的那一个任务
+const { isBusy: toggleBusy, guardKey: guardToggle } = useKeyedSubmitGuard()
+
+const handleToggle = guardToggle(
+  (task: ScheduledTask, _enabled: boolean) => task.job_id,
+  async (task: ScheduledTask, enabled: boolean) => {
+    try {
+      await toggleScheduledTask(task.job_id, enabled)
+      task.enabled = enabled
+      message.success(enabled ? `${task.name} 已启用` : `${task.name} 已停用`)
+      await loadTasks()
+    } catch {
+      message.error('操作失败')
+    }
+  },
+)
 
 async function handleTrigger(task: ScheduledTask) {
   triggeringId.value = task.job_id
@@ -191,6 +198,8 @@ const enabledCount = computed(() => tasks.value.filter(t => t.enabled).length)
                 <NSwitch
                   :value="task.enabled"
                   size="small"
+                  :loading="toggleBusy(task.job_id)"
+                  :disabled="toggleBusy(task.job_id)"
                   @update:value="(val: boolean) => handleToggle(task, val)"
                 />
               </div>

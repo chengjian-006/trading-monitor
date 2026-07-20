@@ -5,6 +5,7 @@ import { onMounted, ref } from 'vue'
 import { NSkeleton, NCard, NButton, NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui'
 import { SparklesOutline, RefreshOutline, ChevronUpOutline, ChevronDownOutline, ThumbsUpOutline, ThumbsDownOutline, ThumbsUp, ThumbsDown } from '@vicons/ionicons5'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
+import { useKeyedSubmitGuard } from '../composables/useSubmitGuard'
 import MarketOverviewBar from '../components/common/MarketOverviewBar.vue'
 import EmotionPanel from '../components/common/EmotionPanel.vue'
 import MarketRiskBanner from '../components/common/MarketRiskBanner.vue'
@@ -57,7 +58,11 @@ async function loadReports() {
   }
 }
 
-async function toggleVote(reportId: number, vote: 'up' | 'down') {
+// 防重复提交: 👍/👎 连点会让 upsert 与 delete 并发竞态, 库里最终赞踩状态可能与界面相反。
+// 按 report_id 守卫(同一份报告的两颗按钮共用一把锁), 不同报告互不影响
+const { isBusy: voteBusy, guardKey: guardVote } = useKeyedSubmitGuard()
+
+const toggleVote = guardVote((reportId: number, _vote: 'up' | 'down') => String(reportId), async (reportId: number, vote: 'up' | 'down') => {
   const current = feedbackMap.value[reportId]
   try {
     if (current === vote) {
@@ -75,7 +80,7 @@ async function toggleVote(reportId: number, vote: 'up' | 'down') {
   } catch {
     message.error('标记失败')
   }
-}
+})
 
 // 旧 AI 报告里"全球股市/A股大盘概况/市场温度"区块在前端剥掉(数据已由顶部 MarketOverviewBar 实时刷新)
 const STRIP_SECTIONS = ['全球股市', 'A股大盘概况', '大盘概况', '市场温度']
@@ -175,6 +180,8 @@ onMounted(() => {
                          :type="feedbackMap[reports[0].id] === 'up' ? 'success' : 'default'"
                          :title="feedbackMap[reports[0].id] === 'up' ? '已标记有用 (再点取消)' : '标记有用'"
                          :aria-label="feedbackMap[reports[0].id] === 'up' ? '已标记有用 (再点取消)' : '标记有用'"
+                         :loading="voteBusy(String(reports[0].id))"
+                         :disabled="voteBusy(String(reports[0].id))"
                          @click="toggleVote(reports[0].id, 'up')">
                   <template #icon>
                     <NIcon :component="feedbackMap[reports[0].id] === 'up' ? ThumbsUp : ThumbsUpOutline" :size="14" />
@@ -184,6 +191,8 @@ onMounted(() => {
                          :type="feedbackMap[reports[0].id] === 'down' ? 'error' : 'default'"
                          :title="feedbackMap[reports[0].id] === 'down' ? '已标记无用 (再点取消)' : '标记无用 — 将用于优化 AI prompt'"
                          :aria-label="feedbackMap[reports[0].id] === 'down' ? '已标记无用 (再点取消)' : '标记无用 — 将用于优化 AI prompt'"
+                         :loading="voteBusy(String(reports[0].id))"
+                         :disabled="voteBusy(String(reports[0].id))"
                          @click="toggleVote(reports[0].id, 'down')">
                   <template #icon>
                     <NIcon :component="feedbackMap[reports[0].id] === 'down' ? ThumbsDown : ThumbsDownOutline" :size="14" />
@@ -204,6 +213,8 @@ onMounted(() => {
                     <NButton quaternary circle size="tiny"
                              :type="feedbackMap[r.id] === 'up' ? 'success' : 'default'"
                              aria-label="标记有用"
+                             :loading="voteBusy(String(r.id))"
+                             :disabled="voteBusy(String(r.id))"
                              @click="toggleVote(r.id, 'up')">
                       <template #icon>
                         <NIcon :component="feedbackMap[r.id] === 'up' ? ThumbsUp : ThumbsUpOutline" :size="14" />
@@ -212,6 +223,8 @@ onMounted(() => {
                     <NButton quaternary circle size="tiny"
                              :type="feedbackMap[r.id] === 'down' ? 'error' : 'default'"
                              aria-label="标记无用"
+                             :loading="voteBusy(String(r.id))"
+                             :disabled="voteBusy(String(r.id))"
                              @click="toggleVote(r.id, 'down')">
                       <template #icon>
                         <NIcon :component="feedbackMap[r.id] === 'down' ? ThumbsDown : ThumbsDownOutline" :size="14" />
