@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.745',
+    date: '2026-07-21',
+    title: '藏龙岛观点页:学员提问误标蓝的修正',
+    changes: [
+      {
+        text: '修复学员被引用的提问也被标成蓝色加粗:消息里「老师回答」与「学员提问」的分隔符实际是一长串横杠,此前按固定5个匹配没拆开,整条都当成了老师的话。现按容错规则拆分,学员提问恢复灰色非加粗。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.744',
     date: '2026-07-21',
     title: '藏龙岛观点页:老师的话加粗标蓝突出',

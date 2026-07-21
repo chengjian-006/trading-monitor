@@ -23,11 +23,12 @@ function fmtDay(ts: number): string {
 }
 
 // 一条消息拆成「老师回答」+ 可选「被引用的提问」。
-// lark-cli 把回复格式化成 "回答正文 ----- -07-21 10:24 学员:提问", 用 ' ----- ' 分隔。
+// lark-cli 把回复格式化成 "回答正文 ------------ -07-21 10:24 学员:提问",
+// 分隔符是一串横杠(实测 12 个), 数量不作保证 —— 按「空白+5个以上横杠+空白」容错匹配。
 function splitMsg(content: string): { answer: string; quoted: string } {
-  const idx = content.indexOf(' ----- ')
-  if (idx < 0) return { answer: content.trim(), quoted: '' }
-  return { answer: content.slice(0, idx).trim(), quoted: content.slice(idx + 7).trim() }
+  const m = content.match(/\s-{5,}\s/)
+  if (!m || m.index === undefined) return { answer: content.trim(), quoted: '' }
+  return { answer: content.slice(0, m.index).trim(), quoted: content.slice(m.index + m[0].length).trim() }
 }
 
 const filtered = computed(() => {
