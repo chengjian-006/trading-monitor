@@ -13,7 +13,7 @@ import time
 import httpx
 
 from backend.fetcher.codes import _code_to_sina
-from backend.fetcher.http_client import HEADERS, TrackedAsyncClient, _get_client
+from backend.fetcher.http_client import HEADERS, TrackedAsyncClient
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,33 @@ def _safe_num(val, default=0):
         return default
 
 
+# 实时行情主源独立池 (v1.7.735): 3s 全池刷新是【用户可见】的实时行情, 原来和几十个盘中批量
+# 消费者(scanner/near_buy 整池日线/各 60s 持仓守护/板块日线)挤同一个共享主池(_get_client, 20 连接)。
+# 单 worker 单事件循环下批量任务一跑就占满连接槽, sina 主源阻塞等槽, 被 quote_refresher 的 2.8s
+# 外层 wait_for 直接 cancel → 整轮作废(0720 实测每 6s 一轮、轮轮 2.8s 超时、20+ 轮零成功, 页面停旧数据)。
+# 关键: cancel 不是抛异常, 所以连"切腾讯备源"的 fallback 都走不到 → 备源隔离了也白搭。
+# 修法 = 把这个"受害者"物理隔离(同 intraday.py / stock_extra.py / 备源池 已验证的护栏模式), 任何
+# 现在/未来的批量任务再堵主池也堵不到实时刷新。串行分块(CORE_CHUNK=80)同时只占 1 连接, 小池即够。
+# 超时设得比共享主池(15s)紧: 主源轻度变慢时能在 2.8s 预算内真抛错→切腾讯备源(而非外层 cancel)。
+_primary_client: httpx.AsyncClient | None = None
+
+
+def _get_primary_client() -> httpx.AsyncClient:
+    global _primary_client
+    if _primary_client is None or _primary_client.is_closed:
+        _primary_client = TrackedAsyncClient(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            limits=httpx.Limits(max_connections=4, max_keepalive_connections=2),
+            follow_redirects=True,
+            trust_env=False,
+        )
+    return _primary_client
+
+
 async def _get_quotes_sina(codes: list[str]) -> dict:
     sina_codes = [_code_to_sina(c) for c in codes]
     url = f"https://hq.sinajs.cn/list={','.join(sina_codes)}"
-    client = _get_client()
+    client = _get_primary_client()
 
     try:
         resp = await client.get(url, headers={**HEADERS, "Accept-Encoding": "identity"})
