@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.744',
+    date: '2026-07-21',
+    title: '藏龙岛观点页:老师的话加粗标蓝突出',
+    changes: [
+      {
+        text: '藏龙岛观点页老师的话加粗+主题蓝显示,并带上「藏龙岛：」名字前缀;学员被引用的提问保持灰色弱化,一眼分清谁在说话。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.743',
     date: '2026-07-21',
     title: '藏龙岛观点采集收尾(二):服务环境缺 HOME 导致授权失效',

@@ -152,7 +152,7 @@ onMounted(load)
         <div v-for="p in g.items" :key="p.id" class="msg">
           <div class="msg-time">{{ timeOf(p) }}</div>
           <div class="msg-body">
-            <div class="answer">{{ splitMsg(p.content).answer }}</div>
+            <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span>{{ splitMsg(p.content).answer }}</div>
             <div v-if="splitMsg(p.content).quoted" class="quoted">
               <NIcon :component="ChatbubbleEllipsesOutline" class="q-ico" />
               <span>{{ splitMsg(p.content).quoted }}</span>
@@ -213,7 +213,9 @@ onMounted(load)
   padding: 12px 14px; background: var(--bg-surface);
   box-shadow: 0 1px 2px rgba(20,30,50,.05);
 }
-.answer { font-size: 14px; line-height: 1.7; color: var(--fg-default); white-space: pre-wrap; word-break: break-word; }
+/* 老师的话加粗+主题蓝突出(用户指定); 学员引用保持灰色弱化形成对比 */
+.answer { font-size: 14px; line-height: 1.7; font-weight: 600; color: var(--accent-fg); white-space: pre-wrap; word-break: break-word; }
+.answer .coach-name { font-weight: 700; }
 .quoted {
   margin-top: 10px; display: flex; gap: 6px; align-items: flex-start;
   font-size: 12px; line-height: 1.6; color: var(--fg-subtle);
