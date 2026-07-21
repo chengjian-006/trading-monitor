@@ -60,7 +60,8 @@ def _next_run_for(task: dict, secs: int):
     """interval 任务的首次触发时刻 = 上次真实运行 + 间隔; 已超期则尽快补跑(错峰)。
 
     不这样做的话, 每次重启都把计时归零 —— 重启比间隔频繁时任务永远饿死(见 register_task
-    注释里的实测)。返回 None 表示交回 APScheduler 默认行为。
+    注释里的实测)。返回 None 表示交回 APScheduler 默认行为(调用方必须**省略** next_run_time
+    参数, 不能显式传 None —— 那等于以暂停态添加, 永不触发)。
     """
     from datetime import datetime, timedelta
     last = task.get("last_run_at")
@@ -87,20 +88,26 @@ def register_task(task: dict):
 
     if stype == "interval":
         secs = int(sconfig.get("seconds", 30))
+        # v1.7.714 修「高频重启饿死 interval 任务」: APScheduler 默认把首次触发排在
+        # "启动 + 间隔"之后。若重启比间隔更频繁, 任务永远轮不到 —— 实测 0719 晚
+        # 20:00 后部署 16 次(最短间隔 3 分钟), cross_check(60min)自 20:37 起、
+        # stock_tags_refresh(20min)自 22:28 起**一次都没跑**。这与台账里"模型胜率
+        # 静默停写 9 天"是同一个根因(服务高频重启杀长任务)。
+        # 改为按**上次真实运行时刻**接续排期: 已超期的立刻补跑, 未超期的按原节奏走,
+        # 重启不再重置计时。
+        # v1.7.740: 从没跑过的任务必须【省略】next_run_time —— APScheduler 语义里
+        # 显式传 None = 以暂停态添加(永不触发), 新上任务会被静默暂停。
+        extra = {}
+        nrt = _next_run_for(task, secs)
+        if nrt is not None:
+            extra["next_run_time"] = nrt
         scheduler.add_job(
             fn, "interval",
             seconds=secs,
             id=job_id, replace_existing=True,
             max_instances=1,
             misfire_grace_time=max(secs, 10),
-            # v1.7.714 修「高频重启饿死 interval 任务」: APScheduler 默认把首次触发排在
-            # "启动 + 间隔"之后。若重启比间隔更频繁, 任务永远轮不到 —— 实测 0719 晚
-            # 20:00 后部署 16 次(最短间隔 3 分钟), cross_check(60min)自 20:37 起、
-            # stock_tags_refresh(20min)自 22:28 起**一次都没跑**。这与台账里"模型胜率
-            # 静默停写 9 天"是同一个根因(服务高频重启杀长任务)。
-            # 改为按**上次真实运行时刻**接续排期: 已超期的立刻补跑, 未超期的按原节奏走,
-            # 重启不再重置计时。
-            next_run_time=_next_run_for(task, secs),
+            **extra,
         )
     elif stype == "cron":
         scheduler.add_job(

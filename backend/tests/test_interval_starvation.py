@@ -24,6 +24,33 @@ def test_never_ran_uses_default():
     assert tm._next_run_for({}, 1200) is None
 
 
+def test_never_ran_interval_task_is_not_added_paused(monkeypatch):
+    """v1.7.740 回归: APScheduler 里 add_job(next_run_time=None) = 以暂停态添加(永不触发).
+
+    v1.7.714 想表达"交回默认行为"却显式传了 None, 于是 v1.7.714 之后新增的任务
+    (last_run_at 为空)全部被静默暂停 —— 实测 lark_coach_scan 部署 7 小时 0 次运行。
+    从没跑过的任务必须【省略】next_run_time 参数。
+    """
+    captured = {}
+
+    class FakeScheduler:
+        def add_job(self, fn, trigger, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(tm, "scheduler", FakeScheduler())
+    tm.register_task({"job_id": "j", "handler": "h", "schedule_type": "interval",
+                      "schedule_config": {"seconds": 60}, "last_run_at": None})
+    assert "next_run_time" not in captured, \
+        "从没跑过的任务不该显式传 next_run_time=None(APScheduler 语义=暂停, 永不触发)"
+
+    # 跑过的任务仍要带上接续时刻(v1.7.714 的修复不能丢)
+    captured.clear()
+    last = datetime.now() - timedelta(seconds=30)
+    tm.register_task({"job_id": "j2", "handler": "h", "schedule_type": "interval",
+                      "schedule_config": {"seconds": 60}, "last_run_at": last})
+    assert captured.get("next_run_time") == last + timedelta(seconds=60)
+
+
 def test_not_due_yet_keeps_original_cadence():
     """未到点: 按 上次运行+间隔 接续 —— 重启不重置计时, 这是修复的核心。"""
     _reset_stagger()

@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.741',
+    date: '2026-07-21',
+    title: '修「新定时任务被静默暂停」+ 藏龙岛观点采集正式通电',
+    changes: [
+      {
+        text: '修复调度器 bug:v1.7.714 修「重启饿死任务」时,把从没跑过的新任务以「暂停态」加进了调度器(APScheduler 里显式传 next_run_time=None 等于永不触发)。之后新增的定时任务全部静默不跑——藏龙岛观点页没数据就是它害的。现已改为省略该参数走默认排期,新任务上线即跑。',
+        tag: 'fix',
+      },
+      {
+        text: '藏龙岛观点采集通电:服务器 lark-cli 已就绪、配置开关已开,盘中每 1 分钟/盘后每 10 分钟自动拉群主消息入库,藏龙岛观点页开始出数据。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.740',
     date: '2026-07-21',
     title: '大盘风控（二·A）：0-100 风险分 + 所有推送卡统一大盘三档戳',
