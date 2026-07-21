@@ -15,3 +15,9 @@ export async function listCoachPosts(limit = 100, offset = 0): Promise<{ posts: 
   const { data } = await client.get('/api/lark-coach/posts', { params: { limit, offset } })
   return data
 }
+
+// 图片消息取图: 接口要带 JWT, <img src> 直连带不上, 拉 blob 转 objectURL 显示
+export async function fetchCoachMedia(messageId: string): Promise<string> {
+  const { data } = await client.get(`/api/lark-coach/media/${messageId}`, { responseType: 'blob' })
+  return URL.createObjectURL(data)
+}

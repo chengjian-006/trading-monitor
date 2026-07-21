@@ -1084,6 +1084,8 @@ _RENAME_MAP = {
 
 
 MIGRATION_STATEMENTS = [
+    # v1.7.746: 藏龙岛观点转发到自建群 —— 逐条转发状态(NULL=待转发, 失败下轮重试)
+    "ALTER TABLE cfzy_biz_lark_coach_posts ADD COLUMN relayed_at DATETIME DEFAULT NULL",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN user_id INT NOT NULL DEFAULT 1",
     # v1.7.571: 原来这里有一条 "ALTER ... DROP PRIMARY KEY, ADD PRIMARY KEY (code,user_id)",
     #   它每次启动都"成功"执行(非幂等错误, 吞错机制拦不住)=每次重启对 stock_pool 全表重建+元数据锁,

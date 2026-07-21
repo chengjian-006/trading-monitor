@@ -35,3 +35,27 @@ async def list_coach_posts(limit: int = 100, offset: int = 0) -> list[dict]:
         "SELECT * FROM cfzy_biz_lark_coach_posts ORDER BY posted_at DESC, id DESC LIMIT %s OFFSET %s",
         (limit, offset),
     )
+
+
+async def get_coach_post_by_message_id(message_id: str) -> dict | None:
+    rows = await _fetchall(
+        "SELECT * FROM cfzy_biz_lark_coach_posts WHERE message_id = %s LIMIT 1", (message_id,))
+    return rows[0] if rows else None
+
+
+async def list_unrelayed_coach_posts(limit: int = 40) -> list[dict]:
+    """待转发到自建群的消息, 老的先转(保持群里时序)。"""
+    return await _fetchall(
+        "SELECT * FROM cfzy_biz_lark_coach_posts WHERE relayed_at IS NULL "
+        "ORDER BY posted_at ASC, id ASC LIMIT %s", (limit,))
+
+
+async def mark_coach_post_relayed(post_id: int) -> None:
+    from backend.models.database import get_pool
+
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE cfzy_biz_lark_coach_posts SET relayed_at = NOW() WHERE id = %s",
+                (post_id,))

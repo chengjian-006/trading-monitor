@@ -75,6 +75,10 @@ DEFAULT_CONFIG = {
         "coach_name": "藏龙岛",
         "page_size": 30,         # 每轮拉最近 N 条(INSERT IGNORE 去重, 只要覆盖两轮间新增即可)
         "lark_cli": "lark-cli",  # 可执行名或绝对路径(服务器装好后即可)
+        # v1.7.746: 入库后实时转发一份到用户自建群【混江龙】(user 身份发送; 图片按原 image_key 重发)。
+        # 注: load_config 顶层整段覆盖, 服务器 config.json 若缺这些键, scanner 侧会用本默认段补齐。
+        "relay_enabled": True,
+        "relay_chat_id": "oc_be05b1cadcef6056bfe038781793717a",  # 【混江龙】(用户自建)
     },
 }
 

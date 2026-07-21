@@ -106,7 +106,8 @@ from backend.models.repo.blogger_posts import (  # noqa: F401
     save_post, get_recent_posts, list_posts, mark_pushed,
 )
 from backend.models.repo.lark_coach_posts import (  # noqa: F401
-    save_coach_post, list_coach_posts,
+    save_coach_post, list_coach_posts, get_coach_post_by_message_id,
+    list_unrelayed_coach_posts, mark_coach_post_relayed,
 )
 from backend.models.repo.risk_ann import (  # noqa: F401
     save_risk_ann, list_risk_anns,

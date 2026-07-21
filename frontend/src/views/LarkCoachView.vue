@@ -1,10 +1,10 @@
 <script setup lang="ts">
 // 藏龙岛观点 (v1.7.738) — 飞书群群主(藏龙岛)盘中点评/操作观点存档。
 // 后端定时拉飞书群、只留藏龙岛发的入库(不推送, 用户本人飞书已收到)。纯留痕参考, 非回测背书的信号。
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NInput, NDatePicker } from 'naive-ui'
 import { RefreshOutline, BulbOutline, ChatbubbleEllipsesOutline } from '@vicons/ionicons5'
-import { listCoachPosts, type CoachPost } from '../api/lark-coach'
+import { listCoachPosts, fetchCoachMedia, type CoachPost } from '../api/lark-coach'
 import FilterPanel from '../components/common/FilterPanel.vue'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 
@@ -61,6 +61,28 @@ const grouped = computed(() => {
 function timeOf(p: CoachPost): string {
   return (p.posted_at || '').slice(11, 16)
 }
+
+// ── 图片消息: 拉 blob 转 objectURL 显示(接口带 JWT, <img src> 直连带不上) ──
+const mediaUrls = ref<Record<string, string>>({})
+const mediaFailed = ref<Record<string, boolean>>({})
+
+function isImagePost(p: CoachPost): boolean {
+  return p.msg_type === 'image'
+}
+
+function openImage(messageId: string) {
+  const url = mediaUrls.value[messageId]
+  if (url) window.open(url, '_blank')
+}
+
+watch(filtered, (list) => {
+  for (const p of list) {
+    if (!isImagePost(p) || mediaUrls.value[p.message_id] || mediaFailed.value[p.message_id]) continue
+    fetchCoachMedia(p.message_id)
+      .then((url) => { mediaUrls.value[p.message_id] = url })
+      .catch(() => { mediaFailed.value[p.message_id] = true })
+  }
+}, { immediate: true })
 
 function resetFilters() {
   filterKeyword.value = ''
@@ -153,11 +175,19 @@ onMounted(load)
         <div v-for="p in g.items" :key="p.id" class="msg">
           <div class="msg-time">{{ timeOf(p) }}</div>
           <div class="msg-body">
-            <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span>{{ splitMsg(p.content).answer }}</div>
-            <div v-if="splitMsg(p.content).quoted" class="quoted">
-              <NIcon :component="ChatbubbleEllipsesOutline" class="q-ico" />
-              <span>{{ splitMsg(p.content).quoted }}</span>
-            </div>
+            <template v-if="isImagePost(p)">
+              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span></div>
+              <img v-if="mediaUrls[p.message_id]" :src="mediaUrls[p.message_id]" class="msg-img" alt="藏龙岛发的图片" @click="openImage(p.message_id)" />
+              <div v-else-if="mediaFailed[p.message_id]" class="img-fallback">图片加载失败(原图见飞书群)</div>
+              <NSkeleton v-else height="160px" width="240px" style="border-radius:8px" />
+            </template>
+            <template v-else>
+              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span>{{ splitMsg(p.content).answer }}</div>
+              <div v-if="splitMsg(p.content).quoted" class="quoted">
+                <NIcon :component="ChatbubbleEllipsesOutline" class="q-ico" />
+                <span>{{ splitMsg(p.content).quoted }}</span>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -225,6 +255,11 @@ onMounted(load)
   border-left: 3px solid var(--border-hard);
 }
 .quoted .q-ico { flex-shrink: 0; margin-top: 2px; opacity: .6; }
+.msg-img {
+  display: block; margin-top: 6px; max-width: min(420px, 100%); max-height: 480px;
+  border-radius: 8px; border: 1px solid var(--border-default); cursor: zoom-in;
+}
+.img-fallback { margin-top: 6px; font-size: 12px; color: var(--fg-subtle); }
 .empty { margin-top: 40px; }
 .empty-hint { font-size: 12px; color: var(--fg-subtle); }
 

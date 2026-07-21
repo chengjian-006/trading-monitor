@@ -78,3 +78,12 @@ def test_parse_payload_raises_on_not_ok():
     import pytest
     with pytest.raises(lc.LarkCoachFetchError):
         lc.parse_payload({"ok": False, "error": "token expired"}, CFG)
+
+
+def test_extract_image_key():
+    """图片消息 content 形如 "[Image: img_v3_xxx]", 供页面取图与群转发复用。"""
+    assert lc.extract_image_key("[Image: img_v3_0213q_a5645a82-69e8-49e9-a2ce-a08eeab14f0g]") \
+        == "img_v3_0213q_a5645a82-69e8-49e9-a2ce-a08eeab14f0g"
+    assert lc.extract_image_key("纯文本没有图") is None
+    assert lc.extract_image_key("") is None
+    assert lc.extract_image_key(None) is None

@@ -10,6 +10,7 @@ sender.id == 配置里的 sender_open_id 的消息。token 生命周期由 lark-
 import asyncio
 import json
 import logging
+import re
 import shutil
 from datetime import datetime
 
@@ -97,6 +98,35 @@ def parse_payload(payload: dict, cfg: dict) -> list[dict]:
     return results
 
 
+async def _run_cli(cfg: dict, cli_args: list[str], timeout: int = 45, cwd: str | None = None) -> dict:
+    """跑一次 lark-cli 子命令并解析 JSON 输出。失败(非零退出/超时/ok=false)抛 LarkCoachFetchError。"""
+    exe = cfg.get("lark_cli", "lark-cli")
+    args = [_resolve_cli(exe), *cli_args]
+    env = _build_env()
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            env=env, cwd=cwd,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except FileNotFoundError as e:
+        raise LarkCoachFetchError(f"lark-cli 未安装或不在 PATH: {e}") from e
+    except asyncio.TimeoutError as e:
+        raise LarkCoachFetchError(f"lark-cli 超时({timeout}s)") from e
+
+    if proc.returncode != 0:
+        raise LarkCoachFetchError(f"lark-cli 退出码 {proc.returncode}: "
+                                  f"{(out or err or b'').decode('utf-8', 'ignore')[:300]}")
+    try:
+        payload = json.loads(out.decode("utf-8", "ignore"))
+    except json.JSONDecodeError as e:
+        raise LarkCoachFetchError(f"解析 lark-cli 输出失败: {e}") from e
+    if not payload.get("ok", False):
+        raise LarkCoachFetchError(f"lark-cli ok=false: {str(payload.get('error'))[:300]}")
+    return payload
+
+
 async def fetch_coach_messages(cfg: dict) -> list[dict]:
     """拉群最近一页消息, 过滤出藏龙岛(sender_open_id)发的, 归一化返回(按原顺序=时间倒序)。
 
@@ -104,38 +134,52 @@ async def fetch_coach_messages(cfg: dict) -> list[dict]:
       chat_id / sender_open_id / coach_name / page_size / lark_cli(可执行名或路径)
     失败抛 LarkCoachFetchError。
     """
-    import os
-
     chat_id = cfg.get("chat_id", "")
     sender = cfg.get("sender_open_id", "")
     page_size = int(cfg.get("page_size", 30))
-    exe = cfg.get("lark_cli", "lark-cli")
     if not chat_id or not sender:
         raise LarkCoachFetchError("chat_id / sender_open_id 未配置")
 
-    # shutil.which 解析真实路径(Windows 认 .cmd/.exe 后缀, Linux 找 PATH); 找不到给清晰报错。
-    resolved = _resolve_cli(exe)
-    args = [resolved, "im", "+chat-messages-list",
-            "--chat-id", chat_id, "--as", "user",
-            "--sort", "desc", "--page-size", str(page_size)]
-    env = _build_env()
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env,
-        )
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=45)
-    except FileNotFoundError as e:
-        raise LarkCoachFetchError(f"lark-cli 未安装或不在 PATH: {e}") from e
-    except asyncio.TimeoutError as e:
-        raise LarkCoachFetchError("lark-cli 拉取超时(45s)") from e
-
-    if proc.returncode != 0:
-        raise LarkCoachFetchError(f"lark-cli 退出码 {proc.returncode}: {(err or b'').decode('utf-8', 'ignore')[:300]}")
-
-    try:
-        payload = json.loads(out.decode("utf-8", "ignore"))
-    except json.JSONDecodeError as e:
-        raise LarkCoachFetchError(f"解析 lark-cli 输出失败: {e}") from e
-
+    payload = await _run_cli(cfg, ["im", "+chat-messages-list",
+                                   "--chat-id", chat_id, "--as", "user",
+                                   "--sort", "desc", "--page-size", str(page_size)])
     return parse_payload(payload, cfg)
+
+
+# ── 图片消息: content 形如 "[Image: img_v3_xxx]", 取 file_key 供下载/重发 ──
+_IMG_KEY_RE = re.compile(r"\[Image: (img_[\w.\-]+)\]")
+
+
+def extract_image_key(content: str) -> str | None:
+    m = _IMG_KEY_RE.search(content or "")
+    return m.group(1) if m else None
+
+
+async def download_message_image(cfg: dict, message_id: str, file_key: str,
+                                 dest_dir: str, filename: str) -> str:
+    """下载图片消息的资源到 dest_dir/filename, 返回落盘绝对路径。
+
+    lark-cli --output 只收相对路径(拒绝绝对/..), 故切 cwd 到 dest_dir。
+    """
+    import os
+
+    os.makedirs(dest_dir, exist_ok=True)
+    payload = await _run_cli(cfg, ["im", "+messages-resources-download",
+                                   "--message-id", message_id, "--file-key", file_key,
+                                   "--type", "image", "--as", "user",
+                                   "--output", filename],
+                             timeout=60, cwd=dest_dir)
+    saved = (payload.get("data") or {}).get("saved_path") or os.path.join(dest_dir, filename)
+    return saved
+
+
+async def send_chat_text(cfg: dict, chat_id: str, text: str) -> None:
+    """以 user 身份发一条文本消息到目标群。失败抛 LarkCoachFetchError。"""
+    await _run_cli(cfg, ["im", "+messages-send", "--chat-id", chat_id,
+                         "--as", "user", "--text", text])
+
+
+async def send_chat_image(cfg: dict, chat_id: str, image_key: str) -> None:
+    """以 user 身份把图片(按原 image_key)发到目标群。失败抛 LarkCoachFetchError。"""
+    await _run_cli(cfg, ["im", "+messages-send", "--chat-id", chat_id,
+                         "--as", "user", "--image", image_key])
