@@ -173,13 +173,31 @@ async def download_message_image(cfg: dict, message_id: str, file_key: str,
     return saved
 
 
+def _relay_send_args(cfg: dict) -> list[str]:
+    """转发发送的身份参数: 独立授权档案(个人号应用, relay_profile) + 发送身份(relay_send_as)。
+
+    公司租户的 im:message.send_as_user 需管理员审批批不下来, 故发送走个人账号的应用档案;
+    身份可选 user(以本人名义, 需 send_as_user scope)或 bot(机器人进群即可发)。读消息仍用默认档案。
+    """
+    args = ["--as", cfg.get("relay_send_as", "user")]
+    profile = cfg.get("relay_profile", "")
+    if profile:
+        args += ["--profile", profile]
+    return args
+
+
 async def send_chat_text(cfg: dict, chat_id: str, text: str) -> None:
-    """以 user 身份发一条文本消息到目标群。失败抛 LarkCoachFetchError。"""
+    """发一条文本消息到目标群。失败抛 LarkCoachFetchError。"""
     await _run_cli(cfg, ["im", "+messages-send", "--chat-id", chat_id,
-                         "--as", "user", "--text", text])
+                         "--text", text, *_relay_send_args(cfg)])
 
 
-async def send_chat_image(cfg: dict, chat_id: str, image_key: str) -> None:
-    """以 user 身份把图片(按原 image_key)发到目标群。失败抛 LarkCoachFetchError。"""
+async def send_chat_image_file(cfg: dict, chat_id: str, file_dir: str, filename: str) -> None:
+    """把本地图片文件发到目标群(CLI 自动经发送档案的应用上传)。
+
+    image_key 是应用维度的, 跨应用(读=默认档案/发=个人档案)不认, 故按本地文件发。
+    --image 只收 cwd 相对路径, 切 cwd 到文件目录。失败抛 LarkCoachFetchError。
+    """
     await _run_cli(cfg, ["im", "+messages-send", "--chat-id", chat_id,
-                         "--as", "user", "--image", image_key])
+                         "--image", filename, *_relay_send_args(cfg)],
+                   timeout=60, cwd=file_dir)
