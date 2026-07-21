@@ -33,6 +33,27 @@ def test_resolve_cli_returns_raw_when_nowhere(monkeypatch):
     assert lc._resolve_cli("lark-cli") == "lark-cli"
 
 
+def test_build_env_injects_home_when_missing(monkeypatch):
+    """v1.7.743: systemd 单元不设 HOME, lark-cli 靠 $HOME 找 ~/.lark-cli 授权配置,
+    缺了报 not_configured(实测 v1.7.742 上线后退出码 3)。缺 HOME 要按 uid 补。"""
+    import sys
+    import types
+
+    fake_pwd = types.SimpleNamespace(getpwuid=lambda uid: types.SimpleNamespace(pw_dir="/root"))
+    monkeypatch.setitem(sys.modules, "pwd", fake_pwd)
+    import os
+    monkeypatch.setattr(os, "getuid", lambda: 0, raising=False)
+
+    env = lc._build_env({"PATH": "/usr/bin"})
+    assert env["HOME"] == "/root"
+    assert env["LARKSUITE_CLI_NO_UPDATE_NOTIFIER"] == "1"
+
+
+def test_build_env_keeps_existing_home():
+    env = lc._build_env({"PATH": "/usr/bin", "HOME": "/home/me"})
+    assert env["HOME"] == "/home/me"
+
+
 CFG = {"sender_open_id": "ou_coach", "coach_name": "藏龙岛", "chat_id": "oc_x"}
 
 

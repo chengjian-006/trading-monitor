@@ -25,6 +25,23 @@ def _resolve_cli(exe: str) -> str:
     return shutil.which(exe) or shutil.which(exe, path=_FALLBACK_PATH) or exe
 
 
+def _build_env(base: dict | None = None) -> dict:
+    """子进程环境: 静音 lark-cli 的更新提示; 缺 HOME 时补上(systemd 单元不设 HOME,
+    而 lark-cli 靠 $HOME 定位 ~/.lark-cli 授权配置, 缺了报 not_configured)。"""
+    import os
+
+    env = {**(os.environ if base is None else base),
+           "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
+           "LARKSUITE_CLI_NO_SKILLS_NOTIFIER": "1"}
+    if "HOME" not in env:
+        try:
+            import pwd
+            env["HOME"] = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:  # Windows 无 pwd 模块等 — 保持原样
+            pass
+    return env
+
+
 class LarkCoachFetchError(Exception):
     """拉取失败(lark-cli 非零退出 / ok:false / token 过期等)。"""
 
@@ -101,9 +118,7 @@ async def fetch_coach_messages(cfg: dict) -> list[dict]:
     args = [resolved, "im", "+chat-messages-list",
             "--chat-id", chat_id, "--as", "user",
             "--sort", "desc", "--page-size", str(page_size)]
-    env = {**os.environ,
-           "LARKSUITE_CLI_NO_UPDATE_NOTIFIER": "1",
-           "LARKSUITE_CLI_NO_SKILLS_NOTIFIER": "1"}
+    env = _build_env()
 
     try:
         proc = await asyncio.create_subprocess_exec(
