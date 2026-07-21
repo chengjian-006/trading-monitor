@@ -21,6 +21,7 @@ import StockList from '../components/stock/StockList.vue'
 import PoolStatsBar from '../components/stock/PoolStatsBar.vue'
 import StrategyOverviewDrawer from '../components/stock/StrategyOverviewDrawer.vue'
 import SignalSummaryBar from '../components/stock/SignalSummaryBar.vue'
+import MarketIndexStrip from '../components/common/MarketIndexStrip.vue'
 import TagLegendButton from '../components/stock/TagLegendButton.vue'
 import { computed } from 'vue'
 import type { ThsGroup } from '../types'
@@ -336,6 +337,9 @@ async function handleThsImport(groupId: string) {
 
     <Transition v-else name="content-fade" appear>
       <div :class="{ 'pool-content': !isPhone }">
+        <!-- v1.7.736: 顶部大盘指数条(名称+涨跌幅, 与监控看板同源) -->
+        <MarketIndexStrip />
+
         <!-- v1.7.725: 今日预警从"独占一整条横幅"改成本行内的铃铛角标(点开看详情), 见 SignalSummaryBar.vue -->
         <div class="pool-summary-row">
           <SignalSummaryBar :signals-by-code="signalsByCode" />
