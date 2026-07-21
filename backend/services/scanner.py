@@ -509,11 +509,8 @@ async def _emit_one_signal(sig, *, code: str, name: str, df, rt,
     """
     detail = f"{sig.detail}{amount_suffix}"
     priority = _signal_priority(sig)
-    if sig.direction == "buy":
-        adjusted = regime_filter.adjusted_priority_for_buy(priority, regime_label)
-        if adjusted != priority:
-            detail = f"{detail} | 大盘{regime_label}降级"
-            priority = adjusted
+    # v1.7.737: 买点不再因大盘 regime 降级/拦截 —— 改为「只标注不拦截」: 买点照常推,
+    # 当前大盘状态由推送卡标题栏统一戳呈现(见 card 层)。regime_label 保留供落库/展示。
 
     indicators = _extract_indicators(df, rt, sig.used_indicators)
 

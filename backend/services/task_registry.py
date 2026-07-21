@@ -12,7 +12,7 @@ from backend.services.market_report import run_market_report
 from backend.services.quote_refresher import refresh_quotes
 from backend.services.market_data_refresher import refresh_market_data
 from backend.services.popularity_refresher import refresh_popularity, refresh_popularity_full_ai, record_daily_popularity
-from backend.services.plunge_detector import detect_plunge
+# detect_plunge 已退役 (大盘急跌预警去除, v1.7.737)
 from backend.services.sector_leader import refresh_sector_leaders
 from backend.services.weak_extreme_scanner import scan_weak_extreme_snapshot
 from backend.services.capital_inflow_scanner import scan_capital_inflow
@@ -40,7 +40,8 @@ from backend.services.ma_touch_alert import run_ma_touch_alert
 from backend.services.second_surge_scanner import run_second_surge_scan
 from backend.services.sector_cocrash_guard import run_sector_cocrash_watch
 from backend.services.industry_map_refresher import run_industry_map_refresh
-from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday, market_risk_realtime
+from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday
+# market_risk_realtime 已退役 (自选池口径大盘预警去除, v1.7.737)
 from backend.services.data_cross_checker import run_cross_check
 from backend.services.blogger_post_scanner import scan_blogger_posts
 from backend.services.lark_coach_scanner import scan_coach_posts
@@ -57,7 +58,7 @@ from backend.services.auction_strength_selfcheck import run_auction_strength_sel
 from backend.services.model_backtest_weekly import run_model_backtest_weekly
 from backend.services.log_cleanup import cleanup_old_logs
 from backend.services.data_sanity import self_heal_stale_quotes, check_data_sanity
-from backend.services.market_ebb_detector import detect_market_ebb, detect_strength_ebb
+# detect_market_ebb / detect_strength_ebb 已退役 (大盘退潮预警去除, v1.7.737)
 from backend.services.sector_rotation_scanner import scan_sector_rotation, predict_sector_next_day
 from backend.services.limit_up_archive import run_limit_up_daily
 from backend.services.trade_round_builder import rebuild_user_rounds
@@ -113,7 +114,6 @@ TASK_HANDLERS: dict[str, object] = {
     "refresh_market_data": refresh_market_data,
     "refresh_popularity": refresh_popularity,
     "refresh_popularity_full_ai": refresh_popularity_full_ai,
-    "detect_plunge": detect_plunge,
     "refresh_sector_leaders": refresh_sector_leaders,
     "scan_weak_extreme_snapshot": scan_weak_extreme_snapshot,
     "scan_capital_inflow": scan_capital_inflow,
@@ -144,7 +144,6 @@ TASK_HANDLERS: dict[str, object] = {
     "run_industry_map_refresh": run_industry_map_refresh,
     "market_risk_eod": market_risk_eod,
     "market_risk_intraday": market_risk_intraday,
-    "market_risk_realtime": market_risk_realtime,
     "run_cross_check": run_cross_check,
     "scan_blogger_posts": scan_blogger_posts,
     "scan_coach_posts": scan_coach_posts,
@@ -162,8 +161,6 @@ TASK_HANDLERS: dict[str, object] = {
     "cleanup_old_logs": cleanup_old_logs,
     "self_heal_stale_quotes": self_heal_stale_quotes,
     "check_data_sanity": check_data_sanity,
-    "detect_market_ebb": detect_market_ebb,
-    "detect_strength_ebb": detect_strength_ebb,
     "scan_sector_rotation": scan_sector_rotation,
     "predict_sector_next_day": predict_sector_next_day,
     "run_limit_up_daily": run_limit_up_daily,

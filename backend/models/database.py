@@ -1350,8 +1350,6 @@ async def _run_migrations(conn):
              "interval", _json.dumps({"seconds": 60}), "refresh_market_data"),
             ("popularity_refresh", "人气排行刷新", "每60秒刷新人气排行榜数据",
              "interval", _json.dumps({"seconds": 60}), "refresh_popularity"),
-            ("detect_plunge", "大盘跳水监控", "每30秒检测大盘跳水信号（指数急跌/涨跌恶化/跌停加速）",
-             "interval", _json.dumps({"seconds": 30}), "detect_plunge"),
             ("sector_leader", "板块龙头检测", "每45秒检测自选股在板块中的排名",
              "interval", _json.dumps({"seconds": 45}), "refresh_sector_leaders"),
             ("weak_extreme_1130", "S0 弱势极限·上午快照 11:30",
@@ -1444,14 +1442,7 @@ async def _run_migrations(conn):
             ("data_sanity_check", "行情数据自检告警",
              "盘中每5分钟校验行情健康(陈旧>6min或无价的票数), 超阈值推企微告警, 捕捉不报错但数据明显不对的情况",
              "interval", _json.dumps({"seconds": 300}), "check_data_sanity"),
-            # 大盘退潮风控(三模型回测0604唯一验证有效的市场级风控): 涨停家数较前日骤降≥40%→减仓提示
-            ("detect_market_ebb", "大盘退潮·减仓提示",
-             "盘中(≥11:00)每5分钟判全市场涨停家数较前日是否骤降≥40%, 是则推'退潮减仓'提示(对持仓强势股), 每日最多一次",
-             "interval", _json.dumps({"seconds": 300}), "detect_market_ebb"),
-            # v1.7.x: 强势退潮 — 昨日涨停股今日平均溢价转负(打板亏钱), 盘中(≥11:00)推一次
-            ("detect_strength_ebb", "强势退潮·赚钱效应消失",
-             "盘中(≥11:00)每5分钟判昨日涨停股今日平均溢价是否≤阈值(打板/强势资金转亏), 是则推强势退潮提示, 每日一次",
-             "interval", _json.dumps({"seconds": 300}), "detect_strength_ebb"),
+            # detect_market_ebb / detect_strength_ebb 已退役 (大盘退潮/强势退潮预警去除, v1.7.737)
             # v1.7.x: 推送机制 — 盘前「今日关注」摘要卡(第四批, 只取系统内现成数据不拉外部接口)
             ("morning_focus_0850", "盘前今日关注·08:50",
              "交易日 08:50 一张盘前情报卡: 持仓/昨日信号/今日披露 KPI三栏 + 昨日买点追踪(股票|模型|昨收涨跌) + 今日披露一句摘要(08:40披露日历卡照发) + 大盘风险档/止损压力/到线订阅当前状态; 全空不发, 每日一次DB去重",
@@ -1721,6 +1712,17 @@ async def _run_migrations(conn):
         except Exception:
             pass
 
+        # v1.7.737: 大盘预警去除第一批 —— 自选池口径的市场风险实时检测(名实不符/无独立回测背书)、
+        # 大盘退潮/强势退潮、大盘急跌 四个推送预警退役, handler 已从 TASK_HANDLERS 移除; 清存量库行。
+        # (market_risk_eod / market_risk_intraday 暂留作全市场状态源, 喂顶栏风险灯+买点戳, 下一批再改造)
+        try:
+            await cur.execute(
+                "DELETE FROM cfzy_sys_scheduled_tasks WHERE job_id IN (%s, %s, %s, %s)",
+                ("market_risk_realtime", "detect_market_ebb", "detect_strength_ebb", "detect_plunge"),
+            )
+        except Exception:
+            pass
+
         # v1.7.x: 提醒节流 flush 兜底 (60秒间隔, 把所有到期的合并缓冲推出)
         try:
             await cur.execute(
@@ -1935,9 +1937,7 @@ async def _seed_scheduled_tasks(conn):
             ("market_risk_intraday", "市场风险·盘中预升级14:40",
              "尾盘14:40同口径估当日指标, 达RED进入条件提前升级推送(只升不降, 16:40收盘复核为准), 给尾盘买点打标",
              "cron", {"hour": 14, "minute": 40}, "market_risk_intraday"),
-            ("market_risk_realtime", "市场风险·实时检测(10-14:30每5分)",
-             "盘中10:00-14:30每5分钟用自选池实时行情(pct_change)算涨跌比/均收益, 更严阈值(涨跌<22%+均收益<-2%→RED; 涨跌<28%或均<-1%→YELLOW), 只升不降, 同日同状态不重复推",
-             "interval", {"seconds": 300}, "market_risk_realtime"),
+            # market_risk_realtime 已退役 (自选池口径大盘预警去除, v1.7.737)
             ("cross_check", "数据源交叉校验·60分钟",
              "每60分钟抽检涨跌幅(新浪vs东财)/涨跌家数(新浪vs腾讯)/行情覆盖率, 超阈值飞书告警",
              "interval", {"seconds": 3600}, "run_cross_check"),
@@ -1989,7 +1989,6 @@ async def _seed_scheduled_tasks(conn):
             ("popularity_daily_2200", "人气排名·每日存档 22:00", "每晚22:00拉自选池全量人气排名写 cfzy_biz_popularity_daily 供回测/复盘", "cron", {"hour": 22, "minute": 0}, "record_daily_popularity"),
             ("market_risk_eod", "市场风险·收盘评估16:40", "每日16:40算涨跌比/广度/5日均收益/新低比/炸板率跑两级状态机(GREEN/YELLOW/RED)", "cron", {"hour": 16, "minute": 40}, "market_risk_eod"),
             ("market_risk_intraday", "市场风险·盘中预升级14:40", "尾盘14:40同口径估当日指标达RED条件提前升级(只升不降)", "cron", {"hour": 14, "minute": 40}, "market_risk_intraday"),
-            ("market_risk_realtime", "市场风险·实时检测(10-14:30每5分)", "盘中10:00-14:30每5分钟用自选池实时行情算涨跌比/均收益, 只升不降", "interval", {"seconds": 300}, "market_risk_realtime"),
             ("cross_check", "数据源交叉校验·60分钟", "每60分钟抽检涨跌幅(新浪vs东财)/涨跌家数(新浪vs腾讯)/行情覆盖率, 超阈值飞书告警", "interval", {"seconds": 3600}, "run_cross_check"),
             # v1.7.97: 实时市场概览快照, 单行 UPSERT, 前端 MarketOverviewBar 从 DB 读
             ("market_overview_refresh", "市场概览快照", "每30秒拉全球+A股指数+涨跌停, 写入 cfzy_sys_market_overview", "interval", {"seconds": 30}, "refresh_market_overview"),
