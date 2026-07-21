@@ -29,6 +29,42 @@ def test_state_machine_red_needs_all_three_to_exit():
     assert _run_state_machine("RED", today, breadth=20.0) == "RED"   # 广度20<25
 
 
+# ── 0-100 风险分(v1.7.740, Deploy 2A): 展示用, 档位仍由状态机定, 分数只在带内定位 ──
+
+def test_risk_score_stays_within_tier_band():
+    """分数永远落在所属档的分数带内, 绝不与三档戳矛盾(正常 0-33 / 谨慎 34-66 / 空仓 67-100)。"""
+    calm = {"breadth_ma20": 60.0, "advance_ratio": 60.0, "avg_ret_ma5": 1.0,
+            "low52_ratio": 1.0, "zha_rate": 10.0}
+    panic = {"breadth_ma20": 10.0, "advance_ratio": 10.0, "avg_ret_ma5": -3.0,
+             "low52_ratio": 25.0, "zha_rate": 80.0}
+    assert 0 <= mrc.risk_score_of("GREEN", calm) <= 33
+    assert 34 <= mrc.risk_score_of("YELLOW", calm) <= 66
+    assert 67 <= mrc.risk_score_of("RED", panic) <= 100
+
+
+def test_risk_score_monotonic_with_pressure():
+    """同一档内, 指标越差风险分越高。"""
+    weak = {"breadth_ma20": 20.0, "advance_ratio": 25.0, "avg_ret_ma5": -0.8,
+            "low52_ratio": 12.0, "zha_rate": 55.0}
+    weaker = {"breadth_ma20": 16.0, "advance_ratio": 18.0, "avg_ret_ma5": -0.95,
+              "low52_ratio": 14.0, "zha_rate": 65.0}
+    assert mrc.risk_score_of("YELLOW", weaker) >= mrc.risk_score_of("YELLOW", weak)
+
+
+def test_risk_score_handles_missing_indicators():
+    """realtime 行只有涨跌比/均收益, 其余为 None → 用现有维度算, 不抛。"""
+    partial = {"advance_ratio": 20.0, "avg_ret_ma5": -2.0,
+               "breadth_ma20": None, "low52_ratio": None, "zha_rate": None}
+    s = mrc.risk_score_of("RED", partial)
+    assert 67 <= s <= 100
+
+
+def test_tier_label_of():
+    assert mrc.tier_label_of("GREEN") == "正常"
+    assert mrc.tier_label_of("YELLOW") == "谨慎"
+    assert mrc.tier_label_of("RED") == "空仓"
+
+
 # ── 状态段锚点(v1.7.678): 横幅「几点起」必须指向连续段第一天, 不是最新行 updated_at ──
 
 def test_streak_from_rows_anchors_at_segment_start():

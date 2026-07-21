@@ -858,7 +858,10 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
 #   2) 正文顶部红色加粗横幅(点开第一行): 带行动指令与时间锚点。
 # 市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事, 再挂就重复)。
 _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
-_RISK_TAG = {"RED": ("大盘空仓中", "red"), "YELLOW": ("大盘谨慎", "orange")}
+# v1.7.740 (Deploy 2A): 补 GREEN 档 → 所有推送卡标题栏统一盖「大盘三档戳」(此前只黄/红挂标签,
+# 正常档不挂 → 卡上看不出当前大盘档位)。数据源=市场风险状态机(get_risk_state_info)。
+_RISK_TAG = {"RED": ("大盘空仓中", "red"), "YELLOW": ("大盘谨慎", "orange"),
+             "GREEN": ("大盘正常", "green")}
 # <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用。
 # {since} = 时间锚点(如「（13:11起）」, 对标状态页 since 模式), 无锚点时为空串。
 # v1.7.652: 压成一行紧凑版(原三排🚨占三行太抢眼), 保留行动指令。
@@ -980,6 +983,9 @@ async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
         return False
     lark_title, banner = await _risk_deco(lark_title)
     body = (banner + "\n\n" if banner else "") + content
+    # 大盘三档戳(v1.7.740): 多用户卡也统一挂 header 小标签, 与 send_dual_card 一致。
+    rtag = await _risk_tag(lark_title)
+    tags = [rtag] if rtag else None
 
     lark_ok = False
     if lark_on and lark_webhook:
@@ -988,7 +994,8 @@ async def send_dual_card_to(content: str, *, lark_title: str, elements: list,
             if banner:
                 elements = [lark_notifier.md_element(banner)] + list(elements)
             lark_ok = await lark_notifier.post_lark_card_v2(
-                lark_webhook, lark_title, elements, link_url=link_url, link_text=link_text)
+                lark_webhook, lark_title, elements, link_url=link_url, link_text=link_text,
+                text_tags=tags)
             if not lark_ok:
                 logger.warning(f"[send_dual_card_to] 飞书表格卡失败, 回退纯文本卡: {lark_title}")
         if not lark_ok:

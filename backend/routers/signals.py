@@ -134,11 +134,18 @@ async def market_risk_status(user: Annotated[dict, Depends(get_current_user)]):
     「7月8日 16:40起 · 已8个交易日」; 不能用 latest.updated_at — EOD 每天 upsert 会刷新它。
     """
     from backend.models.repo._db import _fetchall
-    from backend.services.market_risk_controller import streak_from_rows
+    from backend.services.market_risk_controller import (
+        risk_score_of, streak_from_rows, tier_label_of)
     rows = await _fetchall(
         "SELECT * FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 60")
     _st, since_at, since_days = streak_from_rows(rows)
-    return {"latest": rows[0] if rows else None, "rows": rows,
+    latest = rows[0] if rows else None
+    # 0-100 风险分(展示用, Deploy 2A): 档位仍由状态机定, 分数只在带内定位。
+    score = tier = None
+    if latest:
+        score = risk_score_of(str(latest["state"]), latest)
+        tier = tier_label_of(str(latest["state"]))
+    return {"latest": latest, "rows": rows, "score": score, "tier": tier,
             "since_at": since_at, "since_days": since_days}
 
 

@@ -273,6 +273,54 @@ def _run_state_machine(prev_state: str, today: dict, breadth: float | None) -> s
         return RED
 
 
+# ── 0-100 风险分 (v1.7.740, Deploy 2A: 展示用) ──
+# 数值越高越危险。**档位仍由 OOS 背书的状态机(_run_state_machine)定夺** —— 本分数不参与
+# 档位决策、不改档位边界, 故不触发回测复验(用户 0721 拍板: 分数只做展示)。做法: 每档占一段
+# 分数带, 5 个已 OOS 标定的全市场指标折成 0..1「风险压力」, 在本档带内定位 → 数字连续可读且
+# 永不与三档戳(正常/谨慎/危险)矛盾。
+_SCORE_BAND = {GREEN: (0, 33), YELLOW: (34, 66), RED: (67, 100)}
+
+
+def _clamp01(x: float) -> float:
+    return max(0.0, min(1.0, x))
+
+
+def _risk_pressure(ind: dict) -> float:
+    """5 个 OOS 指标 → 0..1 风险压力(越高越危险)。逐维用各自的进入/退出阈值线性归一,
+    缺失的维度直接跳过(realtime 行只有涨跌比/均收益), 全缺则中性 0.5。"""
+    parts: list[float] = []
+    br = ind.get("breadth_ma20")
+    if br is not None:
+        parts.append(_clamp01((YELLOW_EXIT_BREADTH - float(br)) / (YELLOW_EXIT_BREADTH - RED_ENTER_BREADTH)))
+    ar = ind.get("advance_ratio")
+    if ar is not None:
+        parts.append(_clamp01((YELLOW_EXIT_ADVANCE - float(ar)) / (YELLOW_EXIT_ADVANCE - RED_ENTER_BREADTH)))
+    a5 = ind.get("avg_ret_ma5")
+    if a5 is not None:
+        parts.append(_clamp01((0.0 - float(a5)) / (0.0 - RED_ENTER_AVG5 * 3)))  # 0% → -3% 铺满
+    l52 = ind.get("low52_ratio")
+    if l52 is not None:
+        parts.append(_clamp01((float(l52) - 5.0) / (RED_ENTER_LOW52 + 5.0 - 5.0)))
+    zr = ind.get("zha_rate")
+    if zr is not None:
+        parts.append(_clamp01((float(zr) - YELLOW_ENTER_ZHA + 20.0) / 30.0))  # 40% → 70% 铺满
+    return sum(parts) / len(parts) if parts else 0.5
+
+
+def risk_score_of(state: str, ind: dict) -> int:
+    """0-100 风险分(展示): 状态机档位定分数带, 5 指标压力在带内定位。越高越危险。"""
+    lo, hi = _SCORE_BAND.get(state, _SCORE_BAND[YELLOW])
+    return int(round(lo + _risk_pressure(ind) * (hi - lo)))
+
+
+# 三档展示名(retier: 与推送卡/前端顶栏统一; RED 由「空仓」软化为「危险」见 Deploy 2B)。
+_TIER_LABEL = {GREEN: "正常", YELLOW: "谨慎", RED: "空仓"}
+
+
+def tier_label_of(state: str) -> str:
+    return _TIER_LABEL.get(state, "正常")
+
+
 # ── 公共接口 ──
 
 def _invalidate_cache() -> None:

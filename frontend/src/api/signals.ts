@@ -51,6 +51,8 @@ export interface MarketRiskRow {
 export interface MarketRiskResp {
   latest: MarketRiskRow | null
   rows: MarketRiskRow[]
+  score?: number | null          // 0-100 大盘风险分(展示用, 越高越危险; 档位仍由状态机定, v1.7.740)
+  tier?: string | null           // 三档名: 正常/谨慎/空仓
   since_at?: string | null       // 当前状态连续段第一天的时刻(顶栏横幅「几点起」锚点)
   since_days?: number            // 当前状态已连续几个交易日
 }

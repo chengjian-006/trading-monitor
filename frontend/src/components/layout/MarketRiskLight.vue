@@ -10,6 +10,8 @@ import { useVisiblePolling } from '../../composables/useVisiblePolling'
 const router = useRouter()
 const route = useRoute()
 const latest = ref<MarketRiskRow | null>(null)
+// v1.7.740: 0-100 大盘风险分(越高越危险); 档位仍由状态机定, 分数只做展示。
+const score = ref<number | null>(null)
 
 const state = computed(() => (latest.value?.state ?? '').toUpperCase())
 const label = computed(() =>
@@ -19,14 +21,17 @@ const tip = computed(() => {
   if (!l) return ''
   const b = l.breadth_ma20 == null ? '—' : l.breadth_ma20.toFixed(0)
   const a = l.advance_ratio == null ? '—' : l.advance_ratio.toFixed(0)
-  const base = `市场风险 ${label.value.slice(2)}（${l.trade_date}${l.source === 'intraday' ? ' · 盘中预升级' : ''}）\n涨跌比 ${a}% · 广度MA20 ${b}%`
+  const s = score.value == null ? '' : `风险分 ${score.value}/100（越高越危险）\n`
+  const base = `${s}市场风险 ${label.value.slice(2)}（${l.trade_date}${l.source === 'intraday' ? ' · 盘中预升级' : ''}）\n涨跌比 ${a}% · 广度MA20 ${b}%`
   // v1.7.686: 旧提示写死「胜率30%均值-3.6%」(带前视偏差的旧回测), 改用 OOS 实测值
   return state.value === 'RED' ? `${base}\n实测此档买点单笔均 -2.3%（正常档 -0.5%），建议停开新仓` : `${base}\n点击查看监控看板详情`
 })
 
 async function load() {
   try {
-    latest.value = (await fetchMarketRisk()).latest
+    const resp = await fetchMarketRisk()
+    latest.value = resp.latest
+    score.value = resp.score ?? null
   } catch {
     /* 顶栏静默 */
   }
@@ -43,6 +48,7 @@ function go() {
           :title="tip" :aria-label="`${label}，点击查看监控看板`" @click="go">
     <span class="lamp" />
     <span class="txt">{{ label }}</span>
+    <span v-if="score != null" class="score">{{ score }}</span>
   </button>
 </template>
 
@@ -63,6 +69,18 @@ function go() {
 }
 .risk-light:hover { opacity: 0.75; }
 .lamp { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+/* 0-100 风险分: 小号等宽数字, 融入母线不抢戏 (v1.7.740) */
+.score {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-subtle);
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--fill-subtle, rgba(128, 128, 128, 0.12));
+}
+.risk-light.yellow .score { color: var(--warn-fg); }
+.risk-light.red .score { color: var(--danger-fg); }
 
 /* 绿: 安静小点 + 淡字 */
 .risk-light.green .lamp { background: var(--success-fg); }

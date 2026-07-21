@@ -32,9 +32,11 @@ def test_yellow_gives_tag(monkeypatch):
     assert _run(notifier._with_risk_flag("📊 盘面播报")) == "📊 盘面播报"
 
 
-def test_green_no_tag(monkeypatch):
+def test_green_gives_normal_tag(monkeypatch):
+    # v1.7.740 (Deploy 2A): 三档统一戳 —— 正常档也挂「大盘正常/green」小标签(此前 GREEN 不挂)。
+    # 正文横幅仍只在谨慎/空仓档出现(_with_risk_flag/_risk_deco 不变)。
     _set_state(monkeypatch, "GREEN")
-    assert _run(notifier._risk_tag("📈 买入 · [X]")) is None
+    assert _run(notifier._risk_tag("📈 买入 · [X]")) == ("大盘正常", "green")
     assert _run(notifier._with_risk_flag("📈 买入 · [X]")) == "📈 买入 · [X]"
 
 
