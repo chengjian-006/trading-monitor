@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.742',
+    date: '2026-07-21',
+    title: '藏龙岛观点采集收尾:服务进程找不到 lark-cli 的补搜',
+    changes: [
+      {
+        text: '修复藏龙岛观点采集在服务进程里报「lark-cli 未安装」:systemd 启动的服务 PATH 不含 /usr/local/bin(npm 全局命令都装在那),手动测试正常、服务里就是找不到。现在首查失败自动补搜常见安装位置,采集正式跑通。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.741',
     date: '2026-07-21',
     title: '修「新定时任务被静默暂停」+ 藏龙岛观点采集正式通电',

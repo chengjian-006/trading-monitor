@@ -15,6 +15,15 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# systemd 单元的 PATH 往往不含 /usr/local/bin(npm -g 装的 lark-cli 就在那),
+# 服务进程里 which 会失败 —— 实测 v1.7.741 上线后拉取报「未安装或不在 PATH」。
+_FALLBACK_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+
+def _resolve_cli(exe: str) -> str:
+    """解析 lark-cli 可执行路径: 先按进程 PATH 找, 找不到再搜常见安装位置。"""
+    return shutil.which(exe) or shutil.which(exe, path=_FALLBACK_PATH) or exe
+
 
 class LarkCoachFetchError(Exception):
     """拉取失败(lark-cli 非零退出 / ok:false / token 过期等)。"""
@@ -88,7 +97,7 @@ async def fetch_coach_messages(cfg: dict) -> list[dict]:
         raise LarkCoachFetchError("chat_id / sender_open_id 未配置")
 
     # shutil.which 解析真实路径(Windows 认 .cmd/.exe 后缀, Linux 找 PATH); 找不到给清晰报错。
-    resolved = shutil.which(exe) or exe
+    resolved = _resolve_cli(exe)
     args = [resolved, "im", "+chat-messages-list",
             "--chat-id", chat_id, "--as", "user",
             "--sort", "desc", "--page-size", str(page_size)]
