@@ -24,11 +24,30 @@ function fmtDay(ts: number): string {
 
 // 一条消息拆成「老师回答」+ 可选「被引用的提问」。
 // lark-cli 把回复格式化成 "回答正文 ------------ -07-21 10:24 学员:提问",
-// 分隔符是一串横杠(实测 12 个), 数量不作保证 —— 按「空白+5个以上横杠+空白」容错匹配。
+// 分隔符是一串横杠(实测 5~12 个不等), 且横杠前不保证有空白(实见"出现。-----"直连),
+// 故只要求「5个以上横杠+空白」; 引用段开头孤立的日期横杠(如 -07-21)一并去掉。
 function splitMsg(content: string): { answer: string; quoted: string } {
-  const m = content.match(/\s-{5,}\s/)
+  const m = content.match(/-{5,}\s/)
   if (!m || m.index === undefined) return { answer: content.trim(), quoted: '' }
-  return { answer: content.slice(0, m.index).trim(), quoted: content.slice(m.index + m[0].length).trim() }
+  const quoted = content.slice(m.index + m[0].length).trim().replace(/^-(?=\d)/, '')
+  return { answer: content.slice(0, m.index).trim(), quoted }
+}
+
+// 正文只给「短标签＋中文冒号」(如 核心票：/注意一下：)加粗, 其余常规字重。
+// 判定=紧跟全角冒号的1~8个非标点字符, 且位于开头或句读之后, 避免长句误判成标签。
+function emphasize(text: string): { t: string; b: boolean }[] {
+  const segs: { t: string; b: boolean }[] = []
+  const re = /(^|[\s；;。！？!?、，,])([^\s，,。；;：:！？!?]{1,8})：/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    const start = m.index + m[1].length
+    if (start > last) segs.push({ t: text.slice(last, start), b: false })
+    segs.push({ t: m[2] + '：', b: true })
+    last = start + m[2].length + 1
+  }
+  if (last < text.length) segs.push({ t: text.slice(last), b: false })
+  return segs
 }
 
 const filtered = computed(() => {
@@ -182,7 +201,7 @@ onMounted(load)
               <NSkeleton v-else height="160px" width="240px" style="border-radius:8px" />
             </template>
             <template v-else>
-              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span>{{ splitMsg(p.content).answer }}</div>
+              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span><span v-for="(seg, si) in emphasize(splitMsg(p.content).answer)" :key="si" :class="seg.b ? 'em' : undefined">{{ seg.t }}</span></div>
               <div v-if="splitMsg(p.content).quoted" class="quoted">
                 <NIcon :component="ChatbubbleEllipsesOutline" class="q-ico" />
                 <span>{{ splitMsg(p.content).quoted }}</span>
@@ -245,8 +264,9 @@ onMounted(load)
   box-shadow: 0 1px 2px rgba(20,30,50,.05);
 }
 /* 老师的话加粗+主题蓝突出(用户指定); 学员引用保持灰色弱化形成对比 */
-.answer { font-size: 14px; line-height: 1.7; font-weight: 600; color: var(--accent-fg); white-space: pre-wrap; word-break: break-word; }
+.answer { font-size: 14px; line-height: 1.7; font-weight: 400; color: var(--fg-default); white-space: pre-wrap; word-break: break-word; }
 .answer .coach-name { font-weight: 700; }
+.answer .em { font-weight: 700; }
 .quoted {
   margin-top: 10px; display: flex; gap: 6px; align-items: flex-start;
   font-size: 12px; line-height: 1.6; color: var(--fg-subtle);
