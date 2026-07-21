@@ -105,6 +105,9 @@ from backend.models.repo.trades import (  # noqa: F401
 from backend.models.repo.blogger_posts import (  # noqa: F401
     save_post, get_recent_posts, list_posts, mark_pushed,
 )
+from backend.models.repo.lark_coach_posts import (  # noqa: F401
+    save_coach_post, list_coach_posts,
+)
 from backend.models.repo.risk_ann import (  # noqa: F401
     save_risk_ann, list_risk_anns,
 )

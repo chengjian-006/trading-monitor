@@ -9,6 +9,7 @@ const router = createRouter({
     { path: '/pool', name: 'pool', component: () => import('../views/PoolView.vue') },
     { path: '/alert-center', name: 'alert-center', component: () => import('../views/AlertCenterView.vue') },
     { path: '/wencai-opinion', name: 'wencai-opinion', component: () => import('../views/WencaiOpinionView.vue') },
+    { path: '/lark-coach', name: 'lark-coach', component: () => import('../views/LarkCoachView.vue') },
     { path: '/intraday', name: 'intraday', component: () => import('../views/IntraDayView.vue') },
     { path: '/history', name: 'history', component: () => import('../views/HistoryView.vue') },
     { path: '/popularity', name: 'popularity', component: () => import('../views/PopularityView.vue') },

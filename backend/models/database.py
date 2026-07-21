@@ -566,6 +566,23 @@ SCHEMA_STATEMENTS = [
         INDEX idx_fid_posted (blogger_fid, posted_at)
     )
     """,
+    # 飞书群「藏龙岛观点」— 只存群主(藏龙岛)发的消息, message_id 唯一去重, 不推送。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_lark_coach_posts (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        message_id      VARCHAR(80) NOT NULL,
+        chat_id         VARCHAR(80) NOT NULL DEFAULT '',
+        sender_open_id  VARCHAR(80) NOT NULL DEFAULT '',
+        coach_name      VARCHAR(50) NOT NULL DEFAULT '',
+        posted_at       DATETIME DEFAULT NULL,
+        content         MEDIUMTEXT,
+        msg_type        VARCHAR(20) NOT NULL DEFAULT 'text',
+        raw             MEDIUMTEXT,
+        fetched_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE INDEX uk_coach_msg (message_id),
+        INDEX idx_coach_posted (posted_at)
+    )
+    """,
     # 自选股风险公告去重台账 (v1.7.x) — 黑天鹅(灰犀牛)预警:
     # risk_announcement_scanner 每日18:00扫自选股巨潮公告, 命中监管/财务硬信号(立案/处罚/问询函/非标/换所/风险警示)
     # 即软提醒; 靠 uk_risk_ann(code, ann_id) 唯一索引同一公告只推一次.
@@ -1832,6 +1849,9 @@ async def _seed_scheduled_tasks(conn):
             ("blogger_posts_scan", "博主发帖跟踪",
              "每5分钟拉同花顺投资圈博主(全能的野人)新动态, 解析个股标签, 新帖推送企微/飞书", "interval",
              {"seconds": 300}, "scan_blogger_posts"),
+            ("lark_coach_scan", "藏龙岛观点跟踪",
+             "交易时段每1分钟/盘后每10分钟拉飞书群群主(藏龙岛)消息入库(只存不推), 供藏龙岛观点页", "interval",
+             {"seconds": 60}, "scan_coach_posts"),
             ("near_buy_refresh", "临近买点快照",
              "每3分钟扫全自选+持仓, 算各票距四买点(弱势极限/回踩10MA缩量后突破昨高/回踩20MA缩量后突破昨高/强势起点)的接近度(触发/接近两档), 写 cfzy_sys_near_buy_snapshot, 供监控看板临近买点榜", "interval",
              {"seconds": 180}, "refresh_near_buy_snapshot"),

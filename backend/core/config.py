@@ -65,6 +65,17 @@ DEFAULT_CONFIG = {
         ],
         "result_limit": 50,      # 每条语句最多落库前 N 只(问财默认按其相关度排序)
     },
+    # 飞书群「藏龙岛观点」跟踪。只抓群主(sender_open_id)发的消息入库, 不推送(用户本人飞书已收到)。
+    # enabled=False 占位: 需在服务器装 lark-cli 并 auth login(user 身份)后再开, 否则扫描器早返回不跑。
+    # 采集走 backend/fetcher/lark_coach.py(shell 调 lark-cli)。
+    "lark_coach_tracking": {
+        "enabled": False,
+        "chat_id": "oc_8f4516772f00161f23de9d3b10c21abd",       # 混江龙群
+        "sender_open_id": "ou_bcbe541eeee55c969cc941efb1cdb266",  # 藏龙岛(群主)
+        "coach_name": "藏龙岛",
+        "page_size": 30,         # 每轮拉最近 N 条(INSERT IGNORE 去重, 只要覆盖两轮间新增即可)
+        "lark_cli": "lark-cli",  # 可执行名或绝对路径(服务器装好后即可)
+    },
 }
 
 

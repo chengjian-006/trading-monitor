@@ -8,6 +8,7 @@ import {
   RocketOutline, TrendingUpOutline,
   BarChartOutline,
   WalletOutline, ListOutline, CalculatorOutline, NotificationsOutline, JournalOutline,
+  ChatbubbleEllipsesOutline,
 } from '@vicons/ionicons5'
 import { useAuthStore } from '../../stores/auth'
 
@@ -51,6 +52,7 @@ const menuGroups: MenuGroup[] = [
     children: [
       { key: 'limit-up', label: '涨停复盘', path: '/limit-up', icon: BarChartOutline },
       { key: 'popularity', label: '人气分析', path: '/popularity', icon: TrendingUpOutline },
+      { key: 'lark-coach', label: '藏龙岛观点', path: '/lark-coach', icon: ChatbubbleEllipsesOutline },
       { key: 'alert-overview', label: '预警总览', path: '/alert-overview', icon: ListOutline },
     ],
   },
