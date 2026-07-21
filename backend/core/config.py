@@ -78,13 +78,15 @@ DEFAULT_CONFIG = {
         # v1.7.746: 入库后实时转发一份到用户自建群【混江龙】(user 身份发送; 图片按原 image_key 重发)。
         # 注: load_config 顶层整段覆盖, 服务器 config.json 若缺这些键, scanner 侧会用本默认段补齐。
         "relay_enabled": True,
-        # 目标=用户自己的会话: 原定自建群【混江龙】是跨租户外部群, user身份发送被外部群策略拦(230027),
-        # 用户拍板改发自己会话(1对1自聊, 内部会话无外部限制, 已实测通)
-        "relay_chat_id": "oc_8d238bb333c6af3770adadf9b892aba9",
-        # 发送走个人号应用档案(lark-cli --profile): 公司租户 send_as_user 需管理员审批走不通
-        "relay_profile": "personal",
-        # 发送身份: user=以本人名义(需 im:message.send_as_user scope) / bot=机器人(拉进群即可)
-        "relay_send_as": "user",
+        # 定稿通道=群自定义机器人 webhook(不受外部群/应用权限限制): URL 是敏感信息不进代码库,
+        # 配在服务器 config.json 本段的 relay_webhook 键; 没配则回退 lark-cli 直发(下两键)。
+        "relay_webhook": "",
+        "relay_chat_id": "oc_be05b1cadcef6056bfe038781793717a",  # 回退直发的目标群
+        # 图片上传/回退直发用的应用档案(lark-cli --profile, 服务器上 config init 名为 coachbot,
+        # 个人租户应用「藏龙岛观点」, 已开 im:message+im:resource)
+        "relay_profile": "coachbot",
+        # 回退直发身份: bot=机器人(拉进群即可发) / user=以本人名义(需 send_as_user scope)
+        "relay_send_as": "bot",
     },
 }
 

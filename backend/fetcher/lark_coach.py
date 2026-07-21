@@ -192,6 +192,42 @@ async def send_chat_text(cfg: dict, chat_id: str, text: str) -> None:
                          "--text", text, *_relay_send_args(cfg)])
 
 
+# ── 群自定义机器人 Webhook 通道(定稿方案): 不受外部群/应用权限限制, 文本直发;
+#    图片先经应用(coachbot 档案)上传拿 image_key 再发 ──
+
+async def send_webhook_message(url: str, payload: dict) -> None:
+    """向群自定义机器人 webhook POST 一条消息。失败抛 LarkCoachFetchError。"""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+    except httpx.HTTPError as e:
+        raise LarkCoachFetchError(f"webhook 请求失败: {e}") from e
+    if resp.status_code != 200:
+        raise LarkCoachFetchError(f"webhook HTTP {resp.status_code}: {resp.text[:200]}")
+    body = resp.json() if resp.content else {}
+    if body.get("code", body.get("StatusCode", -1)) != 0:
+        raise LarkCoachFetchError(f"webhook 返回异常: {str(body)[:200]}")
+
+
+async def upload_relay_image(cfg: dict, file_dir: str, filename: str) -> str:
+    """把本地图片经发送档案的应用上传, 返回 image_key(供 webhook 发图)。
+
+    im images create 仅支持 bot 身份; --file 只收 cwd 相对路径, 切 cwd 到文件目录。
+    """
+    profile = cfg.get("relay_profile", "")
+    args = ["im", "images", "create", "--as", "bot",
+            "--data", '{"image_type":"message"}', "--file", f"image={filename}"]
+    if profile:
+        args += ["--profile", profile]
+    payload = await _run_cli(cfg, args, timeout=60, cwd=file_dir)
+    key = (payload.get("data") or {}).get("image_key", "")
+    if not key:
+        raise LarkCoachFetchError(f"上传图片未返回 image_key: {str(payload)[:200]}")
+    return key
+
+
 async def send_chat_image_file(cfg: dict, chat_id: str, file_dir: str, filename: str) -> None:
     """把本地图片文件发到目标群(CLI 自动经发送档案的应用上传)。
 

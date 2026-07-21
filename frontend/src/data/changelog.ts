@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.749',
+    date: '2026-07-22',
+    title: '藏龙岛观点转发定稿:群自定义机器人 webhook 直发用户群',
+    changes: [
+      {
+        text: '转发通道定稿:改走群自定义机器人 webhook(不受外部群与应用权限限制),文字带时间戳直发、图片经应用上传后原图进群,失败自动降级文本并换轮重试。盘中每1分钟/盘后每10分钟实时跟进,含历史消息回填。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.748',
     date: '2026-07-22',
     title: '藏龙岛观点页排版:正文黑色只粗重点+对话拆分容错',

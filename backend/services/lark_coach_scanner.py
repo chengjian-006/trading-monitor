@@ -14,6 +14,7 @@ from backend.core.config import load_config, DEFAULT_CONFIG
 from backend.core.trading_calendar import is_trading_time
 from backend.fetcher.lark_coach import (
     fetch_coach_messages, send_chat_text, send_chat_image_file,
+    send_webhook_message, upload_relay_image,
     download_message_image, extract_image_key,
     LarkCoachFetchError,
 )
@@ -93,19 +94,28 @@ async def scan_coach_posts():
 
 
 async def _relay_pending(cfg: dict):
-    """把 relayed_at 为空的消息按时序转发到 relay_chat_id 群(user 身份)。
+    """把 relayed_at 为空的消息按时序转发到用户的群(定稿走群自定义机器人 webhook)。
 
-    文本按「【藏龙岛 MM-DD HH:MM】正文」发; 图片按原 image_key 重发。
-    单条失败即停本轮(多为权限/限流, 换轮重试), 不整批标记防丢。
+    文本按「【藏龙岛 MM-DD HH:MM】正文」发; 图片=默认档案下载→coachbot 应用上传拿
+    image_key→webhook 发图, 图片链路失败降级文本占位。配 relay_webhook 走 webhook 通道,
+    没配则回退 lark-cli 直发(relay_chat_id+relay_send_as)。
+    单条失败即停本轮(多为限流/网络, 换轮重试), 不整批标记防丢。
     """
+    webhook = cfg.get("relay_webhook", "")
     chat_id = cfg.get("relay_chat_id", "")
-    if not cfg.get("relay_enabled", False) or not chat_id:
+    if not cfg.get("relay_enabled", False) or not (webhook or chat_id):
         return
 
     import asyncio as _asyncio
-
     from pathlib import Path
+
     media_dir = str(Path(__file__).resolve().parents[2] / "data" / "coach_media")
+
+    async def _send_text(text: str):
+        if webhook:
+            await send_webhook_message(webhook, {"msg_type": "text", "content": {"text": text}})
+        else:
+            await send_chat_text(cfg, chat_id, text)
 
     rows = await repository.list_unrelayed_coach_posts(limit=40)
     sent = 0
@@ -115,18 +125,21 @@ async def _relay_pending(cfg: dict):
         name = r.get("coach_name") or "藏龙岛"
         try:
             if r.get("msg_type") == "image" and (key := extract_image_key(r.get("content", ""))):
-                # 图片: 先经默认档案落本地缓存, 再按本地文件经个人档案上传发送;
-                # 图片链路失败降级为文本占位, 不卡整条转发
                 try:
                     fname = f"{r['message_id']}.img"
                     if not (Path(media_dir) / fname).exists():
                         await download_message_image(cfg, r["message_id"], key, media_dir, fname)
-                    await send_chat_image_file(cfg, chat_id, media_dir, fname)
+                    if webhook:
+                        img_key = await upload_relay_image(cfg, media_dir, fname)
+                        await send_webhook_message(
+                            webhook, {"msg_type": "image", "content": {"image_key": img_key}})
+                    else:
+                        await send_chat_image_file(cfg, chat_id, media_dir, fname)
                 except LarkCoachFetchError as e:
                     logger.warning(f"[lark_coach] 图片转发降级为文本({r['message_id']}): {e}")
-                    await send_chat_text(cfg, chat_id, f"【{name} {stamp}】[图片] 见「观潮」藏龙岛观点页或原群")
+                    await _send_text(f"【{name} {stamp}】[图片] 见「观潮」藏龙岛观点页或原群")
             else:
-                await send_chat_text(cfg, chat_id, f"【{name} {stamp}】{r.get('content', '')}")
+                await _send_text(f"【{name} {stamp}】{r.get('content', '')}")
         except LarkCoachFetchError as e:
             logger.warning(f"[lark_coach] 转发失败(已转{sent}条, 本轮中止换轮重试): {e}")
             return
@@ -135,4 +148,4 @@ async def _relay_pending(cfg: dict):
         await _asyncio.sleep(0.3)   # 轻限速, 防触发飞书发送频控
 
     if sent:
-        logger.info(f"[lark_coach] 本轮转发 {sent} 条到自建群")
+        logger.info(f"[lark_coach] 本轮转发 {sent} 条到用户群")
