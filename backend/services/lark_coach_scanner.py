@@ -13,7 +13,8 @@ import time
 from backend.core.config import load_config, DEFAULT_CONFIG
 from backend.core.trading_calendar import is_trading_time
 from backend.fetcher.lark_coach import (
-    fetch_coach_messages, send_chat_text, send_chat_image, extract_image_key,
+    fetch_coach_messages, send_chat_text, send_chat_image_file,
+    download_message_image, extract_image_key,
     LarkCoachFetchError,
 )
 from backend.models import repository
@@ -103,6 +104,9 @@ async def _relay_pending(cfg: dict):
 
     import asyncio as _asyncio
 
+    from pathlib import Path
+    media_dir = str(Path(__file__).resolve().parents[2] / "data" / "coach_media")
+
     rows = await repository.list_unrelayed_coach_posts(limit=40)
     sent = 0
     for r in rows:
@@ -111,7 +115,16 @@ async def _relay_pending(cfg: dict):
         name = r.get("coach_name") or "藏龙岛"
         try:
             if r.get("msg_type") == "image" and (key := extract_image_key(r.get("content", ""))):
-                await send_chat_image(cfg, chat_id, key)
+                # 图片: 先经默认档案落本地缓存, 再按本地文件经个人档案上传发送;
+                # 图片链路失败降级为文本占位, 不卡整条转发
+                try:
+                    fname = f"{r['message_id']}.img"
+                    if not (Path(media_dir) / fname).exists():
+                        await download_message_image(cfg, r["message_id"], key, media_dir, fname)
+                    await send_chat_image_file(cfg, chat_id, media_dir, fname)
+                except LarkCoachFetchError as e:
+                    logger.warning(f"[lark_coach] 图片转发降级为文本({r['message_id']}): {e}")
+                    await send_chat_text(cfg, chat_id, f"【{name} {stamp}】[图片] 见「观潮」藏龙岛观点页或原群")
             else:
                 await send_chat_text(cfg, chat_id, f"【{name} {stamp}】{r.get('content', '')}")
         except LarkCoachFetchError as e:
