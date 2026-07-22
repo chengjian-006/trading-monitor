@@ -69,17 +69,26 @@ const chartWidth = ref(Math.max(CHART_W_MIN, Number(localStorage.getItem('poolCh
 const poolMainRowRef = ref<HTMLElement | null>(null)
 const resizingUi = ref(false)   // 拖拽中(高亮分隔条)
 let resizing = false
+let resizeRaf = 0
 function onResizeMove(e: MouseEvent) {
   if (!resizing || !poolMainRowRef.value) return
-  const rect = poolMainRowRef.value.getBoundingClientRect()
-  let w = rect.right - e.clientX
-  w = Math.max(CHART_W_MIN, Math.min(w, rect.width - TABLE_W_MIN))
-  chartWidth.value = w
+  // rAF 节流: 每帧只算一次, 拖动跟手不卡(每次 mousemove 同步改宽会触发布局+图重绘抖动)
+  const clientX = e.clientX
+  if (resizeRaf) return
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0
+    if (!poolMainRowRef.value) return
+    const rect = poolMainRowRef.value.getBoundingClientRect()
+    let w = rect.right - clientX
+    w = Math.max(CHART_W_MIN, Math.min(w, rect.width - TABLE_W_MIN))
+    chartWidth.value = w
+  })
 }
 function stopResize() {
   if (!resizing) return
   resizing = false
   resizingUi.value = false
+  if (resizeRaf) { cancelAnimationFrame(resizeRaf); resizeRaf = 0 }
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
   localStorage.setItem('poolChartWidth', String(Math.round(chartWidth.value)))

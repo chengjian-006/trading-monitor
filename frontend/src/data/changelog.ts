@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.765',
+    date: '2026-07-22',
+    title: '图表栏拖拽调宽加rAF节流,跟手丝滑不卡',
+    changes: [
+      {
+        text: '拖动分隔条调宽时按动画帧节流(每帧只算一次宽度),避免每次鼠标移动都同步改宽触发布局+图表重绘的抖动卡顿,拖动跟手更顺。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.764',
     date: '2026-07-22',
     title: '修图表栏拖拽不生效 + 分隔条加宽好抓',
