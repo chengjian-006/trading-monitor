@@ -6,6 +6,25 @@ export async function fetchStocks(signal?: AbortSignal): Promise<Stock[]> {
   return data
 }
 
+// 昨日(上一交易日)自选池广度 — 与前端「当日」(实时行情算)同口径, 供两日对照
+export interface PoolBreadth {
+  trade_date: string
+  total: number
+  up: number
+  down: number
+  flat: number
+  limit_up: number
+  limit_down: number
+  no_data: number
+  avg: number | null
+  up_ratio: number | null
+}
+
+export async function fetchPoolBreadthYesterday(): Promise<PoolBreadth> {
+  const { data } = await client.get('/api/stocks/pool-breadth/yesterday', { timeout: 20000 })
+  return data
+}
+
 export async function addStock(params: {
   code: string
   name?: string

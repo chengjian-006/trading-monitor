@@ -82,6 +82,77 @@ async def _attach_pct_5d(stocks: list[dict]) -> None:
             s["pct_5d"] = round((price - ref) / ref * 100, 2)
 
 
+def _compute_pool_breadth(codes: list[str], bars_by_code: dict, code2name: dict, target_date: str) -> dict:
+    """纯函数(便于单测): 给定 {code:[日线bar asc]} + {code:name} + 目标交易日 → 自选池广度统计。
+    每只票取 target_date 当天收盘与其前一根收盘算 pct(K线缓存无 pct 列, 须现算); 缺任一根记 no_data。
+    涨跌停用后端 limit_calc(主板±10/ST±5/双创±20/北交所±30, tol 0.15)历史日阈值判定。"""
+    from backend.utils.limit_calc import get_limit_pct, is_at_limit_up
+
+    up = down = flat = lu = ld = total = no_data = 0
+    ssum = 0.0
+    for code in codes:
+        bars = bars_by_code.get(code) or []
+        ti = next((i for i, b in enumerate(bars) if str(b["trade_date"])[:10] == target_date), None)
+        if ti is None or ti == 0:
+            no_data += 1
+            continue
+        try:
+            c = float(bars[ti]["close"]); pc = float(bars[ti - 1]["close"])
+        except (TypeError, ValueError):
+            no_data += 1
+            continue
+        if pc <= 0:
+            no_data += 1
+            continue
+        pct = (c - pc) / pc * 100
+        total += 1
+        ssum += pct
+        if pct > 0:
+            up += 1
+        elif pct < 0:
+            down += 1
+        else:
+            flat += 1
+        name = code2name.get(code, "")
+        if is_at_limit_up(code, pct, name):
+            lu += 1
+        elif pct <= -get_limit_pct(code, name) + 0.15:
+            ld += 1
+    return {
+        "trade_date": target_date, "total": total,
+        "up": up, "down": down, "flat": flat,
+        "limit_up": lu, "limit_down": ld, "no_data": no_data,
+        "avg": round(ssum / total, 2) if total else None,
+        "up_ratio": round(up / total * 100) if total else None,
+    }
+
+
+@router.get("/pool-breadth/yesterday")
+async def pool_breadth_yesterday(user: Annotated[dict, Depends(get_current_user)]):
+    """昨日(上一交易日)自选池广度: 与前端「当日」(实时行情算)同口径, 供两日对照。
+    「昨日」= 前端当前展示日(effective_trade_date, 盘前/周末落到上一交易日)再往前一个交易日,
+    从 K线缓存按该日收盘 vs 前一日收盘现算, 与实时「当日」对齐不重日。"""
+    from datetime import date
+    from backend.core.trading_calendar import effective_trade_date, prev_trading_day
+
+    y = prev_trading_day(date.fromisoformat(effective_trade_date()))
+    y_str = y.isoformat()
+    stocks = await repository.list_stocks(int(user["id"]))
+    codes = [s["code"] for s in stocks if s.get("code")]
+    if not codes:
+        return {"trade_date": y_str, "total": 0, "up": 0, "down": 0, "flat": 0,
+                "limit_up": 0, "limit_down": 0, "no_data": 0, "avg": None, "up_ratio": None}
+    code2name = {s["code"]: s.get("name") or "" for s in stocks}
+    # 往前多取 12 天确保拿到 y 及其前一根(跨长假); fetch 返回 trade_date > min_td 的升序 bar
+    min_td = (y - timedelta(days=12)).isoformat()
+    try:
+        bars = await repository.fetch_kline_cache_for_codes(codes, min_td)
+    except Exception as e:
+        logger.warning(f"[pool_breadth] K线缓存取数失败: {e}")
+        bars = {}
+    return _compute_pool_breadth(codes, bars, code2name, y_str)
+
+
 @router.get("")
 async def list_stocks(user: Annotated[dict, Depends(get_current_user)]):
     stocks = await repository.list_stocks(user["id"])

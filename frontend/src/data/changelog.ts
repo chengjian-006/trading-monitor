@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.781',
+    date: '2026-07-22',
+    title: '自选池市场广度条改「今日 vs 昨日」双行对照表',
+    changes: [
+      {
+        text: '市场广度条重做成双行对照表:今日(实时行情算,彩色加粗)一行、昨日(上一交易日,灰淡)一行,均涨跌/涨/跌/平/涨停/跌停/红盘 逐列对齐,再加一行 Δ 变化(按多空红绿着色:偏多↑红/偏空↓绿)。',
+        tag: 'improve',
+      },
+      {
+        text: '后端新增 GET /api/stocks/pool-breadth/yesterday:按上一交易日从K线缓存现算自选池广度(收盘vs前收盘,涨跌停走后端limit_calc历史阈值),与前端实时「当日」同口径不重日;纯函数 _compute_pool_breadth 带单测。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.780',
     date: '2026-07-22',
     title: '藏龙岛观点:正文里被提及的个股标成链接, 点击跳同花顺个股页',
