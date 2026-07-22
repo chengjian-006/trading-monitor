@@ -18,6 +18,7 @@ import { fetchThsGroups, importThsGroup, compareThsUpload } from '../api/config'
 import type { ThsCompareResult } from '../types'
 import StockTable from '../components/stock/StockTable.vue'
 import StockList from '../components/stock/StockList.vue'
+import PoolChartPanel from '../components/stock/PoolChartPanel.vue'
 import PoolStatsBar from '../components/stock/PoolStatsBar.vue'
 import StrategyOverviewDrawer from '../components/stock/StrategyOverviewDrawer.vue'
 import SignalSummaryBar from '../components/stock/SignalSummaryBar.vue'
@@ -34,6 +35,8 @@ const message = useGlobalMessage()
 const stockTableRef = ref<InstanceType<typeof StockTable> | null>(null)
 const showStrategyDrawer = ref(false)
 const showSparkline = ref(false)
+import { watch } from 'vue'
+
 // v1.7.x: SignalSummaryBar 从 StockTable 内部移到 PoolView 顶部 (避免与 StockTable 名称色块重复展示),
 // 由 PoolView 集中渲染一次, 同时供桌面/移动复用
 import { useSignalGrouping } from '../composables/useSignalGrouping'
@@ -42,6 +45,43 @@ const { signalsByCode } = useSignalGrouping(() => signalStore.signals)
 // 股票池客户端即时筛选 (v1.7.419)
 import { usePoolFilter } from '../composables/usePoolFilter'
 const pf = usePoolFilter(() => stockStore.stocks, signalsByCode)
+
+// ── 右侧图表栏 (v1.7.759, 参照同花顺): 点行/上下键选中喂分时+日K, 可收起(偏好持久化) ──
+// ⚠ 必须放在 pf 定义之后 —— 下面的 watch({immediate:true}) 立即读 pf.filteredStocks(TDZ)。
+const selectedChartCode = ref<string>('')
+const chartCollapsed = ref(localStorage.getItem('poolChartCollapsed') === '1')
+const selectedChartStock = computed(() =>
+  pf.filteredStocks.value.find((s) => s.code === selectedChartCode.value) || null)
+function selectChartStock(row: { code: string }) { selectedChartCode.value = row.code }
+function toggleChartPanel() {
+  chartCollapsed.value = !chartCollapsed.value
+  localStorage.setItem('poolChartCollapsed', chartCollapsed.value ? '1' : '0')
+}
+// 默认选中: 首次有数据/当前选中被筛掉时, 落到第一只(持仓优先)
+watch(() => pf.filteredStocks.value, (list) => {
+  if (isPhone.value || !list.length) return
+  if (selectedChartCode.value && list.some((s) => s.code === selectedChartCode.value)) return
+  selectedChartCode.value = (list.find((s) => s.status === 'hold') || list[0]).code
+}, { immediate: true })
+// 键盘上下键在列表内切换选中(焦点不在输入框时才响应), 并把选中行滚进可视区
+function onChartKeyNav(e: KeyboardEvent) {
+  if (isPhone.value || chartCollapsed.value) return
+  if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+  const el = document.activeElement
+  if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
+  const list = pf.filteredStocks.value
+  if (!list.length) return
+  const i = list.findIndex((s) => s.code === selectedChartCode.value)
+  const next = e.key === 'ArrowDown' ? Math.min(i + 1, list.length - 1) : Math.max(i - 1, 0)
+  if (next === i || next < 0) return
+  e.preventDefault()
+  selectedChartCode.value = list[next].code
+  requestAnimationFrame(() => {
+    document.querySelector(`tr[data-code="${list[next].code}"]`)?.scrollIntoView({ block: 'nearest' })
+  })
+}
+onMounted(() => window.addEventListener('keydown', onChartKeyNav))
+onUnmounted(() => window.removeEventListener('keydown', onChartKeyNav))
 // 自选分组下拉选项 (v1.7.670): 从池内已有分组去重
 const groupOptions = computed(() =>
   [...new Set(stockStore.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort()
@@ -480,7 +520,13 @@ async function handleThsImport(groupId: string) {
             <TagLegendButton />
           </div>
         </div>
-        <StockTable v-if="!isPhone" ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline" />
+        <!-- v1.7.759: 桌面端表格 + 右侧图表栏并排(参照同花顺); 图表栏可收起 -->
+        <div v-if="!isPhone" class="pool-main-row">
+          <StockTable ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline"
+            :selected-code="selectedChartCode" @select="selectChartStock" />
+          <PoolChartPanel v-if="!chartCollapsed" :stock="selectedChartStock" @collapse="toggleChartPanel" />
+          <button v-else class="pool-chart-reopen" title="展开分时/日K图表栏" @click="toggleChartPanel">◂ 图</button>
+        </div>
         <StockList v-else :stocks="pf.filteredStocks.value" />
       </div>
     </Transition>
@@ -694,6 +740,33 @@ async function handleThsImport(groupId: string) {
   display: flex;
   flex-direction: column;
 }
+/* v1.7.759: 桌面端表格 + 右侧图表栏并排, 各自内部滚动; 表格占满剩余宽 */
+.pool-main-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0;
+}
+/* StockTable 根元素是 .stock-table-wrap(子组件根带父作用域, 此选择器可命中) */
+.pool-main-row > .stock-table-wrap {
+  flex: 1;
+  min-width: 0;
+}
+/* 收起态: 贴右侧一条竖向"展开"把手 */
+.pool-chart-reopen {
+  flex: 0 0 auto;
+  align-self: stretch;
+  writing-mode: vertical-rl;
+  border: none;
+  border-left: 1px solid var(--border-default);
+  background: var(--card);
+  color: var(--accent-fg);
+  cursor: pointer;
+  font-size: 12px;
+  letter-spacing: 2px;
+  padding: 0 4px;
+}
+.pool-chart-reopen:hover { background: var(--accent-bg-muted); }
 /* 状态行内的快捷操作组 (v1.7.726): 添加/筛选走浮层, 其余高频工具常驻 */
 .pool-quick-actions {
   display: flex;

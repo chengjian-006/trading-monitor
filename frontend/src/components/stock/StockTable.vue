@@ -34,7 +34,9 @@ const { signalsByCode } = useSignalGrouping(() => signalStore.signals)
 const { smallAmountMap } = useSmallAmountTags(toRef(stockStore, 'stocks'))
 const { computeDecision } = useDecisionContext()
 
-const props = defineProps<{ stocks: Stock[]; showSparkline?: boolean }>()
+const props = defineProps<{ stocks: Stock[]; showSparkline?: boolean; selectedCode?: string }>()
+// v1.7.759: 点行选中该股喂右侧图表栏(参照同花顺); 与既有"点信号行展开"并存
+const emit = defineEmits<{ select: [row: Stock] }>()
 const { sparklineMap } = useIntradaySparklines(() => props.stocks.map(s => s.code))
 const { rankMap: amountRankMap } = useAmountRank()
 
@@ -72,6 +74,7 @@ const SIGNAL_ADVICE: Record<string, string> = {
 }
 
 function handleRowClick(row: Stock) {
+  emit('select', row)   // v1.7.759: 点任意行即选中喂右侧图表栏
   if (!signalsByCode.value.has(row.code)) return
   toggleExpand(row.code)
 }
@@ -423,8 +426,13 @@ function rowProps(row: Stock) {
       && row.price != null && row.ma20 != null && row.price < row.ma20) {
     classes.push('row-below-ma20')
   }
+  // v1.7.759: 右侧图表栏当前选中行高亮(同花顺式), data-code 供键盘导航 scrollIntoView
+  if (props.selectedCode && row.code === props.selectedCode) {
+    classes.push('row-chart-selected')
+  }
   return {
     class: classes.join(' ') || undefined,
+    'data-code': row.code,
     onClick: () => handleRowClick(row),
     onDragover: (e: DragEvent) => e.preventDefault(),
     onDrop: (e: DragEvent) => { e.preventDefault(); onRowDrop(row.code) },
@@ -1223,6 +1231,15 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 .row-clickable {
   cursor: pointer;
   touch-action: manipulation;
+}
+/* v1.7.759: 右侧图表栏当前选中行(同花顺式左侧蓝条+淡蓝底), 对齐 .row-hold td 的裸写法;
+   !important + 靠后声明压过弱势/持仓底色, 便于一眼定位当前看的是哪只 */
+.row-chart-selected td {
+  background: var(--accent-bg-muted) !important;
+  box-shadow: inset 3px 0 0 0 var(--accent-fg);
+}
+.row-chart-selected:hover td {
+  background: var(--accent-bg-muted) !important;
 }
 /* 隐藏 expand 列：单纯靠点击行触发展开，不显示图标 */
 .stock-table-wrap :deep(.n-data-table-th--expandable),
