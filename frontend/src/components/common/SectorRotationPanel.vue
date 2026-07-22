@@ -40,24 +40,18 @@ const w2sCount = computed(() => transitions.value.filter(t => t.direction === 'w
 const s2wCount = computed(() => transitions.value.filter(t => t.direction === 'strong_to_weak').length)
 const isW2S = (t: SectorTransition) => t.direction === 'weak_to_strong'
 
-const LANE_H = 36        // 错行高度: 标签两行(题材名 + 家数/时间)
-const MIN_GAP_PCT = 13   // 同行两标签最小间距, 按轨道最窄 680px 估 ~88px 标签宽
-const MAX_LANE = 5       // 错行上限, 超了并回最后一行(极端密集日才会到)
+const LANE_H = 36        // 标签行高: 两行(题材名 + 家数/时间)
+const SLOT_PX = 108      // 每个事件的水平槽宽(足够容一个标签, ~88px + 间距), 轨道按事件数加宽
+const PAD_PX = 60        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾标签被裁
 
-const TL_OPEN = 9 * 60 + 30
-const TL_LUNCH = 11 * 60 + 30
-const TL_PM = 13 * 60
-const TL_SPAN = 240      // 上午120分 + 下午120分; 午休不占宽度(11:30 与 13:00 同一刻度)
-
-// HH:MM → 轴上分钟偏移。午休整段压成一个点, 否则 11:30-13:00 会白占 1/3 轴宽。
+// v1.7.767: 由"按真实时间定位"改为"按转换先后顺序全局均匀铺开"。
+//   原来同一时刻(如13:01)多个转换全挤在同一 x, 错行避让又有上限, 溢出就重叠糊成一团。
+//   现改: 所有转换按时间排序后, 沿轴等距铺开, 每个事件独占一槽 → 单行不重叠;
+//   真实时间不再决定位置(位置只表先后), 时间仍在每个标签上显示(· 13:01)。
 function minuteOf(at: string): number {
   const m = /^(\d{1,2}):(\d{2})/.exec(String(at || ''))
   if (!m) return 0
-  const t = +m[1] * 60 + +m[2]
-  if (t <= TL_OPEN) return 0
-  if (t <= TL_LUNCH) return t - TL_OPEN
-  if (t <= TL_PM) return 120
-  return Math.min(TL_SPAN, 120 + (t - TL_PM))
+  return +m[1] * 60 + +m[2]
 }
 
 interface TlEvent {
@@ -65,48 +59,35 @@ interface TlEvent {
   yest: number; limit_up: number; broken: number; samples: string[]; up: boolean
 }
 
-// 贪心分行: 同一行内与前一个标签间距不够就换下一行, 保证标签不重叠
-function assignLanes(list: TlEvent[]): TlEvent[] {
-  const lastPct: number[] = []
-  for (const e of list) {
-    let lane = 0
-    while (lane < MAX_LANE && lastPct[lane] != null && e.pct - lastPct[lane] < MIN_GAP_PCT) lane++
-    lastPct[lane] = e.pct
-    e.lane = lane
-  }
-  return list
-}
-
-function toEvents(up: boolean): TlEvent[] {
-  return assignLanes(
-    transitions.value
-      .filter(t => isW2S(t) === up)
-      .map((t, i) => ({
-        key: `${up ? 'u' : 'd'}${i}`,
-        pct: (minuteOf(t.at) / TL_SPAN) * 100,
-        lane: 0,
-        at: String(t.at || '').slice(0, 5),
-        theme: t.theme,
-        yest: t.yest ?? 0,
-        limit_up: t.limit_up,
-        broken: t.broken ?? 0,
-        samples: t.samples ?? [],
-        up,
-      }))
-      .sort((a, b) => a.pct - b.pct))
-}
-const upEvents = computed(() => toEvents(true))
-const downEvents = computed(() => toEvents(false))
-const upLanes = computed(() => Math.max(1, ...upEvents.value.map(e => e.lane + 1)))
-const downLanes = computed(() => Math.max(1, ...downEvents.value.map(e => e.lane + 1)))
-
-const TL_TICKS = [
-  { pct: 0, label: '09:30' },
-  { pct: 25, label: '10:30' },
-  { pct: 50, label: '11:30/13:00' },
-  { pct: 75, label: '14:00' },
-  { pct: 100, label: '15:00' },
-]
+// 全部转换按时间排序 → 全局等距铺开(转强/转弱共用同一条先后序列, 各自在轴上/下渲染)
+const allEvents = computed<TlEvent[]>(() => {
+  const sorted = transitions.value
+    .map((t, i) => ({ t, m: minuteOf(t.at), i }))
+    .sort((a, b) => a.m - b.m || a.i - b.i)
+  const n = sorted.length
+  return sorted.map((x, idx) => {
+    const up = isW2S(x.t)
+    return {
+      key: `${up ? 'u' : 'd'}${x.i}`,
+      pct: n <= 1 ? 50 : (idx / (n - 1)) * 100,
+      lane: 0,
+      at: String(x.t.at || '').slice(0, 5),
+      theme: x.t.theme,
+      yest: x.t.yest ?? 0,
+      limit_up: x.t.limit_up,
+      broken: x.t.broken ?? 0,
+      samples: x.t.samples ?? [],
+      up,
+    }
+  })
+})
+const upEvents = computed(() => allEvents.value.filter(e => e.up))
+const downEvents = computed(() => allEvents.value.filter(e => !e.up))
+const upLanes = computed(() => 1)     // 等距铺开后单行即可, 不再错行
+const downLanes = computed(() => 1)
+// 轨道宽度随事件数增长(等距铺开需足够物理宽度, 不够就横向滚动)
+const trackMinWidth = computed(() =>
+  Math.max(800, PAD_PX * 2 + Math.max(0, allEvents.value.length - 1) * SLOT_PX))
 
 // 明细条: 悬停临时看, 点击钉住(手机端没有 hover, 靠点)。放轴下方固定一条而非浮层——
 // 轨道是横向滚动容器, 浮层会被裁掉。
@@ -187,10 +168,10 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
     <template v-else>
       <!-- ── ① 今日转换流水 (头条) ── -->
       <div class="block">
-        <div class="block-title">今日转换流水<span class="bt-meta">按日比昨(昨→今) · 横向时间轴, 轴上=转强 / 轴下=转弱</span></div>
+        <div class="block-title">今日转换流水<span class="bt-meta">按日比昨(昨→今) · 按先后顺序铺开, 轴上=转强 / 轴下=转弱</span></div>
         <div v-if="transitions.length" class="tl">
           <div class="tl-scroll">
-            <div class="tl-track">
+            <div class="tl-track" :style="{ minWidth: trackMinWidth + 'px' }">
               <!-- 轴上方: 转强(红), 按错行避让 -->
               <div class="tl-side up" :style="{ height: upLanes * LANE_H + 'px' }">
                 <button v-for="e in upEvents" :key="e.key" type="button" class="tl-ev up"
@@ -213,9 +194,6 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                    :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"></i>
                 <i v-for="e in downEvents" :key="'dd' + e.key" class="tl-dot down"
                    :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"></i>
-                <span v-for="tk in TL_TICKS" :key="tk.label" class="tl-tick" :style="{ left: tk.pct + '%' }">
-                  <i class="tk-mark"></i><em>{{ tk.label }}</em>
-                </span>
               </div>
 
               <!-- 轴下方: 转弱(绿) -->
@@ -319,11 +297,11 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .block-title { font-size: 12px; font-weight: 700; color: var(--fg-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
 .block-title .bt-meta { font-size: 10.5px; font-weight: 400; color: var(--fg-subtle); }
 
-/* ── ① 今日转换流水 · 横向时间轴 ── */
-/* 轨道最窄 800px(左右各留 60px 给首尾标签, 内容区 680px), 窄屏横向滚动看全天。
-   内容区 680px 正是 MIN_GAP_PCT 的估算基准 —— 改这里要同步改脚本里那个常量。 */
+/* ── ① 今日转换流水 · 按先后顺序等距铺开 (v1.7.767) ── */
+/* 轨道宽度由脚本 trackMinWidth 按事件数算(每个 SLOT_PX 一槽, 左右各留 60px 给首尾标签),
+   事件多则轨道加宽横向滚动。 */
 .tl-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-.tl-track { position: relative; box-sizing: border-box; min-width: 800px; padding: 4px 60px 0; }
+.tl-track { position: relative; box-sizing: border-box; padding: 4px 60px 0; }
 .tl-side { position: relative; }
 .tl-ev {
   position: absolute; transform: translateX(-50%);
@@ -350,9 +328,6 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .tl-dot.up { background: var(--up-fg); }
 .tl-dot.down { background: var(--down-fg); }
 .tl-dot.active { transform: translateX(-50%) scale(1.5); }
-.tl-tick { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; }
-.tl-tick .tk-mark { width: 1px; height: 11px; background: var(--border-default); }
-.tl-tick em { font-style: normal; font-size: 10px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; margin-top: 1px; }
 
 .tl-detail {
   margin-top: 8px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
