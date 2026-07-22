@@ -409,6 +409,13 @@ async def predict_sector_next_day(return_only: bool = False):
                 + " ".join(f"{k}{len(v)}" for k, v in groups.items() if v))
 
 
+async def persist_next_day_prediction():
+    """14:30 定时 handler(v1.7.784): 只算并落库次日预测, 不推送。
+    盘后推送已在 v1.7.651 精简(不再单独推预测卡), 但面板「次日预测」段与晚盘复盘要读 predict_data,
+    故保留计算落库 —— 复用 return_only=True 路径(它在返回前就已 upsert, 且不发推送), 丢弃其返回的卡。"""
+    await predict_sector_next_day(return_only=True)
+
+
 _PRED_ICON = {"弱转强候选": "🟢", "强转弱候选": "🔴", "强势延续": "⬆️", "疑似终结": "⚰️"}
 
 

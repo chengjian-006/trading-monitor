@@ -1536,12 +1536,21 @@ async def _run_migrations(conn):
             pass
         # v1.7.554: 推送降噪·批次B③ — 尾盘三卡合并成 14:40 tail_decision_1440(上方 migration_tasks 已 seed),
         # 下线原三条独立任务(计算并入合并卡)。
-        for _jid in ("strength_quality_1430", "sector_next_day_predict", "weak_extreme_1445"):
+        for _jid in ("strength_quality_1430", "weak_extreme_1445"):
             try:
                 await cur.execute(
                     "UPDATE cfzy_sys_scheduled_tasks SET enabled = 0 WHERE job_id = %s", (_jid,))
             except Exception:
                 pass
+        # v1.7.784: sector_next_day_predict 曾随 v1.7.554 并入 tail_decision_1440 而被停; 而 v1.7.651
+        # 又删了 tail_decision_1440(那才是唯一真正落库次日预测的调用) → predict_data 自 2026-07-17 断更,
+        # 面板「次日预测」空。重新启用其独立 14:30 定时(handler 已改「只落库不推送」, 尊重盘后推送精简)。
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET enabled = 1 WHERE job_id = %s",
+                ("sector_next_day_predict",))
+        except Exception:
+            pass
 
         # v1.7.345: 弱势极限下午快照 15:00→14:45(盘中可决策, 不再只并入15:05收盘汇总)
         # 存量库删旧 15:00 行(新 weak_extreme_1445 行由上方 seed INSERT IGNORE 补)

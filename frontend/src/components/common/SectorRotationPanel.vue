@@ -170,7 +170,10 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
       <div class="title">
         <NIcon :component="SwapHorizontalOutline" :size="16" />
         <span>板块轮动·弱强转换</span>
-        <span v-if="data?.computed_at" class="meta">
+        <span v-if="data?.stale" class="stale-tag" :title="`当天盘中还没算出(盘前/非交易日), 显示的是上一交易日 ${data?.trade_date} 的结果`">
+          上一交易日 {{ (data?.trade_date || '').slice(5) }}
+        </span>
+        <span v-else-if="data?.computed_at" class="meta">
           今日 <i class="up">↑转强{{ w2sCount }}</i> <i class="down">↓转弱{{ s2wCount }}</i> · 更新 {{ timeText(data.computed_at) }}
         </span>
       </div>
@@ -328,6 +331,10 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg-default); }
 .title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 .title .meta i { font-style: normal; font-variant-numeric: tabular-nums; margin: 0 1px; }
+.title .stale-tag {
+  font-size: 10.5px; font-weight: 600; color: var(--warn-fg); margin-left: 4px; cursor: help;
+  background: var(--warn-bg-muted); padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+}
 .up { color: var(--up-fg); }
 .down { color: var(--down-fg); }
 

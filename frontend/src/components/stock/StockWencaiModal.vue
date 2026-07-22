@@ -6,9 +6,6 @@ import { ref, computed, watch } from 'vue'
 import { NModal, NInput, NButton, NIcon } from 'naive-ui'
 import { OpenOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import type { Stock } from '../../types'
-import { useGlobalMessage } from '../../composables/useGlobalMessage'
-
-const message = useGlobalMessage()
 
 const props = defineProps<{ show: boolean; row: Stock | null }>()
 const emit = defineEmits<{ 'update:show': [boolean] }>()
@@ -28,16 +25,13 @@ const PRESETS: Preset[] = [
 const customText = ref('')
 watch(() => props.show, (v) => { if (v) customText.value = '' })
 
-// 打开同花顺问财 chat 对话页(新标签): 用户已登录问财, 直接看投顾式答复。
-// 同时把问题复制到剪贴板兜底 —— chat 页若未自动带入问题, 可直接 Ctrl+V 粘贴。
-async function ask(question: string) {
+// 打开同花顺问财【经典问答页】(新标签): ?w= 会被自动执行并直接出结果, 一点即得。
+// 为何不用 /chat 对话页: 实测其不读 ?w= 参数, 问题填不进输入框(同花顺前端实现所限);
+// 经典问答页则可靠自动执行。要「投顾式对话 + 自动填输入框」需走浏览器扩展, 非纯 URL 可达。
+function ask(question: string) {
   const q = question.trim()
   if (!q) return
-  try {
-    await navigator.clipboard.writeText(q)
-    message.success('问题已复制,问财 chat 里可直接粘贴')
-  } catch { /* 剪贴板不可用(无 https/权限)时静默, 不挡跳转 */ }
-  window.open(`https://www.iwencai.com/chat?w=${encodeURIComponent(q)}`, '_blank', 'noopener,noreferrer')
+  window.open(`https://www.iwencai.com/unifiedwap/result?w=${encodeURIComponent(q)}&querytype=stock`, '_blank', 'noopener,noreferrer')
 }
 
 function askCustom() {
@@ -55,7 +49,7 @@ function askCustom() {
           style="max-width: 520px" :bordered="false">
     <p class="wm-hint">
       <NIcon :component="HelpCircleOutline" :size="14" style="vertical-align: -2px" />
-      选一个模版即在<b>新标签打开同花顺问财 chat</b>(已自动带上「{{ name }}」并复制问题,未自动带入可直接粘贴);或自己写。需你已登录问财。
+      选一个模版即在<b>新标签打开同花顺问财并直接出结果</b>(已自动带上「{{ name }}」);或自己写。需你已登录问财。
     </p>
 
     <div class="wm-presets">

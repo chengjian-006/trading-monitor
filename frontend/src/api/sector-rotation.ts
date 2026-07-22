@@ -49,6 +49,7 @@ export interface SectorRotationData {
   items: SectorRotationItem[]
   predict_at: string | null // 14:30 次日预测生成时间
   predict: SectorPredict | null // 未到14:30或无数据时为 null
+  stale?: boolean // true=当天还没算出, 显示的是回退的上一交易日快照(盘前/非交易日)
 }
 
 export async function fetchSectorRotation(): Promise<SectorRotationData> {

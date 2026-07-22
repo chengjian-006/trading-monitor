@@ -132,6 +132,7 @@ from backend.models.repo.wencai_opinion import (  # noqa: F401
 )
 from backend.models.repo.sector_rotation import (  # noqa: F401
     upsert_sector_rotation, upsert_sector_prediction, get_sector_rotation,
+    get_latest_sector_rotation,
 )
 from backend.models.repo.limit_up_pool import (  # noqa: F401
     upsert_daily as upsert_limit_up_daily, get_daily as get_limit_up_daily,

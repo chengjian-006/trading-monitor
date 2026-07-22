@@ -33,13 +33,7 @@ async def upsert_sector_prediction(trade_date: str, data: dict) -> None:
     )
 
 
-async def get_sector_rotation(trade_date: str | None = None) -> dict | None:
-    """取某日(默认今日)的板块轮动+次日预测行, JSON 字段已解析。"""
-    if not trade_date:
-        trade_date = datetime.now().strftime("%Y-%m-%d")
-    row = await _fetchone(
-        "SELECT * FROM cfzy_sys_sector_rotation WHERE trade_date = %s", (trade_date,)
-    )
+def _parse_rotation_row(row: dict | None) -> dict | None:
     if not row:
         return None
     for key in ("rotation_data", "predict_data"):
@@ -49,3 +43,22 @@ async def get_sector_rotation(trade_date: str | None = None) -> dict | None:
             except (ValueError, TypeError):
                 row[key] = None
     return row
+
+
+async def get_sector_rotation(trade_date: str | None = None) -> dict | None:
+    """取某日(默认今日)的板块轮动+次日预测行, JSON 字段已解析。"""
+    if not trade_date:
+        trade_date = datetime.now().strftime("%Y-%m-%d")
+    row = await _fetchone(
+        "SELECT * FROM cfzy_sys_sector_rotation WHERE trade_date = %s", (trade_date,)
+    )
+    return _parse_rotation_row(row)
+
+
+async def get_latest_sector_rotation() -> dict | None:
+    """取最近一个有数据的板块轮动行(trade_date 倒序第一条), JSON 已解析。
+    供盘前/非交易日/当日首扫前回退展示上一交易日快照(对齐面板"非交易日保留上一交易日结果"的承诺)。"""
+    row = await _fetchone(
+        "SELECT * FROM cfzy_sys_sector_rotation ORDER BY trade_date DESC LIMIT 1"
+    )
+    return _parse_rotation_row(row)

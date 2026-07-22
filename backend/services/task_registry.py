@@ -60,7 +60,7 @@ from backend.services.model_backtest_weekly import run_model_backtest_weekly
 from backend.services.log_cleanup import cleanup_old_logs
 from backend.services.data_sanity import self_heal_stale_quotes, check_data_sanity
 # detect_market_ebb / detect_strength_ebb 已退役 (大盘退潮预警去除, v1.7.737)
-from backend.services.sector_rotation_scanner import scan_sector_rotation, predict_sector_next_day
+from backend.services.sector_rotation_scanner import scan_sector_rotation, persist_next_day_prediction
 from backend.services.limit_up_archive import run_limit_up_daily
 from backend.services.trade_round_builder import rebuild_user_rounds
 from backend.services.paper_equity import snapshot_paper_equity
@@ -164,7 +164,7 @@ TASK_HANDLERS: dict[str, object] = {
     "self_heal_stale_quotes": self_heal_stale_quotes,
     "check_data_sanity": check_data_sanity,
     "scan_sector_rotation": scan_sector_rotation,
-    "predict_sector_next_day": predict_sector_next_day,
+    "predict_sector_next_day": persist_next_day_prediction,   # v1.7.784: 只落库不推送(尊重盘后推送精简)
     "run_limit_up_daily": run_limit_up_daily,
     "rebuild_trade_rounds": rebuild_trade_rounds,
     "snapshot_paper_equity": snapshot_paper_equity,
