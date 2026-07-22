@@ -8,7 +8,9 @@ import {
 import { CloudUploadOutline, RefreshOutline } from '@vicons/ionicons5'
 import {
   importText, importHistory, importExcel, compareToModel,
+  fetchHoldings, syncPositions,
   type AnalysisResult, type CompareResult, type PairedTrade,
+  type HoldingItem, type HoldingsSummary,
 } from '../api/trade-analysis'
 import { useResponsive } from '../composables/useResponsive'
 import FilterPanel from '../components/common/FilterPanel.vue'
@@ -76,7 +78,8 @@ function onImported(res: AnalysisResult) {
   result.value = res
   showImport.value = false
   ;(window as any).$message?.success(`解析${res.record_count}条记录，配对${res.summary?.total_trades}笔交易`)
-  runCompare()   // 导入后自动跑模型对比
+  runCompare()      // 导入后自动跑模型对比
+  loadHoldings()    // 导入后刷新当前持仓明细(后端已同步好持仓状态)
 }
 
 // ── KPI 计算（前端从 trades 算盈亏比/期望/最大回撤）──
@@ -247,6 +250,69 @@ async function runCompare() {
 function pctColor(v: number | null) { return v == null ? 'var(--fg-subtle)' : (v >= 0 ? RED : GREEN) }
 function renderPct(v: number | null) { return v == null ? '-' : h('span', { style: { color: pctColor(v) } }, v.toFixed(2) + '%') }
 
+// ── 当前持仓明细(交割单摊薄成本口径) ──
+const holdings = ref<HoldingItem[]>([])
+const holdingsSummary = ref<HoldingsSummary | null>(null)
+const holdingsLoading = ref(false)
+const syncing = ref(false)
+
+async function loadHoldings() {
+  holdingsLoading.value = true
+  try {
+    const res = await fetchHoldings()
+    holdings.value = res.holdings
+    holdingsSummary.value = res.summary
+  } catch { ;(window as any).$message?.error('持仓加载失败') }
+  finally { holdingsLoading.value = false }
+}
+
+async function syncNow() {
+  syncing.value = true
+  try {
+    const res = await syncPositions()
+    ;(window as any).$message?.success(`已按交割单同步 ${res.synced} 只持仓到自选股`)
+    await loadHoldings()
+  } catch { ;(window as any).$message?.error('同步失败') }
+  finally { syncing.value = false }
+}
+
+// 有符号着色数字(浮盈额/浮盈%): null → '—'
+function renderSigned(v: number | null, digits: number, suffix = '') {
+  if (v == null) return '—'
+  return h('span', { style: { color: v >= 0 ? RED : GREEN, fontWeight: '600' } },
+    (v >= 0 ? '+' : '') + v.toFixed(digits) + suffix)
+}
+
+const holdingColumns: DataTableColumns = [
+  { title: '代码', key: 'code', width: 74 },
+  {
+    title: '名称', key: 'name', width: 104,
+    render: (r: any) => h('span', {}, [
+      r.name,
+      r.cost_unreliable
+        ? h(NTag, { size: 'small', type: 'warning', bordered: false, style: { marginLeft: '4px' },
+            title: '卖出多于买入, 疑似缺买入记录 → 摊薄成本偏低, 成本/浮盈不计' }, () => '成本存疑')
+        : null,
+    ]),
+  },
+  { title: '数量', key: 'qty', width: 74, align: 'right' },
+  { title: '摊薄成本', key: 'avg_cost', width: 84, align: 'right', render: (r: any) => r.avg_cost == null ? '—' : r.avg_cost.toFixed(3) },
+  { title: '现价', key: 'price', width: 74, align: 'right', render: (r: any) => r.price == null ? '—' : r.price.toFixed(2) },
+  { title: '浮动盈亏', key: 'float_pnl', width: 96, align: 'right', render: (r: any) => renderSigned(r.float_pnl, 2) },
+  { title: '盈亏%', key: 'float_pnl_pct', width: 80, align: 'right', render: (r: any) => renderSigned(r.float_pnl_pct, 2, '%') },
+  { title: '市值', key: 'market_value', width: 92, align: 'right', render: (r: any) => r.market_value == null ? '—' : r.market_value.toFixed(0) },
+  { title: '建仓日', key: 'entry_date', width: 100 },
+  { title: '持仓(交易日)', key: 'holding_days', width: 100, align: 'center', render: (r: any) => r.holding_days + '天' },
+  { title: '买入模型', key: 'entry_model', width: 122, render: (r: any) => r.entry_model || '—' },
+  {
+    title: '所属板块', key: 'board', width: 132,
+    render: (r: any) => r.board_name
+      ? `${r.board_name}${(r.board_rank && r.board_total) ? ` ${r.board_rank}/${r.board_total}` : ''}`
+      : '—',
+  },
+]
+const holdingColumnsM = computed(() => mobCols(holdingColumns, ['name', 'float_pnl', 'float_pnl_pct', 'market_value']))
+
 const VERDICT_TYPE: Record<string, any> = { 符合模型: 'success', 偏离模型: 'warning', 无法评估: 'default', 卖太晚: 'warning', 卖太早: 'info' }
 const renderVerdict = (row: any) => h(NTag, { size: 'small', type: VERDICT_TYPE[row.verdict] || 'default' }, () => row.verdict)
 
@@ -374,6 +440,33 @@ const summary = computed(() => result.value?.summary)
         <!-- ③ Tab 分区 -->
         <NCard size="small" class="tab-card">
           <NTabs type="line" size="medium" animated>
+            <!-- 持仓(当前在持, 交割单摊薄成本口径) -->
+            <NTabPane name="holdings" tab="持仓">
+              <div class="hold-head">
+                <div class="hold-stats" v-if="holdingsSummary">
+                  <span class="hs-item">持仓 <b>{{ holdingsSummary.count }}</b> 只</span>
+                  <span class="hs-item">总市值 <b>{{ holdingsSummary.total_market_value.toFixed(0) }}</b></span>
+                  <span class="hs-item">总浮盈
+                    <b :style="{ color: holdingsSummary.total_float_pnl >= 0 ? RED : GREEN }">
+                      {{ (holdingsSummary.total_float_pnl >= 0 ? '+' : '') + holdingsSummary.total_float_pnl.toFixed(2) }}
+                      <template v-if="holdingsSummary.total_float_pnl_pct != null">({{ (holdingsSummary.total_float_pnl_pct >= 0 ? '+' : '') + holdingsSummary.total_float_pnl_pct.toFixed(2) }}%)</template>
+                    </b>
+                  </span>
+                </div>
+                <div class="hold-actions">
+                  <NButton size="small" secondary :loading="holdingsLoading" @click="loadHoldings">
+                    <template #icon><NIcon :component="RefreshOutline" /></template>刷新
+                  </NButton>
+                  <NButton size="small" type="primary" secondary :loading="syncing" @click="syncNow">重新同步到自选股</NButton>
+                </div>
+              </div>
+              <p class="tab-hint">当前持仓按<b>摊薄成本</b>口径(与卖点信号同源)实时算出;导入交割单时已<b>自动</b>把持仓状态同步到自选股,此处「重新同步」可不重新导入即刷新一次。<b>成本存疑</b>=卖出多于买入(疑似缺买入记录),该行浮盈不计。</p>
+              <NSpin :show="holdingsLoading">
+                <NDataTable v-if="holdings.length" :columns="holdingColumnsM" :data="holdings" :bordered="false" size="small" :pagination="false" max-height="460" :scroll-x="isMobile ? undefined : 1160" />
+                <div v-else class="chart-empty" style="padding: 24px">当前无持仓(交割单显示已全部卖出)。导入最新交割单后这里显示在持个股。</div>
+              </NSpin>
+            </NTabPane>
+
             <!-- 概览 -->
             <NTabPane name="overview" tab="概览">
               <div class="chart-grid">
@@ -542,6 +635,11 @@ const summary = computed(() => result.value?.summary)
 .tab-card { margin-top: 14px; }
 .tab-hint { font-size: 12px; color: var(--fg-subtle); margin: 0 0 10px; line-height: 1.5; }
 .tab-hint b { color: var(--fg-muted); }
+/* 持仓 Tab 汇总条 */
+.hold-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.hold-stats { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--fg-muted); }
+.hold-stats .hs-item b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: 14px; color: var(--fg-default); margin: 0 2px; }
+.hold-actions { display: flex; align-items: center; gap: 8px; }
 .sub-title { font-size: 13px; font-weight: 600; color: var(--fg-muted); margin: 18px 0 8px; }
 .st-meta { font-weight: 400; color: var(--fg-muted); font-size: 12px; margin-left: 8px; }
 

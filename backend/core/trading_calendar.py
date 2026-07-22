@@ -47,6 +47,33 @@ def prev_trading_day(d=None):
     return cur
 
 
+def trading_days_between(start, end) -> int:
+    """start(不含) 到 end(含) 之间的交易日数(周一~周五且非法定节假日). 用于"持仓天数(交易日)".
+
+    start/end 可为 date / datetime / 'YYYY-MM-DD'。当日建仓 → 0; 昨(交易日)建仓 → 1。
+    与 is_workday 同口径: 剔法定节假日, 调休补班周末因 weekday>=5 本就不计。
+    """
+    from datetime import date as _date, datetime as _dt, timedelta
+
+    def _to_date(x):
+        if isinstance(x, _dt):
+            return x.date()
+        if isinstance(x, _date):
+            return x
+        return _date.fromisoformat(str(x)[:10])
+
+    s, e = _to_date(start), _to_date(end)
+    if e <= s:
+        return 0
+    n = 0
+    cur = s + timedelta(days=1)
+    while cur <= e:
+        if cur.weekday() < 5 and not _is_legal_holiday(cur):
+            n += 1
+        cur += timedelta(days=1)
+    return n
+
+
 def is_trading_time(now: datetime | None = None) -> bool:
     """配置 trading_hours 内 (默认 09:25-11:30 / 13:00-15:00). 含集合竞价撮合.
 

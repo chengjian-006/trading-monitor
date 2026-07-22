@@ -40,6 +40,32 @@ def _schedule_rounds_rebuild(user_id: int) -> None:
     task.add_done_callback(_rebuild_tasks.discard)
 
 
+async def _sync_holdings(user_id: int, result: dict) -> dict:
+    """按分析结果把当前持仓同步到自选池 + 撤销误标已卖 + 后台重建回合。返回 holdings dict。
+
+    导入(_import_and_analyze) 与 手动同步(/sync-positions) 共用这一套, 保持口径一致。
+    """
+    holdings = {}
+    for code, info in result["by_stock"].items():
+        if info["still_holding"] > 0:
+            holdings[code] = {"name": info["name"], "quantity": info["still_holding"]}
+    await repository.sync_positions_from_trades(user_id, holdings)
+
+    # 自动归位: 交割单是持仓真相。若某票导入后仍/又持有(holding>0), 撤销其「已卖出」手动标记,
+    # 让它重回持仓被跟踪(处理「先手点已卖出→后来又买回并导入」)。真卖掉的(holding=0)标记留着无害。
+    try:
+        from backend.models.repo import push_pref as pref_repo
+        for code in holdings:
+            await pref_repo.revoke_kind(user_id, "mark_sold", code)
+    except Exception as e:
+        logger.warning(f"[trade_analysis] 撤销已卖出标记失败: {e}")
+
+    # 重建交易回合改后台执行: 逐股串行写远程库要40秒+, 同步做会把请求拖到超过前端超时;
+    # 回合只供收益分析/持仓明细的买入模型与持仓天数, 晚几十秒就绪可接受
+    _schedule_rounds_rebuild(user_id)
+    return holdings
+
+
 class ImportTextRequest(BaseModel):
     text: str
 
@@ -74,6 +100,11 @@ def _db_rows_to_trades(rows: list[dict]) -> list[dict]:
     return trades
 
 
+def _f(v):
+    """Decimal/None → float/None (现价、涨幅等池字段可能是 Decimal)。"""
+    return float(v) if v is not None else None
+
+
 @router.get("/upload-status")
 async def upload_status(user: Annotated[dict, Depends(get_current_user)]):
     """登录提示用: 今日是否已上传交割单 + 是否该提醒。
@@ -105,24 +136,7 @@ async def _import_and_analyze(user_id: int, new_trades: list[dict], pre_saved_co
 
     result = analyze_trades(all_trades)
 
-    holdings = {}
-    for code, info in result["by_stock"].items():
-        if info["still_holding"] > 0:
-            holdings[code] = {"name": info["name"], "quantity": info["still_holding"]}
-    await repository.sync_positions_from_trades(user_id, holdings)
-
-    # 自动归位: 交割单是持仓真相。若某票导入后仍/又持有(holding>0), 撤销其「已卖出」手动标记,
-    # 让它重回持仓被跟踪(处理「先手点已卖出→后来又买回并导入」)。真卖掉的(holding=0)标记留着无害。
-    try:
-        from backend.models.repo import push_pref as pref_repo
-        for code in holdings:
-            await pref_repo.revoke_kind(user_id, "mark_sold", code)
-    except Exception as e:
-        logger.warning(f"[trade_analysis] 撤销已卖出标记失败: {e}")
-
-    # 导入后重建交易回合改后台执行: 逐股串行写远程库要40秒+, 同步做会把导入请求
-    # 拖到超过前端超时(误报"请求失败"); 回合只供收益分析页, 晚几十秒就绪可接受
-    _schedule_rounds_rebuild(user_id)
+    await _sync_holdings(user_id, result)
 
     # 原始成交流水(按时间倒序), 给前端"交易清单"核对最新导入是否正确
     records = [
@@ -212,6 +226,108 @@ async def compare(
     """实盘交割单 vs 模型买卖点 对比 (基于已导入的全量交割单, 回测重跑检测器)。"""
     signal_window = max(1, min(int(signal_window), 15))
     return await compare_trades_to_model(user["id"], signal_window)
+
+
+def _assemble_holdings(info: dict, pool: dict, rnd: dict, today) -> dict:
+    """纯函数: 摊薄成本信息 + 自选池行 + 开放回合 → 持仓明细列表 + 汇总(便于单测)。
+
+    info: {code: {avg_cost, earliest_buy_date, qty, cost_unreliable}} (compute_diluted_holdings 产出)
+    pool: {code: 自选池行(含 price/pct_change/board_*/name)}
+    rnd:  {code: 该票开放回合行(含 entry_model_name/holding_days/name)}
+    """
+    from backend.core.trading_calendar import trading_days_between
+
+    holdings = []
+    tot_mv = tot_cost = tot_pnl = 0.0
+    for code, v in info.items():
+        qty = int(v["qty"])
+        avg_cost = float(v["avg_cost"])
+        unreliable = bool(v.get("cost_unreliable"))
+        prow = pool.get(code) or {}
+        r = rnd.get(code)
+        name = prow.get("name") or (r.get("name") if r else None) or code
+        price = _f(prow.get("price"))
+        pct = _f(prow.get("pct_change"))
+        entry_date = str(v["earliest_buy_date"])[:10]
+        # 持仓天数(交易日): 优先用开放回合已算好的(按日线 bar 数, 含停牌更准), 无则按交易日历兜底
+        if r and r.get("holding_days") is not None:
+            hold_days = int(r["holding_days"])
+        else:
+            hold_days = trading_days_between(entry_date, today)
+        model = (r.get("entry_model_name") if r else None) or None
+
+        mv = round(qty * price, 2) if price else None
+        pnl = pnl_pct = None
+        # 成本存疑(卖>买缺买单致成本偏低)不算浮盈, 防误导; 摊薄成本≤0(已超额落袋)时浮盈%无意义置空
+        if price is not None and not unreliable:
+            pnl = round((price - avg_cost) * qty, 2)
+            pnl_pct = round((price / avg_cost - 1) * 100, 2) if avg_cost > 0 else None
+            tot_pnl += pnl
+            tot_cost += avg_cost * qty
+        if mv:
+            tot_mv += mv
+
+        holdings.append({
+            "code": code, "name": name, "qty": qty,
+            "avg_cost": None if unreliable else round(avg_cost, 3),
+            "cost_unreliable": unreliable,
+            "price": price, "pct_change": pct,
+            "market_value": mv, "float_pnl": pnl, "float_pnl_pct": pnl_pct,
+            "entry_date": entry_date, "holding_days": hold_days,
+            "entry_model": model,
+            "board_name": prow.get("board_name") or None,
+            "board_rank": prow.get("board_rank"),
+            "board_total": prow.get("board_total"),
+        })
+
+    holdings.sort(key=lambda h: (h["market_value"] or 0), reverse=True)  # 大仓在前
+    summary = {
+        "count": len(holdings),
+        "total_market_value": round(tot_mv, 2),
+        "total_float_pnl": round(tot_pnl, 2),
+        "total_float_pnl_pct": round(tot_pnl / tot_cost * 100, 2) if tot_cost > 0 else None,
+    }
+    return {"holdings": holdings, "summary": summary}
+
+
+@router.get("/holdings")
+async def list_holdings(user: Annotated[dict, Depends(get_current_user)]):
+    """当前持仓明细(交割单摊薄成本口径): 数量 / 摊薄成本 / 现价 / 浮盈(额+%) / 市值 /
+    建仓日 / 持仓天数(交易日) / 买入模型 / 所属板块名次 + 汇总。
+
+    与自选池持仓状态同源(导入时已自动同步); 这里是展示面板, 不改任何状态。
+    成本/持仓段来自 holdings.compute_diluted_holdings(与卖点信号同口径), 现价/涨幅/板块名次
+    取自自选池(后台行情实时刷), 买入模型与持仓天数取自开放交易回合(缺则按交易日历兜底)。
+    """
+    from backend.models.repo.holdings import _get_holdings_cost_info
+    from backend.models.repo.trade_rounds import get_rounds
+    from backend.models.repo import stocks as stocks_repo
+
+    uid = user["id"]
+    info = await _get_holdings_cost_info(uid)   # {code: {avg_cost, earliest_buy_date, qty, cost_unreliable}}
+    if not info:
+        return {"holdings": [], "summary": {
+            "count": 0, "total_market_value": 0.0,
+            "total_float_pnl": 0.0, "total_float_pnl_pct": None,
+        }}
+    pool = {r["code"]: r for r in await stocks_repo.list_stocks(uid)}
+    rnd = {r["code"]: r for r in await get_rounds(uid, status="open")}
+    return _assemble_holdings(info, pool, rnd, date.today())
+
+
+@router.post("/sync-positions")
+async def sync_positions(user: Annotated[dict, Depends(get_current_user)]):
+    """手动重新同步: 按已导入的全量交割单重算持仓, 刷新自选池持仓状态(不必重新导入)。
+    与导入时自动同步同一套逻辑(_sync_holdings): 现持仓标 hold/hold_source='trade', 已清仓的降回 watch。"""
+    uid = user["id"]
+    all_rows = await repository.get_all_trade_records(uid)
+    if not all_rows:
+        return {"ok": True, "synced": 0}
+    all_trades = _db_rows_to_trades(all_rows)
+    result = analyze_trades(all_trades)
+    holdings = await _sync_holdings(uid, result)
+    logger.info(f"[trade_analysis] user={uid} 手动同步持仓: {len(holdings)} 只")
+    return {"ok": True, "synced": len(holdings)}
 
 
 @router.get("/rounds")

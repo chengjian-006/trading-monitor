@@ -168,3 +168,45 @@ export async function compareToModel(signalWindow = 5): Promise<CompareResult> {
   })
   return data
 }
+
+// ── 当前持仓明细(交割单摊薄成本口径) ──
+export interface HoldingItem {
+  code: string
+  name: string
+  qty: number
+  avg_cost: number | null          // 摊薄成本; 成本存疑时 null
+  cost_unreliable: boolean         // 卖>买缺买单致成本偏低
+  price: number | null             // 现价(自选池实时刷)
+  pct_change: number | null
+  market_value: number | null      // 市值 = 现价×股数
+  float_pnl: number | null         // 浮动盈亏额
+  float_pnl_pct: number | null     // 浮动盈亏%; 成本≤0时 null
+  entry_date: string               // 建仓日(当前持仓段)
+  holding_days: number             // 持仓天数(交易日)
+  entry_model: string | null       // 买入模型名(开放回合归因, 无则 null)
+  board_name: string | null        // 所属最热题材板块
+  board_rank: number | null        // 板块内涨幅名次
+  board_total: number | null
+}
+
+export interface HoldingsSummary {
+  count: number
+  total_market_value: number
+  total_float_pnl: number
+  total_float_pnl_pct: number | null
+}
+
+export interface HoldingsResult {
+  holdings: HoldingItem[]
+  summary: HoldingsSummary
+}
+
+export async function fetchHoldings(): Promise<HoldingsResult> {
+  const { data } = await client.get('/api/trade-analysis/holdings', { timeout: 30000 })
+  return data
+}
+
+export async function syncPositions(): Promise<{ ok: boolean; synced: number }> {
+  const { data } = await client.post('/api/trade-analysis/sync-positions', {}, { timeout: 60000 })
+  return data
+}
