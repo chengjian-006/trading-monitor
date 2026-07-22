@@ -63,6 +63,35 @@ watch(() => pf.filteredStocks.value, (list) => {
   if (selectedChartCode.value && list.some((s) => s.code === selectedChartCode.value)) return
   selectedChartCode.value = (list.find((s) => s.status === 'hold') || list[0]).code
 }, { immediate: true })
+// ── 图表栏宽度可拖拽(v1.7.763): 分隔条左右拖, 宽度持久化; 图表内部 ResizeObserver 自动重绘 ──
+const CHART_W_MIN = 300, TABLE_W_MIN = 360
+const chartWidth = ref(Math.max(CHART_W_MIN, Number(localStorage.getItem('poolChartWidth')) || 420))
+const poolMainRowRef = ref<HTMLElement | null>(null)
+let resizing = false
+function onResizeMove(e: MouseEvent) {
+  if (!resizing || !poolMainRowRef.value) return
+  const rect = poolMainRowRef.value.getBoundingClientRect()
+  let w = rect.right - e.clientX
+  w = Math.max(CHART_W_MIN, Math.min(w, rect.width - TABLE_W_MIN))
+  chartWidth.value = w
+}
+function stopResize() {
+  if (!resizing) return
+  resizing = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+  localStorage.setItem('poolChartWidth', String(Math.round(chartWidth.value)))
+  window.removeEventListener('mousemove', onResizeMove)
+  window.removeEventListener('mouseup', stopResize)
+}
+function startResize() {
+  resizing = true
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  window.addEventListener('mousemove', onResizeMove)
+  window.addEventListener('mouseup', stopResize)
+}
+
 // 键盘上下键在列表内切换选中(焦点不在输入框时才响应), 并把选中行滚进可视区
 function onChartKeyNav(e: KeyboardEvent) {
   if (isPhone.value || chartCollapsed.value) return
@@ -81,7 +110,10 @@ function onChartKeyNav(e: KeyboardEvent) {
   })
 }
 onMounted(() => window.addEventListener('keydown', onChartKeyNav))
-onUnmounted(() => window.removeEventListener('keydown', onChartKeyNav))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onChartKeyNav)
+  stopResize()   // 卸载时若正在拖拽, 清掉临时的 mousemove/mouseup 监听
+})
 // 自选分组下拉选项 (v1.7.670): 从池内已有分组去重
 const groupOptions = computed(() =>
   [...new Set(stockStore.stocks.map((s) => s.grp).filter((g): g is string => !!g))].sort()
@@ -520,11 +552,14 @@ async function handleThsImport(groupId: string) {
             <TagLegendButton />
           </div>
         </div>
-        <!-- v1.7.759: 桌面端表格 + 右侧图表栏并排(参照同花顺); 图表栏可收起 -->
-        <div v-if="!isPhone" class="pool-main-row">
+        <!-- v1.7.759: 桌面端表格 + 右侧图表栏并排(参照同花顺); 图表栏可收起, 分隔条可拖拽调宽(v1.7.763) -->
+        <div v-if="!isPhone" ref="poolMainRowRef" class="pool-main-row">
           <StockTable ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline"
             :selected-code="selectedChartCode" @select="selectChartStock" />
-          <PoolChartPanel v-if="!chartCollapsed" :stock="selectedChartStock" @collapse="toggleChartPanel" />
+          <template v-if="!chartCollapsed">
+            <div class="pool-chart-resizer" title="拖动调整图表栏宽度" @mousedown.prevent="startResize" />
+            <PoolChartPanel :stock="selectedChartStock" :style="{ width: chartWidth + 'px', flexBasis: chartWidth + 'px' }" @collapse="toggleChartPanel" />
+          </template>
           <button v-else class="pool-chart-reopen" title="展开分时/日K图表栏" @click="toggleChartPanel">◂ 图</button>
         </div>
         <StockList v-else :stocks="pf.filteredStocks.value" />
@@ -752,6 +787,16 @@ async function handleThsImport(groupId: string) {
   flex: 1;
   min-width: 0;
 }
+/* v1.7.763: 表格与图表栏之间的可拖拽分隔条 */
+.pool-chart-resizer {
+  flex: 0 0 5px;
+  align-self: stretch;
+  cursor: col-resize;
+  background: var(--border-default);
+  transition: background 0.15s;
+}
+.pool-chart-resizer:hover,
+.pool-chart-resizer:active { background: var(--accent-fg); }
 /* 收起态: 贴右侧一条竖向"展开"把手 */
 .pool-chart-reopen {
   flex: 0 0 auto;

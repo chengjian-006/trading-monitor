@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.763',
+    date: '2026-07-22',
+    title: '股票池图表栏:分隔条可拖拽调宽 + 双击行加载图表',
+    changes: [
+      {
+        text: '股票池表格与右侧图表栏之间新增可拖拽分隔条,鼠标左右拖即横向伸缩图表栏宽度(分时/日K图自动跟着重绘),宽度记住;拖动范围有下限(图表≥300px、表格≥360px)防拖没。',
+        tag: 'new',
+      },
+      {
+        text: '双击网格任意一行也可加载该股分时+日K图(与单击选中并存)。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.762',
     date: '2026-07-22',
     title: '修股票池选中行:去掉每列间的蓝竖线',

@@ -434,6 +434,8 @@ function rowProps(row: Stock) {
     class: classes.join(' ') || undefined,
     'data-code': row.code,
     onClick: () => handleRowClick(row),
+    // v1.7.763: 双击行也加载右侧图表(与单击选中并存, 显式满足"双击加载"习惯)
+    onDblclick: () => emit('select', row),
     onDragover: (e: DragEvent) => e.preventDefault(),
     onDrop: (e: DragEvent) => { e.preventDefault(); onRowDrop(row.code) },
   }
