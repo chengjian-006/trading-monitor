@@ -827,7 +827,10 @@ const allColumns = computed(() => [
     width: 84,
     sorter: numSorter('amount'),
     sortOrder: sortOrder('amount'),
-    render: (row: Stock) => formatAmount(row.amount),
+    // v1.7.758: 成交额>50亿 紫色突出(资金主战场票一眼可辨)
+    render: (row: Stock) => (row.amount && row.amount > 5e9
+      ? h('span', { style: { color: '#7c3aed', fontWeight: 600 } }, formatAmount(row.amount))
+      : formatAmount(row.amount)),
   },
   {
     title: '量比',

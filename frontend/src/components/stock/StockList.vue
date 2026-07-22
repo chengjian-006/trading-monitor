@@ -180,7 +180,8 @@ onMounted(() => { loadAlerts() })
       <div v-if="s.industry || s.amount" class="stock-extra">
         <span v-if="s.industry" class="stock-industry">{{ s.industry }}</span>
         <span v-if="s.sector_rank === 1" class="sector-leader-badge">板块最强</span>
-        <span v-if="s.amount" class="stock-amount">{{ formatAmount(s.amount) }}</span>
+        <!-- v1.7.758: 成交额>50亿 紫色突出, 与PC表格同口径 -->
+        <span v-if="s.amount" class="stock-amount" :class="{ 'amount-huge': s.amount > 5e9 }">{{ formatAmount(s.amount) }}</span>
       </div>
       <div v-if="s.grp || s.tags || s.note" class="stock-meta-row">
         <span v-if="s.grp" class="grp-tag">{{ s.grp }}</span>
@@ -406,6 +407,7 @@ onMounted(() => { loadAlerts() })
   color: var(--text2);
   font-variant-numeric: tabular-nums;
 }
+.stock-amount.amount-huge { color: #7c3aed; font-weight: 600; }   /* >50亿 紫色, 与PC同口径 */
 /* 分组/标签/备注 (v1.7.670) */
 .stock-meta-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .stock-meta-row .grp-tag { font-size: 11px; font-weight: 600; color: var(--accent-fg); background: var(--accent-bg-muted); border-radius: 4px; padding: 1px 8px; }
