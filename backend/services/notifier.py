@@ -730,7 +730,8 @@ async def _send_wechat_signal_direct(code: str, name: str, signal_name: str,
         _tag_color = {"buy": "red", "sell": "green"}.get(direction, "orange")
         lark_tags: list = [(signal_name, _tag_color)] if signal_name else []
         if direction == "buy" and model_stats and model_stats.get("rank_3m"):
-            lark_tags.append((f"第{model_stats['rank_3m']}名", "orange"))
+            # v1.7.756: 光「第6名」看不懂是什么排名, 写清楚口径(近3月全市场回测胜率的模型排名)
+            lark_tags.append((f"模型胜率排名第{model_stats['rank_3m']}", "orange"))
         # 大盘风险 → header 小标签(不盖标题), 挂彩签首位; 风险卡自身返回 None
         _rtag = await _risk_tag(lark_title)
         if _rtag:

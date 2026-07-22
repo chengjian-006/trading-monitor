@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.756',
+    date: '2026-07-22',
+    title: '买入推送卡排名标签写清口径:「第6名」→「模型胜率排名第6」',
+    changes: [
+      {
+        text: '买入提醒标题栏的排名彩签由「第X名」改为「模型胜率排名第X」,写清楚指的是该模型近3月全市场回测胜率在全部买入模型里的名次;飞书模版预览页同步。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.755',
     date: '2026-07-22',
     title: '藏龙岛观点卡片:标题字号缩小一号',

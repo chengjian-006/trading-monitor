@@ -100,7 +100,7 @@ def _signal_card(*, code: str, name: str, signal_name: str, direction: str,
     tag_color = {"buy": "red", "sell": "green"}.get(direction, "orange")
     tags: list = [(signal_name, tag_color)] if signal_name else []
     if direction == "buy" and model_stats and model_stats.get("rank_3m"):
-        tags.append((f"第{model_stats['rank_3m']}名", "orange"))
+        tags.append((f"模型胜率排名第{model_stats['rank_3m']}", "orange"))
     return _v2(title, elements, DIRECTION_TEMPLATE.get(direction, "blue"),
                summary=summary, tags=tags, link_url="#", link_text="查看分时图")
 
