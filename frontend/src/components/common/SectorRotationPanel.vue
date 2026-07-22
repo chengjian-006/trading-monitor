@@ -40,9 +40,9 @@ const w2sCount = computed(() => transitions.value.filter(t => t.direction === 'w
 const s2wCount = computed(() => transitions.value.filter(t => t.direction === 'strong_to_weak').length)
 const isW2S = (t: SectorTransition) => t.direction === 'weak_to_strong'
 
-const LANE_H = 36        // 标签行高: 两行(题材名 + 家数/时间)
-const SLOT_PX = 108      // 每个事件的水平槽宽(足够容一个标签, ~88px + 间距), 轨道按事件数加宽
-const PAD_PX = 60        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾标签被裁
+const CARD_H = 62        // 信息卡高度(三行: 方向题材 / 家数净变 / 个股时间)
+const SLOT_PX = 150      // 每张卡的水平槽宽(卡~136px + 间距), 轨道按事件数加宽横向滚动
+const PAD_PX = 68        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾卡被裁
 
 // v1.7.767: 由"按真实时间定位"改为"按转换先后顺序全局均匀铺开"。
 //   原来同一时刻(如13:01)多个转换全挤在同一 x, 错行避让又有上限, 溢出就重叠糊成一团。
@@ -57,6 +57,7 @@ function minuteOf(at: string): number {
 interface TlEvent {
   key: string; pct: number; lane: number; at: string; theme: string
   yest: number; limit_up: number; broken: number; samples: string[]; up: boolean
+  delta: number; height: number; sample: string; dotPx: number
 }
 
 // 全部转换按时间排序 → 全局等距铺开(转强/转弱共用同一条先后序列, 各自在轴上/下渲染)
@@ -67,24 +68,29 @@ const allEvents = computed<TlEvent[]>(() => {
   const n = sorted.length
   return sorted.map((x, idx) => {
     const up = isW2S(x.t)
+    const yest = x.t.yest ?? 0
+    const delta = x.t.limit_up - yest
+    const samples = x.t.samples ?? []
     return {
       key: `${up ? 'u' : 'd'}${x.i}`,
       pct: n <= 1 ? 50 : (idx / (n - 1)) * 100,
       lane: 0,
       at: String(x.t.at || '').slice(0, 5),
       theme: x.t.theme,
-      yest: x.t.yest ?? 0,
+      yest,
       limit_up: x.t.limit_up,
       broken: x.t.broken ?? 0,
-      samples: x.t.samples ?? [],
+      samples,
       up,
+      delta,                                        // 净变化(转强+ / 转弱-), 卡片直观显示力度
+      height: x.t.max_height ?? 0,                  // 该题材最高连板高度(打板视角关键)
+      sample: samples[0] || '',                     // 代表个股(第一只), 卡片内一眼认题材
+      dotPx: 7 + Math.min(Math.abs(delta), 9),      // 轴上圆点大小随变化幅度(7~16px)
     }
   })
 })
 const upEvents = computed(() => allEvents.value.filter(e => e.up))
 const downEvents = computed(() => allEvents.value.filter(e => !e.up))
-const upLanes = computed(() => 1)     // 等距铺开后单行即可, 不再错行
-const downLanes = computed(() => 1)
 // 轨道宽度随事件数增长(等距铺开需足够物理宽度, 不够就横向滚动)
 const trackMinWidth = computed(() =>
   Math.max(800, PAD_PX * 2 + Math.max(0, allEvents.value.length - 1) * SLOT_PX))
@@ -168,46 +174,68 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
     <template v-else>
       <!-- ── ① 今日转换流水 (头条) ── -->
       <div class="block">
-        <div class="block-title">今日转换流水<span class="bt-meta">按日比昨(昨→今) · 按先后顺序铺开, 轴上=转强 / 轴下=转弱</span></div>
+        <div class="block-title">今日转换流水<span class="bt-meta">按先后顺序铺开 · 轴上▲转强/轴下▼转弱 · 卡片=昨→今涨停家数·净变·最高连板·代表股 · 圆点大小=力度</span></div>
         <div v-if="transitions.length" class="tl">
           <div class="tl-scroll">
             <div class="tl-track" :style="{ minWidth: trackMinWidth + 'px' }">
-              <!-- 轴上方: 转强(红), 按错行避让 -->
-              <div class="tl-side up" :style="{ height: upLanes * LANE_H + 'px' }">
+              <!-- 轴上方: 转强(红) 信息卡 -->
+              <div class="tl-side up" :style="{ height: CARD_H + 'px' }">
                 <button v-for="e in upEvents" :key="e.key" type="button" class="tl-ev up"
-                        :class="{ active: activeKey === e.key }"
-                        :style="{ left: e.pct + '%', bottom: e.lane * LANE_H + 'px' }"
-                        :title="`${e.at} ↑转强 ${e.theme} 昨${e.yest}→今${e.limit_up}家`"
+                        :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"
+                        :title="`${e.at} ↑转强 ${e.theme} 昨${e.yest}→今${e.limit_up}家 净+${e.delta}${e.height ? ' 最高'+e.height+'板' : ''}${e.sample ? ' 代表'+e.sample : ''}`"
                         @mouseenter="hoverKey = e.key" @mouseleave="hoverKey = null"
                         @focus="hoverKey = e.key" @blur="hoverKey = null"
                         @click="toggleEvent(e.key)">
-                  <span class="ev-name">{{ e.theme }}</span>
-                  <span class="ev-sub">{{ e.yest }}→{{ e.limit_up }}家 · {{ e.at }}</span>
-                  <i class="ev-stem" :style="{ height: e.lane * LANE_H + 6 + 'px' }"></i>
+                  <div class="ev-r1">
+                    <span class="ev-arrow">▲</span>
+                    <span class="ev-name">{{ e.theme }}</span>
+                    <span v-if="e.height >= 1" class="ev-hgt" :class="{ multi: e.height >= 2 }">{{ e.height }}板</span>
+                  </div>
+                  <div class="ev-r2">
+                    <span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span><span class="ev-u">家</span>
+                    <span class="ev-delta">+{{ e.delta }}</span>
+                  </div>
+                  <div class="ev-r3">
+                    <span v-if="e.sample" class="ev-stock">{{ e.sample }}</span>
+                    <span class="ev-time">{{ e.at }}</span>
+                  </div>
+                  <i class="ev-stem"></i>
                 </button>
               </div>
 
-              <!-- 时间轴本体: 刻度 + 事件圆点 -->
+              <!-- 时间轴本体: 事件圆点(大小随变化幅度) -->
               <div class="tl-axis">
                 <div class="tl-line"></div>
                 <i v-for="e in upEvents" :key="'du' + e.key" class="tl-dot up"
-                   :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"></i>
+                   :class="{ active: activeKey === e.key }"
+                   :style="{ left: e.pct + '%', width: e.dotPx + 'px', height: e.dotPx + 'px' }"></i>
                 <i v-for="e in downEvents" :key="'dd' + e.key" class="tl-dot down"
-                   :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"></i>
+                   :class="{ active: activeKey === e.key }"
+                   :style="{ left: e.pct + '%', width: e.dotPx + 'px', height: e.dotPx + 'px' }"></i>
               </div>
 
-              <!-- 轴下方: 转弱(绿) -->
-              <div class="tl-side down" :style="{ height: downLanes * LANE_H + 'px' }">
+              <!-- 轴下方: 转弱(绿) 信息卡 -->
+              <div class="tl-side down" :style="{ height: CARD_H + 'px' }">
                 <button v-for="e in downEvents" :key="e.key" type="button" class="tl-ev down"
-                        :class="{ active: activeKey === e.key }"
-                        :style="{ left: e.pct + '%', top: e.lane * LANE_H + 'px' }"
-                        :title="`${e.at} ↓转弱 ${e.theme} 昨${e.yest}→今${e.limit_up}家`"
+                        :class="{ active: activeKey === e.key }" :style="{ left: e.pct + '%' }"
+                        :title="`${e.at} ↓转弱 ${e.theme} 昨${e.yest}→今${e.limit_up}家 净${e.delta}${e.broken ? ' 炸'+e.broken : ''}${e.sample ? ' 代表'+e.sample : ''}`"
                         @mouseenter="hoverKey = e.key" @mouseleave="hoverKey = null"
                         @focus="hoverKey = e.key" @blur="hoverKey = null"
                         @click="toggleEvent(e.key)">
-                  <i class="ev-stem" :style="{ height: e.lane * LANE_H + 21 + 'px' }"></i>
-                  <span class="ev-name">{{ e.theme }}</span>
-                  <span class="ev-sub">{{ e.yest }}→{{ e.limit_up }}家<template v-if="e.broken > 0"> · 炸{{ e.broken }}</template> · {{ e.at }}</span>
+                  <i class="ev-stem"></i>
+                  <div class="ev-r1">
+                    <span class="ev-arrow">▼</span>
+                    <span class="ev-name">{{ e.theme }}</span>
+                    <span v-if="e.broken > 0" class="ev-broken">炸{{ e.broken }}</span>
+                  </div>
+                  <div class="ev-r2">
+                    <span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span><span class="ev-u">家</span>
+                    <span class="ev-delta">{{ e.delta }}</span>
+                  </div>
+                  <div class="ev-r3">
+                    <span v-if="e.sample" class="ev-stock">{{ e.sample }}</span>
+                    <span class="ev-time">{{ e.at }}</span>
+                  </div>
                 </button>
               </div>
             </div>
@@ -297,37 +325,66 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .block-title { font-size: 12px; font-weight: 700; color: var(--fg-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
 .block-title .bt-meta { font-size: 10.5px; font-weight: 400; color: var(--fg-subtle); }
 
-/* ── ① 今日转换流水 · 按先后顺序等距铺开 (v1.7.767) ── */
-/* 轨道宽度由脚本 trackMinWidth 按事件数算(每个 SLOT_PX 一槽, 左右各留 60px 给首尾标签),
-   事件多则轨道加宽横向滚动。 */
+/* ── ① 今日转换流水 · 按先后顺序等距铺开 + 信息卡 (v1.7.767/770) ── */
+/* 轨道宽度由脚本 trackMinWidth 按事件数算(每个 SLOT_PX 一槽, 左右各留 PAD_PX=68px = 卡半宽,
+   防首尾卡被裁), 事件多则轨道加宽横向滚动。 */
 .tl-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-.tl-track { position: relative; box-sizing: border-box; padding: 4px 60px 0; }
+.tl-track { position: relative; box-sizing: border-box; padding: 6px 68px 0; }
 .tl-side { position: relative; }
+/* ── 信息卡 (v1.7.770 重设计): 方向题材 / 昨→今家数+净变 / 代表股+时间 三行结构卡 ──
+   机构盯盘风: 左侧方向色边条 + 淡色底, 红=转强 绿=转弱, 一眼看清力度与梯队。 */
 .tl-ev {
   position: absolute; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  appearance: none; border: 1px solid transparent; background: transparent;
-  font: inherit; padding: 2px 5px; border-radius: 6px; cursor: pointer;
-  touch-action: manipulation; line-height: 1.25; max-width: 104px;
+  display: flex; flex-direction: column; gap: 1px;
+  appearance: none; font: inherit; cursor: pointer; text-align: left;
+  width: 136px; padding: 4px 7px; border-radius: 5px;
+  background: var(--bg-surface); border: 1px solid var(--border-muted);
+  border-left-width: 3px; touch-action: manipulation; line-height: 1.2;
+  transition: box-shadow 0.12s, transform 0.12s;
 }
-.tl-ev .ev-name { font-size: 12.5px; font-weight: 600; color: var(--fg-default); max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tl-ev .ev-sub { font-size: 10.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tl-ev.up .ev-sub { color: color-mix(in srgb, var(--up-fg) 78%, var(--fg-subtle)); }
-.tl-ev.down .ev-sub { color: color-mix(in srgb, var(--down-fg) 78%, var(--fg-subtle)); }
-/* 引线: 从标签连到轴, 错行后仍能对上是哪个时间点 */
-.tl-ev .ev-stem { position: absolute; left: 50%; width: 1px; }
-.tl-ev.up .ev-stem { top: 100%; background: color-mix(in srgb, var(--up-fg) 35%, transparent); }
-.tl-ev.down .ev-stem { bottom: 100%; background: color-mix(in srgb, var(--down-fg) 35%, transparent); }
-.tl-ev:hover, .tl-ev:focus-visible { background: var(--bg-sunken); border-color: var(--border-muted); outline: none; }
-.tl-ev.up.active { background: var(--up-bg-muted); border-color: color-mix(in srgb, var(--up-fg) 40%, transparent); }
-.tl-ev.down.active { background: var(--down-bg-muted); border-color: color-mix(in srgb, var(--down-fg) 40%, transparent); }
+.tl-ev.up { border-left-color: var(--up-fg); }
+.tl-ev.down { border-left-color: var(--down-fg); }
+.tl-ev.up { bottom: 0; }
+.tl-ev.down { top: 0; }
+/* 卡片各行 */
+.tl-ev .ev-r1 { display: flex; align-items: center; gap: 4px; }
+.tl-ev .ev-arrow { font-size: 10px; line-height: 1; flex-shrink: 0; }
+.tl-ev.up .ev-arrow { color: var(--up-fg); }
+.tl-ev.down .ev-arrow { color: var(--down-fg); }
+.tl-ev .ev-name { font-size: 12.5px; font-weight: 700; color: var(--fg-default); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 最高连板徽章: 首板灰, ≥2板红底(打板视角关键信息) */
+.tl-ev .ev-hgt { flex-shrink: 0; font-size: 9.5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; border-radius: 3px; background: var(--fill-subtle, rgba(128,128,128,.14)); color: var(--fg-subtle); }
+.tl-ev .ev-hgt.multi { background: var(--up-bg-muted); color: var(--up-fg); }
+/* 炸板徽章(转弱): 绿底警示 */
+.tl-ev .ev-broken { flex-shrink: 0; font-size: 9.5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; border-radius: 3px; background: var(--down-bg-muted); color: var(--down-fg); }
+/* 第二行: 昨→今 家数 + 净变化 */
+.tl-ev .ev-r2 { display: flex; align-items: baseline; gap: 1px; font-variant-numeric: tabular-nums; }
+.tl-ev .ev-y { font-size: 11px; color: var(--fg-subtle); }
+.tl-ev .ev-arw { font-size: 10px; color: var(--fg-subtle); margin: 0 1px; }
+.tl-ev .ev-n { font-size: 14px; font-weight: 700; color: var(--fg-default); }
+.tl-ev .ev-u { font-size: 10px; color: var(--fg-subtle); margin-left: 1px; }
+.tl-ev .ev-delta { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tl-ev.up .ev-delta { color: var(--up-fg); }
+.tl-ev.down .ev-delta { color: var(--down-fg); }
+/* 第三行: 代表个股 + 时间 */
+.tl-ev .ev-r3 { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
+.tl-ev .ev-stock { font-size: 10.5px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-ev .ev-time { flex-shrink: 0; font-size: 10px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+/* 引线: 卡片连到轴 */
+.tl-ev .ev-stem { position: absolute; left: 50%; width: 1px; height: 8px; }
+.tl-ev.up .ev-stem { top: 100%; background: color-mix(in srgb, var(--up-fg) 40%, transparent); }
+.tl-ev.down .ev-stem { bottom: 100%; background: color-mix(in srgb, var(--down-fg) 40%, transparent); }
+.tl-ev:hover, .tl-ev:focus-visible { box-shadow: 0 2px 8px rgba(0,0,0,.10); transform: translateX(-50%) translateY(-1px); outline: none; z-index: 3; }
+.tl-ev.up.active { background: var(--up-bg-muted); box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 3; }
+.tl-ev.down.active { background: var(--down-bg-muted); box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 3; }
 
-.tl-axis { position: relative; height: 26px; }
-.tl-line { position: absolute; left: 0; right: 0; top: 5px; height: 1px; background: var(--border-default); }
-.tl-dot { position: absolute; top: 2px; width: 7px; height: 7px; border-radius: 50%; transform: translateX(-50%); border: 1px solid var(--bg-surface); }
+.tl-axis { position: relative; height: 20px; }
+.tl-line { position: absolute; left: 0; right: 0; top: 9px; height: 2px; border-radius: 1px; background: var(--border-default); }
+/* 圆点: 大小随净变化幅度(脚本 dotPx), 居中吸附在轴线上 */
+.tl-dot { position: absolute; top: 10px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg-surface); box-sizing: content-box; }
 .tl-dot.up { background: var(--up-fg); }
 .tl-dot.down { background: var(--down-fg); }
-.tl-dot.active { transform: translateX(-50%) scale(1.5); }
+.tl-dot.active { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fg) 30%, transparent); }
 
 .tl-detail {
   margin-top: 8px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
@@ -391,7 +448,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
   .rotation-panel { padding: 8px 10px; }
   .title { font-size: 13px; }
   /* 手机端时间轴同样横向滚动(左右滑看全天), 明细条里的个股换行显示不截断 */
-  .tl-track { padding: 4px 52px 0; }
+  .tl-track { padding: 6px 68px 0; }
   .td-samples { flex-basis: 100%; white-space: normal; }
   .predict-grid { grid-template-columns: 1fr; }
   .pg-reason { flex-basis: 100%; }
