@@ -368,6 +368,14 @@ async function batchSetGroup() {
     batchGrp.value = ''; clearChecked(); await stockStore.loadStocks(true)
   } catch { message.error('批量设分组失败') } finally { batchBusy.value = false }
 }
+// 个股外链跳转 (v1.7.783): 东方财富股吧 / 同花顺个股页, 新标签打开
+function openGuba(code: string) {
+  window.open(`https://guba.eastmoney.com/list,${code}.html`, '_blank', 'noopener,noreferrer')
+}
+function openThsPage(code: string) {
+  window.open(`https://stockpage.10jqka.com.cn/${code}/`, '_blank', 'noopener,noreferrer')
+}
+
 // 行操作 ⋯ 菜单 (v1.7.677): 次要操作收进下拉减少噪音
 function rowMenuOptions(row: Stock) {
   return [
@@ -377,6 +385,9 @@ function rowMenuOptions(row: Stock) {
     { label: '置底', key: 'bottom', disabled: !!sortState.value || reorderBusy.value },
     // 持仓/观察 在途时禁点, 防乱序返回导致最终状态与所点相反
     { label: row.status === 'hold' ? '标记为观察' : '标记为持仓', key: 'hold', disabled: holdBusy(row.code) },
+    { type: 'divider', key: 'd-links' },
+    { label: '东方财富股吧 ↗', key: 'guba' },
+    { label: '同花顺个股页 ↗', key: 'ths' },
   ]
 }
 function rowMenuSelect(key: string, row: Stock) {
@@ -384,6 +395,8 @@ function rowMenuSelect(key: string, row: Stock) {
   else if (key === 'top') void guardedMoveToEdge(row.code, 'top')
   else if (key === 'bottom') void guardedMoveToEdge(row.code, 'bottom')
   else if (key === 'hold') void handleToggleHold(row)
+  else if (key === 'guba') openGuba(row.code)
+  else if (key === 'ths') openThsPage(row.code)
 }
 
 async function batchDelete() {
@@ -983,7 +996,7 @@ const allColumns = computed(() => [
         onSelect: (key: string) => rowMenuSelect(key, row),
       }, {
         default: () => h(NButton, {
-          size: 'tiny', quaternary: true, title: '更多: 分组标签/置顶置底/持仓', 'aria-label': '更多操作',
+          size: 'tiny', quaternary: true, title: '更多: 分组标签/置顶置底/持仓/东财股吧/同花顺个股页', 'aria-label': '更多操作',
           onClick: (e: Event) => e.stopPropagation(),
         }, { icon: () => h(NIcon, { size: 16 }, { default: () => h(EllipsisHorizontalOutline) }) }),
       }),

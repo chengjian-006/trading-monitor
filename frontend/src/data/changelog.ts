@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.783',
+    date: '2026-07-23',
+    title: '自选股加个股外链跳转: 东方财富股吧 + 同花顺个股页',
+    changes: [
+      {
+        text: '自选股每只票可一键跳转 东方财富股吧(guba.eastmoney.com) 与 同花顺个股页(stockpage.10jqka.com.cn), 新标签打开。桌面收进「⋯ 更多」下拉(避免固定操作列过挤), 手机端卡片区直接加「股吧」「同花顺」两个按钮。',
+        tag: 'new',
+      },
+    ],
+  },
+  {
     version: 'v1.7.782',
     date: '2026-07-23',
     title: '市场广度条默认只显今日, 点「比昨日」才展开昨日+Δ对比',
