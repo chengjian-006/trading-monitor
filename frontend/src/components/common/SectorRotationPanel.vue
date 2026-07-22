@@ -40,9 +40,9 @@ const w2sCount = computed(() => transitions.value.filter(t => t.direction === 'w
 const s2wCount = computed(() => transitions.value.filter(t => t.direction === 'strong_to_weak').length)
 const isW2S = (t: SectorTransition) => t.direction === 'weak_to_strong'
 
-const CARD_H = 40        // 紧凑信息卡高度(两行: 方向题材徽章 / 昨→今净变时间)
-const SLOT_PX = 124      // 每张卡的水平槽宽(卡~112px + 间距), 轨道按事件数加宽横向滚动
-const PAD_PX = 58        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾卡被裁
+const CARD_H = 32        // 紧凑信息卡高度(v1.7.773: 时间移到轴上后卡内只剩两行数据, 压矮)
+const SLOT_PX = 112      // 每张卡的水平槽宽(卡~104px + 间距), 轨道按事件数加宽横向滚动
+const PAD_PX = 52        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾卡被裁
 
 // v1.7.767: 由"按真实时间定位"改为"按转换先后顺序全局均匀铺开"。
 //   原来同一时刻(如13:01)多个转换全挤在同一 x, 错行避让又有上限, 溢出就重叠糊成一团。
@@ -94,6 +94,21 @@ const downEvents = computed(() => allEvents.value.filter(e => !e.up))
 // 轨道宽度随事件数增长(等距铺开需足够物理宽度, 不够就横向滚动)
 const trackMinWidth = computed(() =>
   Math.max(800, PAD_PX * 2 + Math.max(0, allEvents.value.length - 1) * SLOT_PX))
+
+// v1.7.773: 时间刻度轴 —— 同一时刻(如 13:01 六个转换)只标一次时间, 居中吸附在该簇正下方,
+// 让"时间点"成为轴上的重点(去重防同刻时间重复多次糊成一片); 单事件时刻则与其圆点对齐。
+const timeGroups = computed<{ at: string; pct: number }[]>(() => {
+  const m = new Map<string, number[]>()
+  for (const e of allEvents.value) {
+    const arr = m.get(e.at) ?? []
+    arr.push(e.pct)
+    m.set(e.at, arr)
+  }
+  return [...m.entries()].map(([at, pcts]) => ({
+    at,
+    pct: pcts.reduce((s, p) => s + p, 0) / pcts.length,
+  }))
+})
 
 // 明细条: 悬停临时看, 点击钉住(手机端没有 hover, 靠点)。放轴下方固定一条而非浮层——
 // 轨道是横向滚动容器, 浮层会被裁掉。
@@ -194,7 +209,6 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                   <div class="ev-r2">
                     <span class="ev-jump"><span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span></span>
                     <span class="ev-delta">+{{ e.delta }}</span>
-                    <span class="ev-time">{{ e.at }}</span>
                   </div>
                   <i class="ev-stem"></i>
                 </button>
@@ -209,6 +223,11 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                 <i v-for="e in downEvents" :key="'dd' + e.key" class="tl-dot down"
                    :class="{ active: activeKey === e.key }"
                    :style="{ left: e.pct + '%', width: e.dotPx + 'px', height: e.dotPx + 'px' }"></i>
+              </div>
+
+              <!-- 时间刻度: 去重后每个时刻一个粗体标签(带刻度线), 居中在该时刻转换簇正下方 —— 时间是重点 -->
+              <div class="tl-times">
+                <span v-for="g in timeGroups" :key="g.at" class="tl-time" :style="{ left: g.pct + '%' }">{{ g.at }}</span>
               </div>
 
               <!-- 轴下方: 转弱(绿) 信息卡 -->
@@ -228,7 +247,6 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                   <div class="ev-r2">
                     <span class="ev-jump"><span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span></span>
                     <span class="ev-delta">{{ e.delta }}</span>
-                    <span class="ev-time">{{ e.at }}</span>
                   </div>
                 </button>
               </div>
@@ -323,7 +341,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 /* 轨道宽度由脚本 trackMinWidth 按事件数算(每个 SLOT_PX 一槽, 左右各留 PAD_PX=68px = 卡半宽,
    防首尾卡被裁), 事件多则轨道加宽横向滚动。 */
 .tl-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-.tl-track { position: relative; box-sizing: border-box; padding: 4px 58px 0; }
+.tl-track { position: relative; box-sizing: border-box; padding: 4px 52px 0; }
 .tl-side { position: relative; }
 /* ── 紧凑信息卡 (v1.7.771 压缩): 两行 —— 方向题材徽章 / 昨→今净变时间; 代表股收进悬停明细 ──
    机构盯盘风: 左侧方向色边条, 红=转强 绿=转弱; 高度砍半更紧凑。 */
@@ -331,7 +349,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
   position: absolute; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 1px;
   appearance: none; font: inherit; cursor: pointer; text-align: left;
-  width: 112px; padding: 2px 6px; border-radius: 4px;
+  width: 104px; padding: 1px 5px; border-radius: 4px;
   background: var(--bg-surface); border: 1px solid var(--border-muted);
   border-left-width: 3px; touch-action: manipulation; line-height: 1.15;
   transition: box-shadow 0.12s, transform 0.12s;
@@ -356,7 +374,6 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .tl-ev .ev-delta { font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tl-ev.up .ev-delta { color: var(--up-fg); }
 .tl-ev.down .ev-delta { color: var(--down-fg); }
-.tl-ev .ev-time { margin-left: auto; font-size: 9.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
 /* 引线: 卡片连到轴 */
 .tl-ev .ev-stem { position: absolute; left: 50%; width: 1px; height: 6px; }
 .tl-ev.up .ev-stem { top: 100%; background: color-mix(in srgb, var(--up-fg) 40%, transparent); }
@@ -372,6 +389,19 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .tl-dot.up { background: var(--up-fg); }
 .tl-dot.down { background: var(--down-fg); }
 .tl-dot.active { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fg) 30%, transparent); }
+
+/* ── 时间刻度轴 (v1.7.773): 时间是重点 —— 去重后粗体标签 + 一根短刻度线接上轴线, 居中在该时刻转换簇下方 ── */
+.tl-times { position: relative; height: 15px; margin-top: 1px; }
+.tl-time {
+  position: absolute; transform: translateX(-50%); top: 3px;
+  font-size: 12px; font-weight: 700; letter-spacing: 0.02em;
+  color: var(--fg-default); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+/* 刻度线: 从时间标签上缘伸向轴线, 让它读作真正的"时间刻度" */
+.tl-time::before {
+  content: ''; position: absolute; left: 50%; top: -6px;
+  width: 1px; height: 5px; background: var(--fg-subtle); transform: translateX(-50%);
+}
 
 .tl-detail {
   margin-top: 6px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
@@ -435,7 +465,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
   .rotation-panel { padding: 8px 10px; }
   .title { font-size: 13px; }
   /* 手机端时间轴同样横向滚动(左右滑看全天), 明细条里的个股换行显示不截断 */
-  .tl-track { padding: 4px 58px 0; }
+  .tl-track { padding: 4px 52px 0; }
   .td-samples { flex-basis: 100%; white-space: normal; }
   .predict-grid { grid-template-columns: 1fr; }
   .pg-reason { flex-basis: 100%; }
