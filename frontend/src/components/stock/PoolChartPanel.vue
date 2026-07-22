@@ -176,7 +176,7 @@ function openFull() {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 4px 10px;   /* v1.7.772 紧凑: 8→4 收纵向留白 */
   border-bottom: 1px solid var(--border-default);
   position: sticky;
   top: 0;
@@ -212,8 +212,8 @@ function openFull() {
 .pcp-metrics {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  padding: 8px 12px;
+  gap: 2px 14px;        /* v1.7.772 紧凑: 行距 4→2 */
+  padding: 4px 12px;    /* v1.7.772 紧凑: 8→4 收纵向留白 */
   border-bottom: 1px solid var(--border-default);
 }
 .m-item { display: flex; align-items: baseline; gap: 4px; }

@@ -1245,6 +1245,16 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 .row-chart-selected td:first-child {
   box-shadow: inset 3px 0 0 0 var(--accent-fg);
 }
+/* v1.7.772 修图1叠字: .row-chart-selected 是 v1.7.759/762 才加的行态, 底色 --accent-bg-muted
+   是【半透明】(rgba(22,104,220,.10)) 打在 td 上并 !important。它漏了 row-hold/row-below-ma20
+   都有的那条【固定列实底】companion(见上方 v1.7.722 注释) —— 固定列浮在可滚动列上方, 半透明就
+   透出下层的换手/距MA20 → 选中行右侧操作列叠字。补同色实混(= row-hold 固定列同款), 肉眼一致但全不透。
+   置于 row-below-ma20 之后: 特指度同为 0-2-1, 靠源码顺序胜出 → "选中且跌破MA20"的行两个固定列
+   与非固定列同为选中蓝(非固定列那边 .row-chart-selected td 亦靠源码顺序压过 .row-below-ma20 td)。 */
+.row-chart-selected td.n-data-table-td--fixed-left,
+.row-chart-selected td.n-data-table-td--fixed-right {
+  background: color-mix(in srgb, rgb(22, 104, 220) 10%, var(--bg-surface)) !important;
+}
 /* 隐藏 expand 列：单纯靠点击行触发展开，不显示图标 */
 .stock-table-wrap :deep(.n-data-table-th--expandable),
 .stock-table-wrap :deep(.n-data-table-td--expandable) {
