@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.754',
+    date: '2026-07-22',
+    title: '藏龙岛观点卡片:版面正文整体加大一号',
+    changes: [
+      {
+        text: '观点转发卡片正文加大一号:老师的话升为大号字(仍整体加粗),学员引用从小字备注升为常规字号(保持灰色弱化对比不变)。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.753',
     date: '2026-07-22',
     title: '藏龙岛观点卡片:正文整体加粗突出',

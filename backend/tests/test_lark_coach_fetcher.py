@@ -99,14 +99,18 @@ def test_bold_lines_md():
 
 
 def test_build_relay_card_text_with_quote():
+    # v1.7.754: 版面加大一号 —— 正文 markdown text_size=heading, 学员引用灰色 markdown 常规字号
     from backend.services.lark_coach_scanner import _build_relay_card
     card = _build_relay_card("藏龙岛", "07-22 09:41", text="核心票：坚定持有\n----- 学员：老师怎么看")
     assert card["header"]["template"] == "blue"
     assert card["header"]["title"]["content"] == "藏龙岛观点 · 07-22 09:41"
     tags = [e["tag"] for e in card["elements"]]
-    assert tags == ["div", "note"]                       # 正文 + 学员引用灰字
-    assert card["elements"][0]["text"]["content"] == "**核心票：坚定持有**"   # 正文整体加粗
-    assert "老师怎么看" in card["elements"][1]["elements"][0]["content"]
+    assert tags == ["markdown", "markdown"]              # 正文 + 学员引用灰字
+    assert card["elements"][0]["content"] == "**核心票：坚定持有**"   # 正文整体加粗
+    assert card["elements"][0]["text_size"] == "heading"              # 加大一号
+    assert "老师怎么看" in card["elements"][1]["content"]
+    assert "<font color='grey'>" in card["elements"][1]["content"]    # 引用保持灰色
+    assert "text_size" not in card["elements"][1]                     # 引用常规字号(比原note大一号)
 
 
 def test_build_relay_card_image_and_blank():
