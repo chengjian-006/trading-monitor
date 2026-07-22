@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.766',
+    date: '2026-07-22',
+    title: '修图表拖宽后留白/被截 + 日K默认改近40日',
+    changes: [
+      {
+        text: '修正拖动调宽后分时/日K图不铺满(右侧留白或被截)的问题:图表宽度变化后重新铺满当前窗口(lightweight-charts的barSpacing是固定像素,只改宽度不重排会让线停在旧位置)。分时始终铺满全天,日K按默认窗口重铺,不打断平时左右拖看历史。',
+        tag: 'fix',
+      },
+      {
+        text: '股票池右侧日K图默认由「近60日」改为「近40日」,拉取与显示同步为40个交易日(仍可在图上向左拖看更早)。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.765',
     date: '2026-07-22',
     title: '图表栏拖拽调宽加rAF节流,跟手丝滑不卡',

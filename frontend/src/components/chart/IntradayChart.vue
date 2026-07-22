@@ -238,7 +238,12 @@ function initChart() {
   setTimeout(() => repositionOverlay?.(), 150)
 
   resizeObs = new ResizeObserver(() => {
-    if (chart && chartEl.value) chart.applyOptions({ width: chartEl.value.clientWidth })
+    if (chart && chartEl.value) {
+      chart.applyOptions({ width: chartEl.value.clientWidth })
+      // v1.7.766: 宽度变化后重新铺满全天 —— lightweight-charts 的 barSpacing 是固定像素,
+      //   只改 width 不 fitContent 会让分时线停在旧位置, 拉宽右侧留白、缩窄被截。
+      chart.timeScale().fitContent()
+    }
     requestAnimationFrame(() => repositionOverlay?.())
   })
   resizeObs.observe(chartEl.value)

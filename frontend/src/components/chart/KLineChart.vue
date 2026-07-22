@@ -281,7 +281,15 @@ function render() {
   setLegendAt(dataArr.length - 1)
 
   resizeObs = new ResizeObserver(() => {
-    if (chart && chartEl.value) chart.applyOptions({ width: chartEl.value.clientWidth })
+    if (!chart || !chartEl.value) return
+    chart.applyOptions({ width: chartEl.value.clientWidth })
+    // v1.7.766: 宽度变化后按当前默认窗口重新铺满 —— barSpacing 固定像素, 只改 width 不重设区间
+    //   会让K线停在旧位置, 拉宽右侧留白、缩窄被截。resize 只在宽度变时触发(滚动/缩放不触发),
+    //   故这里按 defaultBars 重铺不会打断用户平时的左右拖看历史。
+    const t = candleData.length
+    const d = props.defaultBars ?? 0
+    if (d > 0 && t > d) chart.timeScale().setVisibleLogicalRange({ from: t - d, to: t + 1 })
+    else chart.timeScale().fitContent()
   })
   resizeObs.observe(chartEl.value)
 }

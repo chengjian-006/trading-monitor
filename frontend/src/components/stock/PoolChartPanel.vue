@@ -21,7 +21,7 @@ const emit = defineEmits<{ collapse: [] }>()
 
 const ui = useUiStore()
 
-const KLINE_DAYS = 60   // 日K默认显示最近60个交易日(约3个月), 可在图上拖动/缩放看更早
+const KLINE_DAYS = 40   // 日K默认显示最近40个交易日(v1.7.766由60改40), 可在图上拖动/缩放看更早
 
 const loading = ref(false)
 const intradayData = ref<IntradayPoint[]>([])
