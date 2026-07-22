@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.769',
+    date: '2026-07-22',
+    title: '板块轮动提为整行 + 问财观点上移',
+    changes: [
+      {
+        text: '「板块轮动·弱强转换」由左栏细条提为占满整行(转换流水改横向铺开后正好用得上整行宽度);左栏只剩短线情绪后驾驶舱栅格变矮,带动右栏「问财观点」上移到固定高度、不再沉到底部。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.768',
     date: '2026-07-22',
     title: '监控看板布局调整+情绪面板打法切换合并',

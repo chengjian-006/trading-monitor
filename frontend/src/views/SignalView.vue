@@ -138,10 +138,9 @@ onMounted(() => {
       <div class="cockpit-main">
         <!-- 短线情绪 (温度计/封板率/连板梯队): 开盘先看"今天敢不敢干", 主角占位 -->
         <EmotionPanel />
-        <!-- 板块轮动·弱强转换: 内容常稀疏(盘中多为无信号), 压在情绪下方细条不独占一栏 -->
-        <SectorRotationPanel />
       </div>
-      <!-- 右栏: 临近买点(盯盘轨, 撑满并内部滚) + 问财观点(投顾档, 固定高度不拉伸) 纵向堆叠。 -->
+      <!-- 右栏: 临近买点(盯盘轨, 撑满并内部滚) + 问财观点(投顾档, 固定高度不拉伸) 纵向堆叠。
+           左栏只剩情绪后栅格变矮, 右栏随之上移 → 问财观点上移到固定高度不再沉底 (v1.7.769)。 -->
       <div class="cockpit-side-wrap">
         <div class="cockpit-side">
           <NearBuyPanel />
@@ -149,6 +148,9 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 板块轮动·弱强转换: 转换流水改横向铺开后受益于整行宽度(v1.7.769 由左栏细条提为整行) -->
+    <SectorRotationPanel class="full-row" />
 
     <!-- 市场情绪温度表: 日期×题材 涨停家数矩阵 + 强势主线操作, 占满整行(表宽, 单独一行才排得开) -->
     <ThemeHeatPanel class="full-row" />
@@ -265,7 +267,7 @@ onMounted(() => {
   gap: 10px;
   align-items: stretch;   /* 右栏拉伸到与左栏等高, 便于问财观点撑满剩余高度 */
 }
-/* 左主栏: 情绪 → 板块轮动细条 → 情绪温度表 纵向堆叠 */
+/* 左主栏: 情绪(v1.7.769 板块轮动提为整行后, 左栏只剩情绪 → 栅格变矮带动右栏问财上移) */
 .cockpit-main {
   display: flex;
   flex-direction: column;
@@ -293,7 +295,7 @@ onMounted(() => {
 .cockpit-side :deep(.nearbuy-panel) { display: flex; flex-direction: column; min-height: 0; }
 .cockpit-side :deep(.nearbuy-panel .list) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 @media (max-width: 960px) {
-  /* 窄屏回落单列: 顺序=情绪/轮动/临近买点/问财观点/温度表, 各面板自然高不强制撑满 */
+  /* 窄屏回落单列: 顺序=情绪/临近买点/问财观点/板块轮动/温度表, 各面板自然高不强制撑满 */
   .cockpit-grid { grid-template-columns: 1fr; }
   .cockpit-side-wrap { position: static; }
   .cockpit-side { position: static; overflow: visible; }
