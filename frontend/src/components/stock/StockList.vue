@@ -3,7 +3,7 @@ import { computed, h, ref } from 'vue'
 import { NTag, NButton, NIcon, NPopconfirm } from 'naive-ui'
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
-import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications, PricetagsOutline, Create, CreateOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SparklesOutline, NotificationsOutline, Notifications, PricetagsOutline, Create, CreateOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import type { Stock } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -12,6 +12,7 @@ import SubstanceCheckDrawer from './SubstanceCheckDrawer.vue'
 import StockAlertModal from './StockAlertModal.vue'
 import StockMetaModal from './StockMetaModal.vue'
 import StrategyEditModal from './StrategyEditModal.vue'
+import StockWencaiModal from './StockWencaiModal.vue'
 import StrategyText from './StrategyText.vue'
 import { useUiStore } from '../../stores/ui'
 import { useStockAlerts } from '../../composables/useStockAlerts'
@@ -110,6 +111,10 @@ function openAlert(s: Stock) {
   alertStock.value = s
   showAlertModal.value = true
 }
+// 个股「问财提问」(v1.7.777): 新标签打开同花顺问财
+const showWencaiModal = ref(false)
+const wencaiStock = ref<Stock | null>(null)
+function openWencai(s: Stock) { wencaiStock.value = s; showWencaiModal.value = true }
 // 个股策略 (v1.7.721 补手机端): 此前只有宽表能看/能改策略, 手机卡片版完全没有入口。
 // 卡片内直接展开策略正文(手机没有 hover, 悬浮富卡那套用不了), 点正文或底部「策略」按钮都进编辑。
 const showStrategyModal = ref(false)
@@ -217,6 +222,10 @@ onMounted(() => { loadAlerts() })
             <template #icon><NIcon><PricetagsOutline /></NIcon></template>
             标签
           </NButton>
+          <NButton size="small" secondary @click="openWencai(s)">
+            <template #icon><NIcon><HelpCircleOutline /></NIcon></template>
+            问财
+          </NButton>
           <!-- 在途时禁点(仅本卡片): 防连点乱序返回导致最终关注状态与用户所点相反 -->
           <NButton size="small" :type="s.focused ? 'warning' : 'primary'" :secondary="!s.focused"
             :loading="focusBusy(s.code)" :disabled="focusBusy(s.code)" @click="handleToggleFocus(s)">
@@ -269,6 +278,7 @@ onMounted(() => { loadAlerts() })
       :group-options="groupOptions"
       @changed="stockStore.loadStocks(true)"
     />
+    <StockWencaiModal v-model:show="showWencaiModal" :row="wencaiStock" />
   </div>
 </template>
 

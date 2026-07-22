@@ -3,7 +3,7 @@ import { NDataTable, NButton, NSpace, NIcon, NPopover, NPopconfirm, NCheckbox, N
 import { useGlobalMessage } from '../../composables/useGlobalMessage'
 import { formatYi } from '../../utils/formatAmount'
 import { h, computed, ref, toRef, onMounted, onUnmounted } from 'vue'
-import { StarOutline, Star, TrashOutline, SwapVerticalOutline, Create, CreateOutline, ReorderThreeOutline, NotificationsOutline, Notifications, OptionsOutline, EllipsisHorizontalOutline } from '@vicons/ionicons5'
+import { StarOutline, Star, TrashOutline, SwapVerticalOutline, Create, CreateOutline, ReorderThreeOutline, NotificationsOutline, Notifications, OptionsOutline, EllipsisHorizontalOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import type { Stock, Signal } from '../../types'
 import { useStockStore } from '../../stores/stock'
 import { useSignalStore } from '../../stores/signal'
@@ -19,6 +19,7 @@ import StrategyText from './StrategyText.vue'
 import StrategyEditModal from './StrategyEditModal.vue'
 import StockAlertModal from './StockAlertModal.vue'
 import StockMetaModal from './StockMetaModal.vue'
+import StockWencaiModal from './StockWencaiModal.vue'
 import { useStockAlerts } from '../../composables/useStockAlerts'
 import { useSubmitGuard, useKeyedSubmitGuard } from '../../composables/useSubmitGuard'
 
@@ -323,6 +324,14 @@ const alertRow = ref<Stock | null>(null)
 function openAlertModal(row: Stock) {
   alertRow.value = row
   showAlertModal.value = true
+}
+
+// 个股「问财提问」弹窗 (v1.7.777): 选模版/自定义 → 新标签打开同花顺问财
+const showWencaiModal = ref(false)
+const wencaiRow = ref<Stock | null>(null)
+function openWencaiModal(row: Stock) {
+  wencaiRow.value = row
+  showWencaiModal.value = true
 }
 
 // 分组/标签/备注 编辑 (v1.7.670)
@@ -909,8 +918,8 @@ const allColumns = computed(() => [
   {
     title: '操作',
     key: 'action',
-    // v1.7.720: 多了一个策略按钮, 152 → 176(4 个 tiny 按钮 + 4px 间距原本就贴着 152 的边)
-    width: 176,
+    // v1.7.720: 152→176(策略按钮); v1.7.777: 再加「问财提问」按钮 176→200
+    width: 200,
     fixed: 'right' as const,
     render: (row: Stock) => h(NSpace, { size: 4, wrap: false, align: 'center' }, () => [
       // v1.7.720: 策略编辑入口从「策略」列搬到这里 —— 操作列恒定可见, 不会被 sticky 浮层盖住
@@ -946,6 +955,15 @@ const allColumns = computed(() => [
           icon: () => h(NIcon, { size: 15 }, { default: () => h(sm ? Notifications : NotificationsOutline) }),
         })
       })(),
+      h(NButton, {
+        size: 'tiny',
+        quaternary: true,
+        title: '问财提问(带个股信息, 新标签打开同花顺问财)',
+        'aria-label': '问财提问',
+        onClick: (e: Event) => { e.stopPropagation(); openWencaiModal(row) },
+      }, {
+        icon: () => h(NIcon, { size: 15 }, { default: () => h(HelpCircleOutline) }),
+      }),
       h(NButton, {
         size: 'tiny',
         type: 'warning',
@@ -1096,6 +1114,7 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
       :group-options="groupOptions"
       @changed="onMetaChanged"
     />
+    <StockWencaiModal v-model:show="showWencaiModal" :row="wencaiRow" />
     <!-- v1.7.643: virtual-scroll — 187行只渲染视口内~25行, 盘中每3s行情tick的重渲成本降一个量级 -->
     <NDataTable
       :columns="columns"
