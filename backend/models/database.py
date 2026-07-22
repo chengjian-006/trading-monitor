@@ -1725,6 +1725,17 @@ async def _run_migrations(conn):
         except Exception:
             pass
 
+        # v1.7.750: 藏龙岛观点采集节流改「交易日09:00-11:30/13:00-15:00每1分钟·其余3分钟」(原盘后10分钟),
+        # 逻辑在 scanner 自节流, 这里只同步存量库的任务描述文案
+        try:
+            await cur.execute(
+                "UPDATE cfzy_sys_scheduled_tasks SET description = %s WHERE job_id = %s",
+                ("交易日09:00-11:30/13:00-15:00每1分钟, 其余(午休/盘后/周末)每3分钟拉飞书群群主(藏龙岛)消息入库(只存不推), 供藏龙岛观点页",
+                 "lark_coach_scan"),
+            )
+        except Exception:
+            pass
+
         # v1.7.x: 提醒节流 flush 兜底 (60秒间隔, 把所有到期的合并缓冲推出)
         try:
             await cur.execute(
@@ -1854,7 +1865,7 @@ async def _seed_scheduled_tasks(conn):
              "每5分钟拉同花顺投资圈博主(全能的野人)新动态, 解析个股标签, 新帖推送企微/飞书", "interval",
              {"seconds": 300}, "scan_blogger_posts"),
             ("lark_coach_scan", "藏龙岛观点跟踪",
-             "交易时段每1分钟/盘后每10分钟拉飞书群群主(藏龙岛)消息入库(只存不推), 供藏龙岛观点页", "interval",
+             "交易日09:00-11:30/13:00-15:00每1分钟, 其余(午休/盘后/周末)每3分钟拉飞书群群主(藏龙岛)消息入库(只存不推), 供藏龙岛观点页", "interval",
              {"seconds": 60}, "scan_coach_posts"),
             ("near_buy_refresh", "临近买点快照",
              "每3分钟扫全自选+持仓, 算各票距四买点(弱势极限/回踩10MA缩量后突破昨高/回踩20MA缩量后突破昨高/强势起点)的接近度(触发/接近两档), 写 cfzy_sys_near_buy_snapshot, 供监控看板临近买点榜", "interval",

@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.750',
+    date: '2026-07-22',
+    title: '藏龙岛观点采集提频:非交易时段10分钟改3分钟',
+    changes: [
+      {
+        text: '藏龙岛观点采集节流调整:交易日 09:00-11:30 / 13:00-15:00 每1分钟(原 09:25 起),其余时间(午休/盘后/周末)由每10分钟提频到每3分钟,观点与转发更新更及时。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.749',
     date: '2026-07-22',
     title: '藏龙岛观点转发定稿:群自定义机器人 webhook 直发用户群',
