@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.776',
+    date: '2026-07-22',
+    title: '持仓Tab免导入直看: 进交易分析页即从库里拉当前持仓',
+    changes: [
+      {
+        text: '「持仓」Tab 不再依赖本次会话导入交割单——进入交易分析页即从库里拉取当前持仓直接显示(读的是历史已导入数据)。KPI英雄区与概览/个股汇总/成交流水/模型对比四个Tab仍需本次导入后出现;有持仓时结果区照常展示、持仓Tab置首。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.775',
     date: '2026-07-22',
     title: '交易分析新增「持仓」Tab: 交割单实时算出当前持仓 + 一键同步自选股',

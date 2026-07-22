@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, h } from 'vue'
+import { ref, computed, h, onMounted } from 'vue'
 import {
   NCard, NTabs, NTabPane, NInput, NButton, NUpload, NUploadDragger,
   NDataTable, NIcon, NStatistic, NSpin, NTag, NSpace, NInputNumber, NDatePicker, NSelect,
@@ -276,6 +276,9 @@ async function syncNow() {
   finally { syncing.value = false }
 }
 
+// 进页即拉当前持仓(读库, 不依赖本次会话是否导入过) → 未导入也能直接看持仓
+onMounted(loadHoldings)
+
 // 有符号着色数字(浮盈额/浮盈%): null → '—'
 function renderSigned(v: number | null, digits: number, suffix = '') {
   if (v == null) return '—'
@@ -406,9 +409,10 @@ const summary = computed(() => result.value?.summary)
     </NCard>
 
     <NSpin :show="loading">
-      <template v-if="summary">
+      <!-- 结果区: 导入过(summary) 或 库里有持仓(holdings) 都展示。KPI/其余分析Tab 仍要 summary -->
+      <template v-if="summary || holdings.length">
         <!-- ② KPI 英雄区 -->
-        <div class="kpi-hero">
+        <div class="kpi-hero" v-if="summary">
           <div class="kpi-card primary">
             <div class="kpi-label">净盈亏</div>
             <div class="kpi-val" :style="{ color: summary.net_profit >= 0 ? RED : GREEN }">{{ fmtMoney(summary.net_profit) }}</div>
@@ -428,7 +432,7 @@ const summary = computed(() => result.value?.summary)
             <div class="kpi-val">{{ summary.avg_hold_days }}<span class="kpi-unit">天</span></div>
           </div>
         </div>
-        <div class="kpi-strip">
+        <div class="kpi-strip" v-if="summary">
           <span>期望 <b :style="{ color: expectancy >= 0 ? RED : GREEN }">{{ fmtMoney(expectancy) }}</b>/笔</span>
           <span>最大回撤 <b :style="{ color: GREEN }">-{{ maxDrawdown.toFixed(0) }}</b></span>
           <span>总费用 {{ summary.total_fee.toFixed(0) }}</span>
@@ -468,7 +472,7 @@ const summary = computed(() => result.value?.summary)
             </NTabPane>
 
             <!-- 概览 -->
-            <NTabPane name="overview" tab="概览">
+            <NTabPane v-if="summary" name="overview" tab="概览">
               <div class="chart-grid">
                 <div class="chart-box wide">
                   <div class="chart-title">累计盈亏曲线<span class="ct-note">按卖出日，毛盈亏</span></div>
@@ -503,12 +507,12 @@ const summary = computed(() => result.value?.summary)
             </NTabPane>
 
             <!-- 个股 -->
-            <NTabPane name="stock" tab="个股汇总">
+            <NTabPane v-if="summary" name="stock" tab="个股汇总">
               <NDataTable :columns="stockColumnsM" :data="stockList" :bordered="false" size="small" :pagination="false" max-height="460" />
             </NTabPane>
 
             <!-- 成交流水（核对导入）+ 交易回合 -->
-            <NTabPane name="records" tab="成交流水">
+            <NTabPane v-if="summary" name="records" tab="成交流水">
               <p class="tab-hint">原始成交记录，<b>按时间倒序</b>（最新在最上）——用于核对最新导入的交割单是否正确、有无漏单/错单。</p>
               <FilterPanel>
               <div class="filter-bar">
@@ -559,7 +563,7 @@ const summary = computed(() => result.value?.summary)
             </NTabPane>
 
             <!-- 模型对比 -->
-            <NTabPane name="compare" tab="模型对比">
+            <NTabPane v-if="summary" name="compare" tab="模型对比">
               <NSpace align="center" style="margin-bottom: 4px;">
                 <span>信号有效期窗口</span>
                 <NInputNumber v-model:value="signalWindow" :min="1" :max="15" size="small" style="width: 120px;" />
