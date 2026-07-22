@@ -27,6 +27,13 @@ async def get_current_emotion(user: Annotated[dict, Depends(get_current_user)]):
                 it["in_pool"] = it.get("code") in pool_codes
         except Exception:
             pass  # 标记失败不影响主数据返回
+    # 并排展示: 附带当前大盘风控三档 (仓位天花板), 供前端「短线总览」一次取全
+    try:
+        from backend.services.market_risk_controller import get_risk_state_info, tier_label_of
+        st, anchor = await get_risk_state_info()
+        snap["risk"] = {"state": st, "tier": tier_label_of(st), "anchor": anchor}
+    except Exception:
+        pass  # 风控取数失败不影响情绪主数据
     return snap
 
 

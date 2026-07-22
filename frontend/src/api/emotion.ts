@@ -34,6 +34,13 @@ export interface EmotionSnapshot {
   limit_up_codes: string[] | null
   yest_limit_up_premium: number | null
   emotion_phase: string
+  // 短线快指标 (v1.7.x): 两市成交额 / 量能(放量缩量%) / 0-100情绪温度分 / 四阶段(冰点·回暖·高潮·退潮)
+  market_amount?: number | null
+  volume_ratio?: number | null
+  emotion_score?: number | null
+  emotion_cycle?: string | null
+  // 并排风控三档 (仓位天花板)
+  risk?: { state: string; tier: string; anchor: string } | null
 }
 
 export interface EmotionHistory {

@@ -64,6 +64,98 @@ def _derive_phase(limit_up: int | None, seal_rate: float | None,
     return "中性"
 
 
+# ── 情绪温度分 (0-100) + 四阶段 —— 短线快指标 (v1.7.x) ──
+# 6 因子各归一到 0-100 再加权; 因子缺失(数据降级)时在可用因子上重新归一权重, 不因缺一项就无分。
+# 归一区间取短线盘感常识值, 后续可挪配置页。
+SCORE_WEIGHTS = {
+    "premium": 0.20,   # 昨涨停今日溢价 (最领先: 打板赚不赚钱)
+    "seal":    0.20,   # 封板率 (承接力)
+    "board":   0.15,   # 最高连板 (空间高度)
+    "count":   0.15,   # 涨停家数 (热度/广度)
+    "zha":     0.15,   # 炸板率 (反向: 分歧/退潮前兆)
+    "vol":     0.15,   # 量能 (放量/缩量 vs 昨日全天)
+}
+CYCLE_CLIMAX_SCORE = 65    # 温度分 ≥ → 高潮
+CYCLE_ICE_SCORE = 30       # 温度分 ≤ → 冰点
+
+
+def _clamp100(x: float) -> float:
+    return 0.0 if x < 0 else (100.0 if x > 100 else x)
+
+
+def _score_factors(premium, seal_rate, highest, limit_up, zha_rate, vol_ratio) -> dict:
+    """各因子 → 0-100 子分 (缺失=None)。"""
+    return {
+        "premium": None if premium is None else _clamp100((premium + 4.0) / 8.0 * 100),      # -4%→0, +4%→100
+        "seal":    None if seal_rate is None else _clamp100((seal_rate - 0.45) / 0.45 * 100),  # 45%→0, 90%→100
+        "board":   None if highest is None else _clamp100((highest - 1) / 6.0 * 100),          # 1板→0, 7板→100
+        "count":   None if limit_up is None else _clamp100(limit_up / 80.0 * 100),             # 0→0, 80→100
+        "zha":     None if zha_rate is None else _clamp100((0.5 - zha_rate) / 0.5 * 100),      # 炸0%→100, 50%→0
+        "vol":     None if vol_ratio is None else _clamp100((vol_ratio + 20.0) / 40.0 * 100),  # -20%→0, 0%→50, +20%→100
+    }
+
+
+def _emotion_score(premium, seal_rate, highest, limit_up, zha_rate, vol_ratio) -> int | None:
+    """6 因子加权 → 0-100 情绪温度分。全缺则 None。"""
+    subs = _score_factors(premium, seal_rate, highest, limit_up, zha_rate, vol_ratio)
+    num = den = 0.0
+    for k, w in SCORE_WEIGHTS.items():
+        if subs[k] is not None:
+            num += w * subs[k]
+            den += w
+    return None if den <= 0 else round(num / den)
+
+
+def _derive_cycle(score: int | None, phase: str) -> str | None:
+    """四阶段: 冰点 / 回暖 / 高潮 / 退潮。
+    退潮沿用已调优的 _derive_phase 退潮判据(封板弱 + 溢价负/骤降), 优先级最高;
+    其余按温度分分档 (高潮≥65 / 冰点≤30 / 之间=回暖)。"""
+    if score is None:
+        return None
+    if phase == "退潮":
+        return "退潮"
+    if score >= CYCLE_CLIMAX_SCORE:
+        return "高潮"
+    if score <= CYCLE_ICE_SCORE:
+        return "冰点"
+    return "回暖"
+
+
+async def _two_market_amount() -> float | None:
+    """当前两市(上证综指+深证成指)累计成交额(亿), 取自 market_overview a_indices(新浪源, 生产可达)。"""
+    try:
+        overview = await repository.get_market_overview()
+    except Exception:
+        overview = None
+    total = 0.0
+    got = False
+    for idx in (overview or {}).get("a_indices") or []:
+        if idx.get("name") in ("上证指数", "深证成指"):
+            try:
+                total += float(idx.get("amount") or 0)
+                got = True
+            except (TypeError, ValueError):
+                continue
+    return round(total, 1) if got and total > 0 else None
+
+
+async def _compute_volume_ratio(trade_date: str, now: datetime, cur_amount: float | None) -> float | None:
+    """量能: 今日「U型预测全天」两市额 vs 昨日全天两市额 → 放量/缩量 %(正=放量)。
+    昨日全天取上一交易日最后一档快照的 market_amount; 首日/无历史 → None(温度分自动少算一项)。
+    用 U 型系数反推全天(不线性外推), 与 /turnover 口径一致。"""
+    if cur_amount is None or cur_amount <= 0:
+        return None
+    from backend.services.ai_analyst import _estimate_full_day_amount
+    proj = _estimate_full_day_amount(cur_amount, now.strftime("%H:%M"))
+    if not proj or proj <= 0:
+        return None
+    prev = await repository.get_last_emotion_before(trade_date)
+    yest = prev.get("market_amount") if prev else None
+    if not yest or yest <= 0:
+        return None
+    return round((proj - yest) / yest * 100, 1)
+
+
 def _build_ladder(boards: list[dict]) -> tuple[list[dict], int | None]:
     """连板梯队 [{height, count}] (按高度降序) + 最高连板。"""
     if not boards:
@@ -247,6 +339,14 @@ async def refresh_emotion_snapshot() -> None:
         logger.warning(f"[emotion] 取前一档封板率失败: {e}")
     phase = _derive_phase(lu, seal_rate, highest, premium, prev_seal)
 
+    # 短线快指标: 量能(放量/缩量) + 0-100 情绪温度分 + 四阶段
+    market_amount = await _two_market_amount()
+    vol_ratio = await _compute_volume_ratio(trade_date, now, market_amount)
+    # 炸板率(从家数算, 与同花顺官方封板率口径不同, 作独立反向因子)
+    zha_rate = round(broken / (lu + broken), 4) if (lu and broken is not None and (lu + broken) > 0) else None
+    emotion_score = _emotion_score(premium, seal_rate, highest, lu, zha_rate, vol_ratio)
+    emotion_cycle = _derive_cycle(emotion_score, phase)
+
     await repository.save_emotion_snapshot({
         "trade_date": trade_date,
         "source": source,
@@ -264,8 +364,13 @@ async def refresh_emotion_snapshot() -> None:
         "limit_up_codes": codes,
         "yest_limit_up_premium": premium,
         "emotion_phase": phase,
+        "market_amount": market_amount,
+        "volume_ratio": vol_ratio,
+        "emotion_score": emotion_score,
+        "emotion_cycle": emotion_cycle,
     })
     logger.debug(
         f"[emotion] {trade_date} src={source} 涨停{lu}(曾{lu_history}) 跌停{limit_down}(曾{ld_history}) "
-        f"炸板{broken} 封板率{seal_rate} 最高{highest}连板 溢价{premium} → {phase}"
+        f"炸板{broken} 封板率{seal_rate} 最高{highest}连板 溢价{premium} 量能{vol_ratio} "
+        f"温度{emotion_score} → {phase}/{emotion_cycle}"
     )

@@ -22,8 +22,9 @@ async def save_emotion_snapshot(snap: dict) -> None:
         "INSERT INTO cfzy_sys_emotion_snapshot "
         "(trade_date, source, limit_up_count, limit_up_history, limit_down_count, limit_down_history, "
         " broken_board_count, up_count, down_count, seal_rate, highest_board, board_ladder, board_stocks, "
-        " limit_up_codes, yest_limit_up_premium, emotion_phase) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        " limit_up_codes, yest_limit_up_premium, emotion_phase, "
+        " market_amount, volume_ratio, emotion_score, emotion_cycle) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
         (
             snap["trade_date"], snap.get("source", ""),
             snap.get("limit_up_count"), snap.get("limit_up_history"),
@@ -36,6 +37,8 @@ async def save_emotion_snapshot(snap: dict) -> None:
             json.dumps(snap.get("board_stocks") or [], ensure_ascii=False),
             json.dumps(snap.get("limit_up_codes") or [], ensure_ascii=False),
             snap.get("yest_limit_up_premium"), snap.get("emotion_phase", ""),
+            snap.get("market_amount"), snap.get("volume_ratio"),
+            snap.get("emotion_score"), snap.get("emotion_cycle"),
         ),
     )
 

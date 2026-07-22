@@ -1176,6 +1176,11 @@ MIGRATION_STATEMENTS = [
     "ALTER TABLE cfzy_biz_rally_track ADD COLUMN signal_id VARCHAR(40) NOT NULL DEFAULT 'BUY_RALLY_MA20'",
     # v1.7.x: 情绪快照存连板个股明细(≥2板) → 连板梯队详单面板列出具体个股
     "ALTER TABLE cfzy_sys_emotion_snapshot ADD COLUMN board_stocks JSON",
+    # v1.7.x: 短线情绪快指标 — 两市成交额/量能(放量缩量%)/0-100情绪温度分/四阶段(冰点·回暖·高潮·退潮)
+    "ALTER TABLE cfzy_sys_emotion_snapshot ADD COLUMN market_amount DOUBLE DEFAULT NULL",
+    "ALTER TABLE cfzy_sys_emotion_snapshot ADD COLUMN volume_ratio DOUBLE DEFAULT NULL",
+    "ALTER TABLE cfzy_sys_emotion_snapshot ADD COLUMN emotion_score INT DEFAULT NULL",
+    "ALTER TABLE cfzy_sys_emotion_snapshot ADD COLUMN emotion_cycle VARCHAR(10) DEFAULT NULL",
     # 持仓在最热题材板块内的强弱名次(quote_refresher 每3s用实时涨幅插值写, sector_strength 60s刷名单)
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN board_name VARCHAR(50) NOT NULL DEFAULT ''",
     "ALTER TABLE cfzy_biz_stock_pool ADD COLUMN board_rank INT DEFAULT NULL",

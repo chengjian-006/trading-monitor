@@ -32,6 +32,32 @@ const PHASE_META: Record<string, { color: string; bg: string; desc: string }> = 
 
 const phaseMeta = computed(() => PHASE_META[snap.value?.emotion_phase ?? ''] || PHASE_META['中性'])
 
+// 短线四阶段(冰点·回暖·高潮·退潮) —— 面向短线的更清晰归并, 配一句操作建议
+const CYCLE_META: Record<string, { color: string; desc: string }> = {
+  高潮: { color: 'var(--up-fg)', desc: '情绪高潮，做龙头但防高潮见顶' },
+  回暖: { color: 'var(--warn-fg)', desc: '情绪回暖，可试仓、超跌反抽' },
+  退潮: { color: 'var(--down-fg)', desc: '情绪退潮，减仓、只做低吸' },
+  冰点: { color: 'color-mix(in srgb, var(--down-fg) 70%, white)', desc: '情绪冰点，空仓等启动信号' },
+}
+const cycleMeta = computed(() => CYCLE_META[snap.value?.emotion_cycle ?? ''] || { color: 'var(--fg-muted)', desc: '' })
+
+// 风控三档(仓位天花板): 正常=可攻 / 谨慎=控仓 / 危险=停开新仓 (交通灯语义, 非A股涨跌)
+const RISK_META: Record<string, { color: string; hint: string }> = {
+  正常: { color: 'var(--down-fg)', hint: '仓位可攻' },
+  谨慎: { color: 'var(--warn-fg)', hint: '控制仓位' },
+  危险: { color: 'var(--up-fg)', hint: '停开新仓/别抄底' },
+}
+const riskMeta = computed(() => RISK_META[snap.value?.risk?.tier ?? ''] || { color: 'var(--fg-muted)', hint: '' })
+
+function volClass(v: number | null | undefined) {
+  if (v == null) return ''
+  return v >= 0 ? 'up' : 'down'
+}
+function volText(v: number | null | undefined) {
+  if (v == null) return '量能 —'
+  return v >= 0 ? `放量 +${v.toFixed(0)}%` : `缩量 ${v.toFixed(0)}%`
+}
+
 const sourceLabel = computed(() => {
   const s = snap.value?.source
   if (s === 'ths') return '同花顺'
@@ -131,6 +157,25 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
         ⚠ 涨停池数据源暂不可用，当前仅有涨跌停家数，封板率/连板梯队不可判。
       </div>
 
+      <!-- 短线总览: 情绪温度(当天出不出手) 并排 大盘风控三档(仓位天花板) -->
+      <div v-if="snap.emotion_score != null" class="overview">
+        <div class="ov-emotion">
+          <div class="ov-top">
+            <span class="ov-tag" :style="{ color: cycleMeta.color }">{{ snap.emotion_cycle || '—' }}</span>
+            <span class="ov-score" :style="{ color: cycleMeta.color }">{{ snap.emotion_score }}</span>
+            <span class="ov-unit">情绪温度</span>
+            <span class="ov-vol" :class="volClass(snap.volume_ratio)">{{ volText(snap.volume_ratio) }}</span>
+          </div>
+          <div class="ov-gauge"><div class="ov-fill" :style="{ width: snap.emotion_score + '%', background: cycleMeta.color }"></div></div>
+          <div class="ov-desc">{{ cycleMeta.desc }}</div>
+        </div>
+        <div v-if="snap.risk && snap.risk.tier" class="ov-risk">
+          <div class="ov-risk-tier" :style="{ color: riskMeta.color }">{{ snap.risk.tier }}</div>
+          <div class="ov-risk-lb">大盘风控</div>
+          <div class="ov-risk-hint">{{ riskMeta.hint }}</div>
+        </div>
+      </div>
+
       <!-- 情绪温度计 -->
       <div class="phase-card" :style="{ background: phaseMeta.bg }">
         <div class="phase-main">
@@ -228,6 +273,22 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 
 .degrade-banner { margin-top: 8px; padding: 5px 10px; background: var(--warn-bg-muted); color: var(--warn-fg); border-radius: 6px; font-size: 12px; }
 
+/* 短线总览: 左情绪温度(0-100分+四阶段+量能) 并排 右风控三档 */
+.overview { margin-top: 8px; display: grid; grid-template-columns: 1fr 116px; gap: 8px; }
+.ov-emotion { background: var(--bg-sunken); border-radius: 8px; padding: 8px 12px; box-shadow: inset 0 0 0 1px var(--border-muted); }
+.ov-top { display: flex; align-items: baseline; gap: 8px; }
+.ov-tag { font-size: 16px; font-weight: 800; letter-spacing: 1px; }
+.ov-score { font-family: var(--font-mono); font-size: 26px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.ov-unit { font-size: 11px; color: var(--fg-subtle); }
+.ov-vol { margin-left: auto; font-family: var(--font-mono); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ov-gauge { margin-top: 7px; height: 6px; background: var(--bg-default); border-radius: 999px; overflow: hidden; }
+.ov-fill { height: 100%; border-radius: 999px; transition: width 0.4s ease; }
+.ov-desc { margin-top: 6px; font-size: 11.5px; color: var(--fg-muted); line-height: 1.4; }
+.ov-risk { background: var(--bg-sunken); border-radius: 8px; padding: 8px 6px; box-shadow: inset 0 0 0 1px var(--border-muted); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2px; }
+.ov-risk-tier { font-size: 20px; font-weight: 800; letter-spacing: 2px; }
+.ov-risk-lb { font-size: 10.5px; color: var(--fg-subtle); }
+.ov-risk-hint { font-size: 10.5px; color: var(--fg-muted); line-height: 1.3; }
+
 .phase-card { margin-top: 8px; display: flex; align-items: center; gap: 12px; border-radius: 8px; padding: 7px 12px; }
 .phase-main { display: flex; align-items: center; gap: 8px; }
 .phase-text { font-size: 20px; font-weight: 800; letter-spacing: 1px; }
@@ -274,6 +335,9 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
   .emotion-panel { padding: 8px 10px; }
   .head { gap: 6px; }
   .title { font-size: 13px; }
+  .overview { grid-template-columns: 1fr; gap: 6px; }
+  .ov-risk { flex-direction: row; gap: 8px; padding: 7px 12px; justify-content: flex-start; }
+  .ov-risk-hint { margin-left: auto; }
   .phase-card { margin-top: 8px; padding: 8px 10px; gap: 10px; }
   .phase-text { font-size: 20px; }
   .phase-desc { font-size: 11px; }
