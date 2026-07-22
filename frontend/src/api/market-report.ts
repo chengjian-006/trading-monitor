@@ -118,34 +118,8 @@ export async function fetchPublicOverview(): Promise<PublicOverview> {
   return await resp.json()
 }
 
-// v1.7.x: 大盘 regime filter — 友好/中性/危险三档评分
-export interface RegimeFactor {
-  name: string
-  score: number
-  reason: string
-}
-
-export interface RegimeData {
-  regime: 'friendly' | 'neutral' | 'hostile'
-  score: number  // 0-100
-  summary?: string   // 大白话结论(随局面变化)
-  action?: string    // 大白话操作提示
-  factors: RegimeFactor[]
-  raw: {
-    sh_close: number
-    sh_ma20: number
-    limit_up: number
-    limit_down: number
-    up_count: number
-    down_count: number
-    total_amount_yi: number
-  }
-}
-
-export async function fetchRegime(): Promise<RegimeData> {
-  const { data } = await client.get('/api/market-report/regime')
-  return data
-}
+// regime 接口已删(v1.7.752): 大盘状态统一走 /api/signals/market-risk(三档+风险分+大白话),
+// 实时成交额并入 /turnover(today_yi 每次请求实时覆盖)。
 
 // 两市成交额: 今日/较上一日/5日均额/60日均额/预测全天 (单位: 亿)
 export interface TurnoverData {

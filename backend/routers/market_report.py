@@ -159,15 +159,8 @@ async def get_market_stats_api(_: Annotated[dict, Depends(get_current_user)]):
     return {}
 
 
-@router.get("/regime")
-async def get_regime_api(_: Annotated[dict, Depends(get_current_user)]):
-    """大盘情绪分: friendly / neutral / hostile + 评分细节.
-
-    扫描器在 neutral / hostile 档位会把买点信号优先级 3→2 (不推企微, 只入库+前端).
-    卖点和大盘急跌告警不受影响.
-    """
-    from backend.services import regime_filter
-    return await regime_filter.compute_regime()
+# /regime 接口已删(v1.7.752 Deploy 2B): regime_filter 整层退役, 大盘状态统一走
+# /api/signals/market-risk(三档+0-100风险分+大白话); 实时成交额并入下方 /turnover。
 
 
 @router.get("/index-daily")
@@ -295,15 +288,41 @@ async def _fetch_index_amounts(client, ths_code: str, ndays: int) -> dict:
     return out
 
 
+async def _overlay_live_turnover(data: dict) -> dict:
+    """把实时两市成交额(market_overview 快照 a_indices 上证+深证 amount 之和, 单位亿)
+    盖到今日值上, 并按 U 型时点系数重算全天预测。
+
+    历史序列源(同花顺指数日K)盘中往往没有今日行, 原来由 regime.total_amount_yi 补 —
+    regime 已删(v1.7.752), 补值收进本接口, /turnover 成为成交额唯一出口。取不到快照原样返回。"""
+    try:
+        from backend.models import repository
+        overview = await repository.get_market_overview()
+        total = 0.0
+        for idx in (overview or {}).get("a_indices") or []:
+            if idx.get("name") in ("上证指数", "深证成指"):
+                total += float(idx.get("amount") or 0)
+        if total > 0:
+            data["today_yi"] = round(total)
+            frac = _trading_fraction_today()
+            if frac >= 0.05:
+                from backend.services.intraday_estimator import project_full_day_amount
+                est = project_full_day_amount(float(total))
+                data["projected_yi"] = round(est) if est else round(total / frac)
+            data["ok"] = True
+    except Exception:
+        pass
+    return data
+
+
 @router.get("/turnover")
 async def get_turnover_api(_: Annotated[dict, Depends(get_current_user)]):
     """两市成交额: 今日/较上一日/5日均额/60日均额/预测全天 (单位: 亿)。
 
-    今日实时成交额前端用 regime.total_amount_yi(可靠), 本接口主要补 prev/5日/60日均额。
+    历史均额走同花顺日K(120s缓存); 今日实时值每次请求从 market_overview 快照覆盖(v1.7.752)。
     """
     now = _time.time()
     if _TURNOVER_CACHE["data"] and now - _TURNOVER_CACHE["at"] < _TURNOVER_TTL:
-        return _TURNOVER_CACHE["data"]
+        return await _overlay_live_turnover(dict(_TURNOVER_CACHE["data"]))
 
     import httpx
     sums: dict[str, float] = {}
@@ -320,7 +339,7 @@ async def get_turnover_api(_: Annotated[dict, Depends(get_current_user)]):
     if not per_date:
         data = {"today_yi": None, "prev_yi": None, "ma5_yi": None,
                 "ma60_yi": None, "projected_yi": None, "as_of": None, "ok": False}
-        return data
+        return await _overlay_live_turnover(data)
 
     from datetime import datetime
     today_str = datetime.now().strftime("%Y%m%d")
@@ -344,17 +363,17 @@ async def get_turnover_api(_: Annotated[dict, Depends(get_current_user)]):
         projected_yi = None
 
     data = {
-        "today_yi": today_yi,                                   # THS 有今日才有值; 否则前端用 regime
+        "today_yi": today_yi,                                   # THS 序列今日值(常缺); 实时值由 overlay 补
         "prev_yi": round(completed_yi[-1]) if completed_yi else None,
         "ma5_yi": _avg(5),
         "ma60_yi": _avg(60),
-        "projected_yi": projected_yi,                           # 仅 THS 有今日时给; 否则前端按 regime 自估
+        "projected_yi": projected_yi,                           # overlay 会按实时值重算
         "as_of": today_str if today_amt else (sorted(per_date)[-1] if per_date else None),
         "ok": True,
     }
     _TURNOVER_CACHE["at"] = now
     _TURNOVER_CACHE["data"] = data
-    return data
+    return await _overlay_live_turnover(dict(data))
 
 
 @router.get("/volume-surge")

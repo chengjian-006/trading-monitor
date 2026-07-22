@@ -40,8 +40,9 @@ from backend.services.ma_touch_alert import run_ma_touch_alert
 from backend.services.second_surge_scanner import run_second_surge_scan
 from backend.services.sector_cocrash_guard import run_sector_cocrash_watch
 from backend.services.industry_map_refresher import run_industry_map_refresh
-from backend.services.market_risk_controller import market_risk_eod, market_risk_intraday
-# market_risk_realtime 已退役 (自选池口径大盘预警去除, v1.7.737)
+from backend.services.market_risk_controller import (
+    market_risk_eod, market_risk_intraday, market_risk_watch)
+# market_risk_realtime 已退役 (自选池口径, v1.7.737); v1.7.752 起由全市场口径 market_risk_watch 接棒
 from backend.services.data_cross_checker import run_cross_check
 from backend.services.blogger_post_scanner import scan_blogger_posts
 from backend.services.lark_coach_scanner import scan_coach_posts
@@ -144,6 +145,7 @@ TASK_HANDLERS: dict[str, object] = {
     "run_industry_map_refresh": run_industry_map_refresh,
     "market_risk_eod": market_risk_eod,
     "market_risk_intraday": market_risk_intraday,
+    "market_risk_watch": market_risk_watch,
     "run_cross_check": run_cross_check,
     "scan_blogger_posts": scan_blogger_posts,
     "scan_coach_posts": scan_coach_posts,

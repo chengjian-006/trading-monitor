@@ -33,8 +33,9 @@ def test_red_neutral_models_get_softer_wording():
 
 
 def test_red_generic_gives_stop_advice():
+    # v1.7.752 (Deploy 2B retier): 档名「空仓」→「危险」, 空仓留在建议语里
     note = risk_buy_note(RED, "BUY_VOL_BREAKOUT")
-    assert "停开新仓" in note and "空仓档" in note
+    assert "停开新仓" in note and "危险档" in note
 
 
 def test_yellow_no_longer_claims_quality_undamaged():

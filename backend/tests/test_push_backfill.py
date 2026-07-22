@@ -59,7 +59,7 @@ def test_build_card_has_table_and_risk_banner():
     assert any(e.get("tag") == "markdown" and "缩量突破" in e.get("content", "")
                and "国际复材" in e.get("content", "") and "|" not in e.get("content", "") for e in elements)
     joined = "".join(str(e) for e in elements)
-    assert "RED" in joined  # 风险横幅
+    assert "危险档" in joined and "空仓" in joined  # 风险横幅(v1.7.752: 档名危险, 空仓是建议语)
 
 
 def test_build_card_green_no_banner():

@@ -1941,8 +1941,8 @@ async def _seed_scheduled_tasks(conn):
              "每交易日17:00用收盘真实日线复核当日全部信号(K线序列指纹/触发价区间/涨跌家数自洽/指数波幅容纳急跌), "
              "数据层假象标记存疑(不自动删)并推送提醒, 写 cfzy_biz_signals.eod_audit", "cron",
              {"hour": 17, "minute": 0}, "signal_eod_audit"),
-            # v1.7.x: 市场风险两级预警(替代空仓预警 v1.7.406).
-            # GREEN(正常)/YELLOW(谨慎)/RED(空仓) 三态, 回测: RED期胜率30.3%均值-3.56%(vs全部+3.63%)
+            # v1.7.x: 市场风险预警(替代空仓预警 v1.7.406). GREEN(正常)/YELLOW(谨慎)/RED(危险) 三态,
+            # OOS 实测三档胜率单调递减(数字见 market_risk_controller docstring / 登记表)
             ("market_risk_eod", "市场风险·收盘评估16:40",
              "每交易日16:40从全市场日线(kline_cache)+新浪快照算涨跌比/广度/5日均收益/新低比/炸板率, 跑两级状态机"
              "(GREEN→YELLOW:广度<30%或涨跌比<30%或炸板>60%; YELLOW→RED:5日均收益<-1%或新低>15%或广度<15%), 状态迁移推送+落库 cfzy_biz_market_risk",
@@ -1951,6 +1951,12 @@ async def _seed_scheduled_tasks(conn):
              "尾盘14:40同口径估当日指标, 达RED进入条件提前升级推送(只升不降, 16:40收盘复核为准), 给尾盘买点打标",
              "cron", {"hour": 14, "minute": 40}, "market_risk_intraday"),
             # market_risk_realtime 已退役 (自选池口径大盘预警去除, v1.7.737)
+            # v1.7.752 (Deploy 2B): 全市场口径盘中监测接棒 — 升档即时预警 + 过缓冲带才降档的退出机制
+            ("market_risk_watch", "市场风险·盘中监测5分钟",
+             "盘中(10:00-14:30)每5分钟读 market_overview 快照(全市场涨跌家数+三大指数涨跌幅), "
+             "盘面恶化即时升档预警(正常→谨慎→危险), 明显转好过退出缓冲带才降档/解除(30分钟冷静期, 每日最多4条); "
+             "档位最终以16:40收盘状态机为准",
+             "interval", {"seconds": 300}, "market_risk_watch"),
             ("cross_check", "数据源交叉校验·60分钟",
              "每60分钟抽检涨跌幅(新浪vs东财)/涨跌家数(新浪vs腾讯)/行情覆盖率, 超阈值飞书告警",
              "interval", {"seconds": 3600}, "run_cross_check"),

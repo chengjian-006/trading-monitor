@@ -32,7 +32,7 @@ def test_state_machine_red_needs_all_three_to_exit():
 # ── 0-100 风险分(v1.7.740, Deploy 2A): 展示用, 档位仍由状态机定, 分数只在带内定位 ──
 
 def test_risk_score_stays_within_tier_band():
-    """分数永远落在所属档的分数带内, 绝不与三档戳矛盾(正常 0-33 / 谨慎 34-66 / 空仓 67-100)。"""
+    """分数永远落在所属档的分数带内, 绝不与三档戳矛盾(正常 0-33 / 谨慎 34-66 / 危险 67-100)。"""
     calm = {"breadth_ma20": 60.0, "advance_ratio": 60.0, "avg_ret_ma5": 1.0,
             "low52_ratio": 1.0, "zha_rate": 10.0}
     panic = {"breadth_ma20": 10.0, "advance_ratio": 10.0, "avg_ret_ma5": -3.0,
@@ -60,9 +60,10 @@ def test_risk_score_handles_missing_indicators():
 
 
 def test_tier_label_of():
+    # v1.7.752 (Deploy 2B retier): RED 档名「空仓」→「危险」
     assert mrc.tier_label_of("GREEN") == "正常"
     assert mrc.tier_label_of("YELLOW") == "谨慎"
-    assert mrc.tier_label_of("RED") == "空仓"
+    assert mrc.tier_label_of("RED") == "危险"
 
 
 # ── 状态段锚点(v1.7.678): 横幅「几点起」必须指向连续段第一天, 不是最新行 updated_at ──
@@ -110,42 +111,51 @@ def test_hist_indicators_no_crash_on_zero_low_rows():
     assert isinstance(out, list)                # 小样本(n<1000)输出为空, 但不炸
 
 
-# ── 大盘风控·退潮提示卡(基线 v1.1: risk 家族橙/状态红 + heading结论 + ✅维度列举 + 👉建议) ──
+# ── 盘中实时监测(Deploy 2B, v1.7.752: 全市场口径, 纯函数部分) ──
 
-async def test_emit_risk_dimension_builds_risk_card(monkeypatch):
-    from backend.services import notifier
-    mrc._ebb_emit.clear()
-    monkeypatch.setattr(mrc, "get_risk_state", AsyncMock(return_value=mrc.YELLOW))
-    sent = AsyncMock(return_value=True)
-    monkeypatch.setattr(notifier, "send_card", sent)
-    desc = "✅ 涨停家数骤降：今 **30** 家 ← 昨 **80** 家"
-    await mrc.emit_risk_dimension("退潮", desc, "整板在抽血，强势股先走一部分")
-    assert sent.await_count == 1
-    card = sent.await_args[0][0]
-    assert card.title == "📛 大盘风控·退潮提示"
-    assert card.family == "risk" and card.template == "orange"   # 谨慎档 → 橙(非旧默认蓝)
-    assert card.tags == [("谨慎", "orange")]
-    assert "大盘风控" in card.summary and "退潮" in card.summary
-    assert card.elements[0]["text_size"] == "heading"            # 结论 heading 行
-    assert "涨停家数骤降" in card.elements[1]["content"]          # ✅维度列举
-    assert "👉 **整板在抽血，强势股先走一部分**" in card.elements[2]["content"]
-    assert "涨停家数骤降" in card.fallback and "👉" in card.fallback
+def test_watch_enter_state_thresholds():
+    """进入口径: 涨跌比+三大指数平均 → 应然状态(危险要两条同时满足, 谨慎满足其一)。"""
+    assert mrc._watch_enter_state(18.0, -1.8) == "RED"     # 双条件满足 → 危险
+    assert mrc._watch_enter_state(18.0, -0.5) == "YELLOW"  # 只有涨跌比差 → 谨慎(不到危险)
+    assert mrc._watch_enter_state(50.0, -1.2) == "YELLOW"  # 只有指数差 → 谨慎
+    assert mrc._watch_enter_state(55.0, 0.3) == "GREEN"
 
-    # 同维度重复 → 当日去重不再推
-    await mrc.emit_risk_dimension("退潮", desc, "整板在抽血，强势股先走一部分")
-    assert sent.await_count == 1
 
-    # 新增维度 → 合并两项再推一张; 状态 RED 时红卡(risk_hot)
-    monkeypatch.setattr(mrc, "get_risk_state", AsyncMock(return_value=mrc.RED))
-    await mrc.emit_risk_dimension("溢价", "✅ 溢价转负 **-0.77%**", "别追高，手中高位股谨慎")
-    assert sent.await_count == 2
-    card2 = sent.await_args[0][0]
-    assert "（2项）" in card2.title
-    assert card2.family == "risk_hot" and card2.template == "red"
-    assert "涨停家数骤降" in card2.elements[1]["content"]
-    assert "溢价转负" in card2.elements[1]["content"]
-    assert "整板在抽血" in card2.elements[2]["content"] and "别追高" in card2.elements[2]["content"]
-    mrc._ebb_emit.clear()
+def test_watch_exit_needs_buffer():
+    """退出机制: 必须明显转好过缓冲带才降档, 缓冲带内维持原档(防贴线来回打脸)。"""
+    # RED: 进入线是 22%, 但回到 30%(未过 35% 退出线)仍是 RED
+    assert mrc._watch_exit_target("RED", 30.0, -0.5) == "RED"
+    assert mrc._watch_exit_target("RED", 36.0, -0.5) == "YELLOW"   # 过 RED 退出线 → 降谨慎
+    assert mrc._watch_exit_target("RED", 50.0, 0.1) == "GREEN"     # 一步转好到位 → 直接解除
+    # YELLOW: 40%(未过 45% 退出线)仍是 YELLOW
+    assert mrc._watch_exit_target("YELLOW", 40.0, 0.0) == "YELLOW"
+    assert mrc._watch_exit_target("YELLOW", 46.0, 0.0) == "GREEN"
+    assert mrc._watch_exit_target("GREEN", 10.0, -3.0) == "GREEN"  # 退出函数不管升级
+
+
+# ── 大白话解读(Deploy 2B: 从 regime_filter 迁入, 纯函数) ──
+
+def test_plain_language_panic():
+    s, a = mrc.plain_market_language(
+        {"up_count": 300, "down_count": 4500, "limit_up": 5, "limit_down": 60}, 9000, "RED")
+    assert "恐慌" in s and "空仓" in a
+
+
+def test_plain_language_broad_rally_green():
+    s, a = mrc.plain_market_language(
+        {"up_count": 4000, "down_count": 800, "limit_up": 80, "limit_down": 3}, 13000, "GREEN")
+    assert "普涨" in s and "放量" in s
+    assert "风控" not in s      # 正常档不加尾注
+
+
+def test_plain_language_rally_but_risky_gets_tier_tail():
+    s, a = mrc.plain_market_language(
+        {"up_count": 4000, "down_count": 800, "limit_up": 80, "limit_down": 3}, 9000, "YELLOW")
+    assert "谨慎档" in s        # 非正常档带风控尾注
+
+
+def test_plain_language_empty_stats():
+    assert mrc.plain_market_language({}, 0, "GREEN") == ("", "")
 
 
 # ── EOD 恢复正常 → 解除卡(基线 v1.1 标准型: 灰header + 副标题时间线 + 解除条件 + 👉建议) ──

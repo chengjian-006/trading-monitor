@@ -20,9 +20,9 @@ def _set_state(monkeypatch, state: str, since: str = "13:11"):
 
 
 def test_red_gives_tag_not_title_prefix(monkeypatch):
-    # v1.7.652: 空仓 → header 小标签(大盘空仓中/red), 标题保持原样不加前缀
+    # v1.7.652: header 小标签, 标题保持原样不加前缀; v1.7.752 retier: 档名空仓→危险
     _set_state(monkeypatch, "RED")
-    assert _run(notifier._risk_tag("📈 买入 · [二波过前高]")) == ("大盘空仓中", "red")
+    assert _run(notifier._risk_tag("📈 买入 · [二波过前高]")) == ("大盘危险中", "red")
     assert _run(notifier._with_risk_flag("📈 买入 · [二波过前高]")) == "📈 买入 · [二波过前高]"
 
 
@@ -42,8 +42,8 @@ def test_green_gives_normal_tag(monkeypatch):
 
 def test_risk_cards_themselves_no_tag(monkeypatch):
     _set_state(monkeypatch, "RED")
-    assert _run(notifier._risk_tag("🔴 市场风险 · 升到「空仓」档")) is None
-    assert _run(notifier._risk_tag("📛 大盘风控·退潮提示")) is None
+    assert _run(notifier._risk_tag("🔴 市场风险 · 升到「危险」档")) is None
+    assert _run(notifier._risk_tag("📛 大盘风控·XX提示")) is None
 
 
 def test_state_fetch_failure_no_tag(monkeypatch):
@@ -59,7 +59,7 @@ def test_risk_deco_banner(monkeypatch):
     _set_state(monkeypatch, "RED", since="13:11")
     title, banner = _run(notifier._risk_deco("📈 买入 · [X]"))
     assert title == "📈 买入 · [X]"            # 标题原样, 不加前缀
-    assert "大盘空仓中（13:11起）" in banner and "<font color='red'>" in banner and "**" in banner
+    assert "大盘危险中（13:11起）" in banner and "<font color='red'>" in banner and "**" in banner
 
     _set_state(monkeypatch, "YELLOW")
     _, banner_y = _run(notifier._risk_deco("📈 买入 · [X]"))
@@ -68,7 +68,7 @@ def test_risk_deco_banner(monkeypatch):
     # 锚点缺失(取不到 updated_at): 横幅仍发, 只是没有「几点起」
     _set_state(monkeypatch, "RED", since="")
     _, banner_ns = _run(notifier._risk_deco("📈 买入 · [X]"))
-    assert "大盘空仓中 ·" in banner_ns and "停开新仓" in banner_ns and "起）" not in banner_ns
+    assert "大盘危险中 ·" in banner_ns and "停开新仓" in banner_ns and "起）" not in banner_ns
 
     _set_state(monkeypatch, "GREEN")
     t, b = _run(notifier._risk_deco("📈 买入 · [X]"))
@@ -76,8 +76,8 @@ def test_risk_deco_banner(monkeypatch):
 
     # 风险卡自身既不加前缀也不加横幅
     _set_state(monkeypatch, "RED")
-    t2, b2 = _run(notifier._risk_deco("🔴 市场风险 · 升到「空仓」档"))
-    assert t2 == "🔴 市场风险 · 升到「空仓」档" and b2 == ""
+    t2, b2 = _run(notifier._risk_deco("🔴 市场风险 · 升到「危险」档"))
+    assert t2 == "🔴 市场风险 · 升到「危险」档" and b2 == ""
 
 
 def test_get_risk_state_info_label(monkeypatch):

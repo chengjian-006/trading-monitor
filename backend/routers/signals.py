@@ -135,7 +135,7 @@ async def market_risk_status(user: Annotated[dict, Depends(get_current_user)]):
     """
     from backend.models.repo._db import _fetchall
     from backend.services.market_risk_controller import (
-        risk_score_of, streak_from_rows, tier_label_of)
+        market_plain_summary, risk_score_of, streak_from_rows, tier_label_of)
     rows = await _fetchall(
         "SELECT * FROM cfzy_biz_market_risk ORDER BY trade_date DESC LIMIT 60")
     _st, since_at, since_days = streak_from_rows(rows)
@@ -145,8 +145,13 @@ async def market_risk_status(user: Annotated[dict, Depends(get_current_user)]):
     if latest:
         score = risk_score_of(str(latest["state"]), latest)
         tier = tier_label_of(str(latest["state"]))
+    # 大白话解读(Deploy 2B, 从已删的 regime 接口迁入): 失败静默为 None, 不拖垮主数据。
+    try:
+        plain = await market_plain_summary()
+    except Exception:
+        plain = None
     return {"latest": latest, "rows": rows, "score": score, "tier": tier,
-            "since_at": since_at, "since_days": since_days}
+            "since_at": since_at, "since_days": since_days, "plain": plain}
 
 
 @router.get("/matrix")

@@ -1,12 +1,13 @@
 // 决策快查卡上下文 - v1.7.x
-// 维护 大盘 regime + 信号真实胜率 两份背景数据, 5min 刷新一次,
+// 维护 大盘风控三档 + 信号真实胜率 两份背景数据, 5min 刷新一次,
 // 暴露 computeDecision(stock, buySignals) 给 StockTable 名称色块 / 展开决策卡共用.
 // v1.7.640: 板块强弱维度移除(用户拍板) — 东财板块接口对生产IP封禁, 该维度每次都是
 //   44发全失败的废调用(2~3s+日志刷屏), 数据拿不到打分恒空转, 整层砍掉。
+// v1.7.752: 大盘维度从 regime 情绪分(已删)换成统一风控三档(正常/谨慎/危险 + 0-100风险分)。
 import { ref } from 'vue'
 import { useVisiblePolling } from './useVisiblePolling'
-import { fetchRegime, type RegimeData } from '../api/market-report'
-import { fetchSignalOutcomeStats, type SignalOutcomeStatsItem } from '../api/signals'
+import { fetchMarketRisk, fetchSignalOutcomeStats,
+         type MarketRiskResp, type SignalOutcomeStatsItem } from '../api/signals'
 import type { Stock, Signal } from '../types'
 
 export interface DecisionReason {
@@ -25,21 +26,21 @@ export interface DecisionVerdict {
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000
 
 export function useDecisionContext() {
-  const regimeData = ref<RegimeData | null>(null)
+  const riskData = ref<MarketRiskResp | null>(null)
   const outcomeStatsMap = ref<Record<string, SignalOutcomeStatsItem>>({})
 
   async function refreshGlobal() {
     try {
-      const [rg, os] = await Promise.all([
-        fetchRegime().catch(() => null),
+      const [rk, os] = await Promise.all([
+        fetchMarketRisk().catch(() => null),
         fetchSignalOutcomeStats(90).catch(() => ({} as Record<string, SignalOutcomeStatsItem>)),
       ])
-      if (rg) regimeData.value = rg
+      if (rk) riskData.value = rk
       if (os) outcomeStatsMap.value = os
     } catch { /* silent — 后台轮询, 失败保留上一份 */ }
   }
 
-  // v1.7.571: 切走标签页暂停(regime+胜率两份 5min 背景数据), 切回补刷; 卸载自动清理。
+  // v1.7.571: 切走标签页暂停(风控+胜率两份 5min 背景数据), 切回补刷; 卸载自动清理。
   useVisiblePolling(() => {
     refreshGlobal()
   }, REFRESH_INTERVAL_MS)
@@ -52,12 +53,14 @@ export function useDecisionContext() {
     const neg = (text: string) => reasons.push({ text, sign: 'neg' })
     const neu = (text: string) => reasons.push({ text, sign: 'neu' })
 
-    // 1) 大盘 regime
-    const rg = regimeData.value
-    if (rg) {
-      if (rg.regime === 'friendly') { score += 30; pos(`大盘友好 ${rg.score} 分`) }
-      else if (rg.regime === 'neutral') { score += 10; neu(`大盘中性 ${rg.score} 分`) }
-      else { score -= 40; neg(`大盘危险 ${rg.score} 分, 不宜买入`) }
+    // 1) 大盘风控三档(风险分越高越危险)
+    const rk = riskData.value
+    const st = (rk?.latest?.state ?? '').toUpperCase()
+    if (rk && st) {
+      const sc = rk.score != null ? `·风险分 ${rk.score}` : ''
+      if (st === 'GREEN') { score += 30; pos(`大盘正常${sc}`) }
+      else if (st === 'YELLOW') { score += 10; neu(`大盘谨慎${sc}, 控制仓位`) }
+      else { score -= 40; neg(`大盘危险${sc}, 不宜买入`) }
     }
 
     // 2) 信号胜率: 取触发的买点信号中真实胜率最高那个
@@ -107,5 +110,5 @@ export function useDecisionContext() {
     return { action, label, size, color, reasons }
   }
 
-  return { regimeData, outcomeStatsMap, computeDecision }
+  return { riskData, outcomeStatsMap, computeDecision }
 }

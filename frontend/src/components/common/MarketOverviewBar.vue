@@ -2,11 +2,13 @@
 // v1.7.88: 实时市场概览条 — 三层布局(全球/A股/温度), 30s 自动刷新
 // 取代盘面日报顶部那块静态展示, 让数据实时跟随
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { fetchMarketOverview, fetchRegime, type MarketOverview, type RegimeData } from '../../api/market-report'
+import { fetchMarketOverview, type MarketOverview } from '../../api/market-report'
+import { fetchMarketRisk, type MarketRiskResp } from '../../api/signals'
 import FreshnessBadge from './FreshnessBadge.vue'
 
 const data = ref<MarketOverview | null>(null)
-const regime = ref<RegimeData | null>(null)
+// v1.7.752: regime(大盘情绪分)已删, 徽章/大白话统一换风控三档+0-100风险分(/api/signals/market-risk)
+const risk = ref<MarketRiskResp | null>(null)
 const loading = ref(false)
 let timer: number | null = null
 let clockTimer: number | null = null
@@ -57,22 +59,26 @@ function detectChanges(list: { name: string; pct_change: number }[] | undefined)
   }
 }
 
-const REGIME_LABEL: Record<string, string> = {
-  friendly: '友好',
-  neutral: '中性',
-  hostile: '危险',
+const RISK_STYLE: Record<string, { bg: string; color: string; ring: string }> = {
+  GREEN:  { bg: 'var(--success-bg-muted)', color: 'var(--success-fg)', ring: 'var(--success-fg)' },
+  YELLOW: { bg: 'var(--warn-bg-muted)', color: 'var(--warn-fg)', ring: 'var(--warn-fg)' },
+  RED:    { bg: 'var(--danger-bg-muted)', color: 'var(--danger-fg)', ring: 'var(--danger-fg)' },
 }
-const REGIME_STYLE: Record<string, { bg: string; color: string; ring: string }> = {
-  friendly: { bg: 'var(--success-bg-muted)', color: 'var(--success-fg)', ring: 'var(--success-fg)' },
-  neutral:  { bg: 'var(--warn-bg-muted)', color: 'var(--warn-fg)', ring: 'var(--warn-fg)' },
-  hostile:  { bg: 'var(--danger-bg-muted)', color: 'var(--danger-fg)', ring: 'var(--danger-fg)' },
-}
-const regimeHint = computed(() => {
-  const r = regime.value?.regime
-  if (r === 'friendly') return '买点信号原样推送'
-  if (r === 'neutral')  return '买点降级: 仅入库+前端, 不推送'
-  if (r === 'hostile')  return '买点降级: 仅入库+前端, 不推送'
-  return ''
+const riskState = computed(() => (risk.value?.latest?.state ?? 'GREEN').toUpperCase())
+const riskStyle = computed(() => RISK_STYLE[riskState.value] ?? RISK_STYLE.GREEN)
+const riskTier = computed(() =>
+  risk.value?.tier ?? (riskState.value === 'RED' ? '危险' : riskState.value === 'YELLOW' ? '谨慎' : '正常'))
+// 五个已OOS标定的全市场指标(有值才显示)
+const riskFactors = computed(() => {
+  const l = risk.value?.latest
+  if (!l) return []
+  const out: { name: string; text: string; bad: boolean; tip: string }[] = []
+  if (l.advance_ratio != null) out.push({ name: '涨跌比', text: `${l.advance_ratio.toFixed(0)}%`, bad: l.advance_ratio < 30, tip: '全市场上涨家数占比, <30% 触发谨慎' })
+  if (l.breadth_ma20 != null) out.push({ name: '广度MA20', text: `${l.breadth_ma20.toFixed(0)}%`, bad: l.breadth_ma20 < 30, tip: '守住20日线的票占比, <30% 触发谨慎 / <15% 触发危险' })
+  if (l.avg_ret_ma5 != null) out.push({ name: '5日均收益', text: `${l.avg_ret_ma5 >= 0 ? '+' : ''}${l.avg_ret_ma5.toFixed(2)}%`, bad: l.avg_ret_ma5 < 0, tip: '全市场近5日平均日收益, <-1% 触发危险' })
+  if (l.low52_ratio != null) out.push({ name: '新低占比', text: `${l.low52_ratio.toFixed(0)}%`, bad: l.low52_ratio > 15, tip: '创52周新低的票占比, >15% 触发危险' })
+  if (l.zha_rate != null) out.push({ name: '炸板率', text: `${l.zha_rate.toFixed(0)}%`, bad: l.zha_rate > 60, tip: '摸涨停后炸板占比, >60% 触发谨慎' })
+  return out
 })
 
 // v1.7.97: 后端定时任务每 30s 写 DB, 前端读 DB; 显示用 snapshot_at(数据时间), 不用浏览器拉取时间
@@ -86,14 +92,14 @@ const snapshotTime = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const [ov, rg] = await Promise.all([
+    const [ov, rk] = await Promise.all([
       fetchMarketOverview(),
-      fetchRegime().catch(() => null),
+      fetchMarketRisk().catch(() => null),
     ])
     data.value = ov
     detectChanges(ov?.global_indices)
     refreshSessions()
-    if (rg) regime.value = rg
+    if (rk) risk.value = rk
   } catch {
     /* silent — 监控面板有专门的错误展示 */
   } finally {
@@ -143,26 +149,26 @@ onUnmounted(() => {
 
 <template>
   <div v-if="data" class="market-overview">
-    <!-- 大盘 regime 徽章 -->
-    <div v-if="regime" class="regime-row">
-      <div class="regime-main" :style="{ background: REGIME_STYLE[regime.regime].bg, color: REGIME_STYLE[regime.regime].color, borderColor: REGIME_STYLE[regime.regime].ring }">
-        <span class="regime-label">大盘 {{ REGIME_LABEL[regime.regime] }}</span>
-        <span class="regime-score">{{ regime.score }} 分</span>
+    <!-- 大盘风控三档徽章(v1.7.752: 统一预警机制, 替代已删的 regime 情绪分) -->
+    <div v-if="risk?.latest" class="regime-row">
+      <div class="regime-main" :style="{ background: riskStyle.bg, color: riskStyle.color, borderColor: riskStyle.ring }">
+        <span class="regime-label">大盘 {{ riskTier }}</span>
+        <span v-if="risk.score != null" class="regime-score" title="0-100 风险分(越高越危险), 档位由回测背书的状态机决定">风险分 {{ risk.score }}</span>
       </div>
       <div class="regime-factors">
-        <span v-for="f in regime.factors" :key="f.name" class="rf"
-              :class="{ 'rf-pos': f.score > 0, 'rf-neg': f.score < 0 }"
-              :title="f.reason">
-          {{ f.name }} <b>{{ f.score >= 0 ? '+' : '' }}{{ f.score }}</b>
+        <span v-for="f in riskFactors" :key="f.name" class="rf"
+              :class="{ 'rf-neg': f.bad, 'rf-pos': !f.bad }"
+              :title="f.tip">
+          {{ f.name }} <b>{{ f.text }}</b>
         </span>
       </div>
-      <span class="regime-hint">{{ regimeHint }}</span>
+      <span class="regime-hint">买点照常推送 · 推送卡标题盖三档戳</span>
     </div>
 
     <!-- 大盘大白话解读(随当时数据变化) -->
-    <div v-if="regime && (regime.summary || regime.action)" class="regime-plain">
-      <div v-if="regime.summary" class="rp-sum">💡 {{ regime.summary }}</div>
-      <div v-if="regime.action" class="rp-act">👉 操作:{{ regime.action }}</div>
+    <div v-if="risk?.plain && (risk.plain.summary || risk.plain.action)" class="regime-plain">
+      <div v-if="risk.plain.summary" class="rp-sum">💡 {{ risk.plain.summary }}</div>
+      <div v-if="risk.plain.action" class="rp-act">👉 操作:{{ risk.plain.action }}</div>
     </div>
 
     <!-- 全球股市 -->

@@ -22,9 +22,11 @@
   - 当日: 新浪 Market_Center 快照(收盘后现价=收盘价)
   - 广度MA20: 复用 cfzy_sys_market_breadth (market_breadth_1535 每日盘后产出)
 
-任务:
-  market_risk_eod      16:40 cron — 历史指标+当日快照 → 状态机 → 迁移推送 → 落库
+任务 (Deploy 2B, v1.7.752 起本模块 = 大盘唯一预警机制, 三档统一命名 正常/谨慎/危险):
+  market_risk_eod      16:40 cron — 历史指标+当日快照 → 状态机 → 迁移推送 → 落库(最终定档)
   market_risk_intraday 14:40 cron — 只升不降: 同口径估当日指标, 达进入条件提前升级
+  market_risk_watch    盘中每5分钟 — 全市场口径(market_overview 快照)实时监测,
+                       升档即时预警 + 退出机制(过缓冲带才降档/解除, 冷静期防打脸)
 """
 
 import asyncio
@@ -313,8 +315,9 @@ def risk_score_of(state: str, ind: dict) -> int:
     return int(round(lo + _risk_pressure(ind) * (hi - lo)))
 
 
-# 三档展示名(retier: 与推送卡/前端顶栏统一; RED 由「空仓」软化为「危险」见 Deploy 2B)。
-_TIER_LABEL = {GREEN: "正常", YELLOW: "谨慎", RED: "空仓"}
+# 三档展示名(Deploy 2B retier: RED 档名由「空仓」改「危险」—— 档名说危险程度,
+# 「空仓」是该档的操作建议, 建议语里保留)。
+_TIER_LABEL = {GREEN: "正常", YELLOW: "谨慎", RED: "危险"}
 
 
 def tier_label_of(state: str) -> str:
@@ -377,10 +380,10 @@ _RED_NEUTRAL = {"BUY_RALLY_MA10", "BUY_RALLY_MA60"}
 # 读库失败时用, 绝不让推送因此变哑。
 _NOTE_KEYS = {
     ("RED", "fragile"): ("risk_note_red_fragile",
-                         "🔴 大盘空仓档 · 平台突破在此档最脆，样本内外同向 —— 强烈建议不做"),
+                         "🔴 大盘危险档 · 平台突破在此档最脆，样本内外同向 —— 强烈建议不做"),
     ("RED", "neutral"): ("risk_note_red_neutral",
-                         "🔴 大盘空仓档 · 大盘整体走弱，但该模型在此档历史上接近打平，若做务必轻仓"),
-    ("RED", "generic"): ("risk_note_red", "🔴 大盘空仓档 · 明显劣于正常档，建议停开新仓"),
+                         "🔴 大盘危险档 · 大盘整体走弱，但该模型在此档历史上接近打平，若做务必轻仓"),
+    ("RED", "generic"): ("risk_note_red", "🔴 大盘危险档 · 明显劣于正常档，建议停开新仓"),
     ("YELLOW", "generic"): ("risk_note_yellow", "⚡ 大盘谨慎档 · 弱于正常档，控制仓位、别追高"),
 }
 
@@ -448,9 +451,9 @@ async def get_risk_state_info() -> tuple[str, str]:
 # ── 状态卡(基线 v1.1): 状态迁移 + 大白话盘面 + [为什么触发] + 👉建议 + 信封字段 ──
 
 _LEVEL = {GREEN: 0, YELLOW: 1, RED: 2}
-_BADGE = {GREEN: "🟢 正常", YELLOW: "🟡 谨慎", RED: "🔴 空仓"}
+_BADGE = {GREEN: "🟢 正常", YELLOW: "🟡 谨慎", RED: "🔴 危险"}
 _DANGER = {GREEN: "正常", YELLOW: "谨慎档", RED: "最高危"}   # 档位说明, 让"跳档"一眼看懂危险级别
-_TAG = {GREEN: ("正常", "green"), YELLOW: ("谨慎", "orange"), RED: ("空仓", "red")}
+_TAG = {GREEN: ("正常", "green"), YELLOW: ("谨慎", "orange"), RED: ("危险", "red")}
 
 
 async def _push_state_card(title: str, template: str, old_state: str | None, new_state: str,
@@ -516,71 +519,8 @@ async def _nongreen_streak(today: str) -> tuple[str, int]:
         return first, n
 
 
-# ── 退潮类维度统一发卡闸(v1.7.556 批次D 六合一) ──
-# 退潮(涨停骤降)/溢价转负 不再各自独推, 累积成一张「大盘风控·退潮提示」卡, 卡里带当前风险
-# 状态 + 当日已触发的各维度, 按维度集合去重(新增维度才再推)。急跌(plunge)保留即时独推、
-# 状态机 RED/YELLOW/GREEN 卡仍各自推(未动回测背书的 proven 引擎)。
-_ebb_emit: dict = {}
-
-
-async def emit_risk_dimension(key: str, text: str, advice_text: str = "") -> None:
-    """退潮/溢价等风控维度统一入口: 合并成一张状态化「大盘风控·退潮提示」卡, 当日按维度集合去重。
-
-    基线 v1.1 改造: card_kit.Card(family=risk 橙 / 状态 RED 时红), 结论 heading 行 +
-    各维度 ✅式列举(text 为 md, 由调用方给 ✅前缀) + 👉建议(各维度 advice_text 合并)。"""
-    today = datetime.now().strftime("%Y-%m-%d")
-    st = _ebb_emit.get("st")
-    if not st or st["date"] != today:
-        st = {"date": today, "dims": {}, "sig": None}
-        _ebb_emit["st"] = st
-    st["dims"][key] = {"text": text, "advice": advice_text}
-    sig = tuple(sorted(st["dims"].keys()))
-    if sig == st["sig"]:
-        return   # 无新增维度 → 不重复推
-    st["sig"] = sig
-
-    try:
-        # v1.7.570: 用 get_risk_state(读最新任意日期行)而非 _current_state(只读今日行, 16:40前无行→GREEN)。
-        #   原来盘中退潮卡在 EOD 落库前恒显 GREEN, 与买点卡的 RED 警示自相矛盾(基线 RED 日尤甚)。
-        state = await get_risk_state()
-    except Exception:
-        state = GREEN
-
-    from backend.services import card_kit, notifier
-    from backend.services.lark_notifier import md_element
-
-    order = {"退潮": 0, "溢价": 1}
-    keys = sorted(st["dims"], key=lambda k: order.get(k, 9))
-    n = len(keys)
-    title = "📛 大盘风控·退潮提示" + (f"（{n}项）" if n > 1 else "")
-    tag_text, tag_color = _TAG.get(state, ("正常", "green"))
-    badge = _BADGE.get(state, state)
-
-    dims_md = "\n".join(st["dims"][k]["text"] for k in keys)
-    advices = []
-    for k in keys:
-        a = st["dims"][k]["advice"]
-        if a and a not in advices:
-            advices.append(a)
-    advice_line = "；".join(advices) or "整板在抽血，谨慎追高"
-
-    elements = [
-        card_kit.heading_md(f"退潮维度 {n} 项触发 · 当前大盘风控 {badge}"),
-        md_element(dims_md),
-        card_kit.advice(advice_line),
-    ]
-    fallback = "\n".join([
-        f"退潮维度 {n} 项触发 · 当前大盘风控 {badge}", "",
-        dims_md, "", f"👉 {advice_line}"])
-    card = card_kit.Card(
-        title=title, elements=elements, fallback=fallback,
-        family="risk_hot" if state == RED else "risk",
-        summary=card_kit.summary_text("大盘风控", "·".join(keys) + "提示", f"当前{tag_text}"),
-        tags=[(tag_text, tag_color)])
-    try:
-        await notifier.send_card(card)
-    except Exception as e:
-        logger.warning(f"[market_risk] 退潮提示卡推送失败: {e}")
+# (v1.7.752 Deploy 2B: 退潮维度统一发卡闸 emit_risk_dimension 已删 —— 唯一调用方
+#  market_ebb_detector 于 v1.7.737 退役, 大盘预警统一收口到本模块三档状态机。)
 
 
 async def _current_state() -> str:
@@ -679,29 +619,29 @@ async def market_risk_eod():
     bar_lines = [bar] if bar else []
     if new_state == RED and prev_state != RED and already_state != RED:
         await _push_state_card(
-            "🔴 空仓预警", "red", prev_state, RED,
+            "🔴 市场风险 · 升到「危险」档", "red", prev_state, RED,
             [f"全市场走弱: 近5天平均每天 **{cur['avg_ret_ma5']:+.2f}%**, "
              f"守住20日线的票只剩 **{yest_breadth:.0f}%**, 创一年新低的有 {cur['low52_ratio']:.0f}%",
              *bar_lines],
-            "**空仓或停开新仓**. 历史上这种时候买入, 10次只赚3次、平均亏3.6%.",
-            summary=f"市场风险升至空仓 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
+            "**空仓或停开新仓**. 独立样本实测此档买入, 10次只赚3~4次、平均亏2.3%.",
+            summary=f"市场风险升到危险档 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
     elif new_state == YELLOW and prev_state == GREEN:
         await _push_state_card(
-            "🟡 转谨慎", "orange", prev_state, YELLOW,
+            "🟡 市场风险 · 转「谨慎」档", "orange", prev_state, YELLOW,
             [f"市场转弱: 只有 **{cur['advance_ratio']:.0f}%** 的票在涨, "
              f"守住20日线的票 {yest_breadth:.0f}%, 涨停里炸板 {cur['zha_rate']:.0f}%",
              *bar_lines],
             "正常交易但注意控制仓位.",
             summary=f"市场风险转谨慎 涨跌比{cur['advance_ratio']:.0f}% 广度{yest_breadth:.0f}%")
     elif new_state == YELLOW and prev_state == RED:
-        # v1.7.570: RED→YELLOW 降级原来不推任何通知, 用户一直以为还在空仓预警。补一张降级卡。
+        # v1.7.570: RED→YELLOW 降级原来不推任何通知, 用户一直以为还在危险档。补一张降级卡。
         await _push_state_card(
-            "🟡 空仓预警降级·转谨慎", "orange", prev_state, YELLOW,
+            "🟡 市场风险 · 危险降到「谨慎」档", "orange", prev_state, YELLOW,
             [f"较前企稳(仍需谨慎): **{cur['advance_ratio']:.0f}%** 的票在涨, "
-             f"守住20日线的票回到 {yest_breadth:.0f}%, 已从空仓预警(RED)降到谨慎(YELLOW)",
+             f"守住20日线的票回到 {yest_breadth:.0f}%, 已从危险(RED)降到谨慎(YELLOW)",
              *bar_lines],
             "可小仓试探, 但仍需控制仓位、别追高.",
-            summary=f"空仓预警降级转谨慎 涨跌比{cur['advance_ratio']:.0f}% 广度{yest_breadth:.0f}%")
+            summary=f"危险档降级转谨慎 涨跌比{cur['advance_ratio']:.0f}% 广度{yest_breadth:.0f}%")
     elif new_state == GREEN and prev_state != GREEN:
         # 基线 v1.1 解除卡标准型: 灰 header + 副标题时间线 + 写明解除条件 + 👉建议
         issued, days = await _nongreen_streak(today)
@@ -716,10 +656,10 @@ async def market_risk_eod():
     elif new_state == GREEN and already_state == RED:
         # 盘中预升级撤销: 同为解除卡形态(灰 header 中性收尾)
         card = card_kit.dismiss_card(
-            "空仓预警（盘中预升级）",
+            "危险预警（盘中预升级）",
             issued_str="今日 14:40 盘中", days_active=1,
-            condition_md="收盘复核指标未达空仓（RED）进入条件，14:40 盘中预升级按收盘数据撤销",
-            advice_text="撤销空仓预警，恢复正常操作")
+            condition_md="收盘复核指标未达危险（RED）进入条件，14:40 盘中预升级按收盘数据撤销",
+            advice_text="撤销危险预警，恢复正常操作")
         await _push_dismiss(card)
 
     logger.info(f"[market_risk] EOD {today}: ar={cur['advance_ratio']:.1f}% "
@@ -763,60 +703,110 @@ async def market_risk_intraday():
     bar_lines = ([card_kit.long_short_bar(cur["dec"], cur["adv"])]
                  if cur.get("adv") is not None else [])
     await _push_state_card(
-        "🔴 空仓预警(盘中提前)", "red", prev_state, RED,
-        [f"盘中已跌到空仓线: 近5天平均每天 **{cur['avg_ret_ma5']:+.2f}%**, "
+        "🔴 市场风险 · 盘中提前升「危险」档", "red", prev_state, RED,
+        [f"盘中已跌到危险线: 近5天平均每天 **{cur['avg_ret_ma5']:+.2f}%**, "
          f"守住20日线的票只剩 **{yest_breadth:.0f}%**", *bar_lines],
         "**尾盘不新开仓**. 收盘后(16:40)最终确认.",
-        summary=f"空仓预警盘中提前 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
+        summary=f"危险预警盘中提前 5日均{cur['avg_ret_ma5']:+.2f}% 广度{yest_breadth:.0f}%")
     logger.warning(f"[market_risk] 盘中预升级 RED: "
                    f"ar5={cur['avg_ret_ma5']:+.2f}% br={yest_breadth}")
 
 
-# ── 盘中实时检测 (10:00-14:30, 每5分钟) ──
+# ── 盘中实时监测 market_risk_watch (Deploy 2B, v1.7.752: 全市场口径, 每5分钟) ──
+# 数据源 = cfzy_sys_market_overview 快照(后台任务已定时刷新, 零新增外部调用):
+#   market_stats 全市场涨跌家数(新浪全市场扫描, 5min 缓存) + a_indices 三大指数实时涨跌幅。
+# 不再用自选池 —— v1.7.737 退役的 market_risk_realtime 拿自选池代表大盘, 名实不符。
+# 阈值为启发式(宁漏不误), 档位最终由 16:40 EOD 状态机(OOS 背书)定夺; 盘中层的价值是
+# 「升档即时预警」+「退出机制: 明显转好过缓冲带才降档/解除, 冷静期防打脸」。
+WATCH_RED_ADVANCE = 22.0      # 危险: 全市场涨跌比 < 22% 且
+WATCH_RED_IDX = -1.5          #       三大指数平均 < -1.5%
+WATCH_YELLOW_ADVANCE = 28.0   # 谨慎: 涨跌比 < 28% 或
+WATCH_YELLOW_IDX = -1.0       #       指数平均 < -1.0%
+# 退出缓冲带(退出线远高于进入线, 防贴着一条线来回穿自己打脸) + 冷静期
+WATCH_EXIT_RED_ADVANCE = 35.0     # 脱离危险(RED): 涨跌比需回到 ≥35%(远高于进入的22%)
+WATCH_EXIT_RED_IDX = -1.0         #                且 指数平均 ≥ -1.0%
+WATCH_EXIT_YELLOW_ADVANCE = 45.0  # 解除谨慎→正常(GREEN): 涨跌比 ≥45%
+WATCH_EXIT_YELLOW_IDX = -0.3      #                       且 指数平均 ≥ -0.3%
+WATCH_COOLDOWN_MIN = 30       # 任何降级距上次变档至少30分钟(不许反向打脸)
+WATCH_MAX_PUSHES = 4          # 每日最多4条(2轮预警+解除)
+WATCH_MIN_STOCKS = 3000       # 全市场快照至少3000只有效涨跌家数才可信
+WATCH_STALE_SEC = 600         # 快照超过10分钟视为过期不用
 
-# 实时阈值比EOD更严(盘中噪声大, 宁漏不误)
-RT_ADVANCE_RED = 22.0        # 涨跌比 < 22% (EOD=30%)
-RT_AVG_RET_RED = -2.0        # 均收益 < -2.0% (EOD=-1.0%)
-RT_MIN_STOCKS = 50           # 至少50只有效行情
-RT_QUOTE_STALE_SEC = 180     # 行情超过3分钟视为过期
-RT_YELLOW_ADVANCE = 28.0     # YELLOW: 涨跌比 < 28%
-RT_YELLOW_AVG = -1.0         # YELLOW: 均收益 < -1.0%
+_watch_push_count: dict[str, int] = {}            # date -> 当日推送次数
+_watch_last_change_at: dict[str, datetime] = {}   # date -> 最近一次状态变档时刻(冷静期用)
 
-# 降级缓冲带(退出阈值明显高于进入, 防贴着一条线来回穿自己打脸) + 冷静期
-RT_EXIT_RED_ADVANCE = 35.0      # 脱离空仓(RED): 涨跌比需回到 ≥35%(远高于进入的22%)
-RT_EXIT_RED_AVG = -1.2          #                且 平均 ≥ -1.2%
-RT_EXIT_YELLOW_ADVANCE = 45.0   # 解除谨慎→正常(GREEN): 涨跌比 ≥45%
-RT_EXIT_YELLOW_AVG = -0.3       #                       且 平均 ≥ -0.3%
-RT_DOWNGRADE_COOLDOWN_MIN = 30  # 任何降级距上次变档至少30分钟(10分钟内不许反向打脸)
-
-_realtime_push_count: dict[str, int] = {}   # date -> 当日推送次数
-_REALTIME_MAX_PUSHES = 4                      # 每日最多4条(2轮预警+撤销)
-_realtime_last_change_at: dict[str, datetime] = {}   # date -> 最近一次状态变档时刻(冷静期用)
+_WATCH_INDEX_NAMES = ("上证指数", "深证成指", "创业板指")
 
 
-def _exit_target(current_rt: str, advance_ratio: float, avg_ret: float) -> str:
-    """带缓冲带的降级目标: 只有明显转好(过退出线)才降, 且一次最多降到条件允许的最低档。
+def _watch_enter_state(advance_ratio: float, idx_avg: float) -> str:
+    """进入口径(仅用于升级判定): 全市场涨跌比% + 三大指数平均涨跌% → 应然状态。纯函数。"""
+    if advance_ratio < WATCH_RED_ADVANCE and idx_avg < WATCH_RED_IDX:
+        return RED
+    if advance_ratio < WATCH_YELLOW_ADVANCE or idx_avg < WATCH_YELLOW_IDX:
+        return YELLOW
+    return GREEN
 
-    退出线远高于进入线 → 状态在缓冲带内保持不动, 不再贴着单条阈值来回抖。"""
-    if current_rt == RED:
-        if advance_ratio >= RT_EXIT_RED_ADVANCE and avg_ret >= RT_EXIT_RED_AVG:
-            if advance_ratio >= RT_EXIT_YELLOW_ADVANCE and avg_ret >= RT_EXIT_YELLOW_AVG:
+
+def _watch_exit_target(current: str, advance_ratio: float, idx_avg: float) -> str:
+    """退出机制(带缓冲带的降级目标): 只有明显转好(过退出线)才降档, 且一次最多降到条件允许的
+    最低档。退出线远高于进入线 → 状态在缓冲带内保持不动, 不再贴着单条阈值来回抖。纯函数。"""
+    if current == RED:
+        if advance_ratio >= WATCH_EXIT_RED_ADVANCE and idx_avg >= WATCH_EXIT_RED_IDX:
+            if advance_ratio >= WATCH_EXIT_YELLOW_ADVANCE and idx_avg >= WATCH_EXIT_YELLOW_IDX:
                 return GREEN
             return YELLOW
         return RED
-    if current_rt == YELLOW:
-        if advance_ratio >= RT_EXIT_YELLOW_ADVANCE and avg_ret >= RT_EXIT_YELLOW_AVG:
+    if current == YELLOW:
+        if advance_ratio >= WATCH_EXIT_YELLOW_ADVANCE and idx_avg >= WATCH_EXIT_YELLOW_IDX:
             return GREEN
         return YELLOW
-    return current_rt
+    return current
 
 
-async def market_risk_realtime():
-    """盘中实时检测: 用股票池实时行情(非全市场), 每5分钟跑.
+async def _watch_metrics() -> tuple[float, float, int, int] | None:
+    """market_overview 快照 → (全市场涨跌比%, 三大指数平均涨跌%, 涨家数, 跌家数)。
 
-    升级: GREEN→YELLOW, YELLOW→RED 均可.
-    撤销: 触发条件不再满足时, 回退状态 + 推送撤销.
-    同日: 预警最多推1次, 撤销最多推1次 (2条/天上限).
+    快照缺失/样本不足/过期 → None(本轮跳过, 不臆测)。"""
+    try:
+        overview = await repository.get_market_overview()
+    except Exception as e:
+        logger.warning(f"[market_risk] watch 读 market_overview 失败: {e}")
+        return None
+    if not overview:
+        return None
+    snap_at = overview.get("snapshot_at") or overview.get("updated_at")
+    if snap_at is not None:
+        try:
+            if isinstance(snap_at, str):
+                snap_at = datetime.strptime(snap_at[:19], "%Y-%m-%d %H:%M:%S")
+            if (datetime.now() - snap_at).total_seconds() > WATCH_STALE_SEC:
+                return None
+        except Exception:
+            pass
+    stats = overview.get("market_stats") or {}
+    up = int(stats.get("up_count") or 0)
+    down = int(stats.get("down_count") or 0)
+    if up + down < WATCH_MIN_STOCKS:
+        return None
+    pcts = []
+    for idx in overview.get("a_indices") or []:
+        if idx.get("name") in _WATCH_INDEX_NAMES and idx.get("pct_change") is not None:
+            try:
+                pcts.append(float(idx["pct_change"]))
+            except (TypeError, ValueError):
+                continue
+    if not pcts:
+        return None
+    advance_ratio = up / max(up + down, 1) * 100
+    idx_avg = sum(pcts) / len(pcts)
+    return advance_ratio, idx_avg, up, down
+
+
+async def market_risk_watch():
+    """盘中实时监测(全市场口径, 10:00-14:30 每5分钟):
+
+    升档: GREEN→YELLOW / YELLOW→RED 即时预警(不设冷静期, 危险要及时报)。
+    退出: 明显转好过退出缓冲带才降档/解除, 且有30分钟冷静期; 盘中不降到EOD基线以下。
     """
     from backend.core.trading_calendar import is_trading_time as _is_trading_time
     if not _is_trading_time():
@@ -827,93 +817,75 @@ async def market_risk_realtime():
         return
     today = now.strftime("%Y-%m-%d")
 
-    # 读股票池实时行情
-    from backend.models.repo._db import _fetchall
-    rows = await _fetchall(
-        "SELECT code, pct_change FROM cfzy_biz_stock_pool "
-        "WHERE deleted_at IS NULL AND pct_change IS NOT NULL "
-        "AND quote_updated_at > NOW() - INTERVAL %s SECOND",
-        (RT_QUOTE_STALE_SEC,))
-    if len(rows) < RT_MIN_STOCKS:
+    got = await _watch_metrics()
+    if not got:
         return
+    advance_ratio, idx_avg, up, down = got
+    should_be = _watch_enter_state(advance_ratio, idx_avg)
 
-    n = len(rows)
-    pcts = [float(r["pct_change"]) for r in rows]
-    avg_ret = sum(pcts) / n
-    adv = sum(1 for p in pcts if p > 0)
-    dec = sum(1 for p in pcts if p < 0)
-    advance_ratio = adv / max(adv + dec, 1) * 100
-
-    # 应然状态(进入口径, 仅用于升级判定)
-    if advance_ratio < RT_ADVANCE_RED and avg_ret < RT_AVG_RET_RED:
-        should_be = RED
-    elif advance_ratio < RT_YELLOW_ADVANCE or avg_ret < RT_YELLOW_AVG:
-        should_be = YELLOW
-    else:
-        should_be = GREEN
-
-    # 当前库里的实时状态(只看 source=realtime 的行, 防与EOD冲突)
+    # 当前库里的盘中状态(只看 source=realtime 的行, 防与EOD冲突)
     existing = await _get_row(today)
     current_rt = existing["state"] if existing and existing.get("source") == "realtime" else GREEN
     prev_eod = await _get_prev_state(today)
     level_cur = _LEVEL.get(current_rt, 0)
 
-    # 大白话盘面行(自选池实时) + 涨跌家数多空条(数据现成)
     from backend.services import card_kit
-    rt_line = f"自选池{n}只，只 **{advance_ratio:.0f}%** 在涨、平均 **{avg_ret:+.2f}%**"
-    rt_bar = card_kit.long_short_bar(dec, adv)
+    rt_line = (f"全市场{up + down}只，只 **{advance_ratio:.0f}%** 在涨、"
+               f"三大指数平均 **{idx_avg:+.2f}%**")
+    rt_bar = card_kit.long_short_bar(down, up)
 
     # ── 升级(转差): 危险要及时报, 不设冷静期 ──
     if _LEVEL.get(should_be, 0) > level_cur:
-        if _realtime_push_count.get(today, 0) >= _REALTIME_MAX_PUSHES:
+        if _watch_push_count.get(today, 0) >= WATCH_MAX_PUSHES:
             return  # 今日推送已达上限
-        _realtime_push_count[today] = _realtime_push_count.get(today, 0) + 1
-        _realtime_last_change_at[today] = now
+        _watch_push_count[today] = _watch_push_count.get(today, 0) + 1
+        _watch_last_change_at[today] = now
 
         await _upsert_risk(today, {
             "advance_ratio": advance_ratio, "breadth_ma20": None,
-            "avg_ret_ma5": avg_ret, "low52_ratio": None, "zha_rate": None,
+            "avg_ret_ma5": idx_avg, "low52_ratio": None, "zha_rate": None,
             "state": should_be, "source": "realtime",
         })
         _invalidate_cache()
 
         if should_be == RED:
             await _push_state_card(
-                "🔴 市场风险 · 升到「空仓」档", "red", current_rt, RED,
+                "🔴 市场风险 · 升到「危险」档", "red", current_rt, RED,
                 [f"盘面大跌：{rt_line}", rt_bar],
                 "立即停开新仓、别抄底，今天先保命。（16:40收盘复核，才定这档是否延续到明天）",
-                why=f"触发线：<{RT_ADVANCE_RED:.0f}%在涨 且 平均跌超{-RT_AVG_RET_RED:.0f}% = 空仓",
-                summary=f"市场风险升到空仓档 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
+                why=(f"触发线：<{WATCH_RED_ADVANCE:.0f}%在涨 且 "
+                     f"三大指数平均跌超{-WATCH_RED_IDX:.1f}% = 危险"),
+                summary=f"市场风险升到危险档 {advance_ratio:.0f}%在涨 指数均{idx_avg:+.2f}%")
         else:
             await _push_state_card(
                 "🟡 市场风险 · 升到「谨慎」档", "orange", current_rt, YELLOW,
                 [f"盘面转弱：{rt_line}", rt_bar],
                 "注意控制仓位、别追高。（16:40收盘再定档）",
-                why=f"触发线：<{RT_YELLOW_ADVANCE:.0f}%在涨 或 平均跌超{-RT_YELLOW_AVG:.0f}% = 谨慎",
-                summary=f"市场风险升到谨慎档 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
-        logger.info(f"[market_risk] 实时升级 {today} {t}: {current_rt}->{should_be} "
-                    f"(涨跌比 {advance_ratio:.1f}% 均收益 {avg_ret:+.2f}%)")
+                why=(f"触发线：<{WATCH_YELLOW_ADVANCE:.0f}%在涨 或 "
+                     f"三大指数平均跌超{-WATCH_YELLOW_IDX:.1f}% = 谨慎"),
+                summary=f"市场风险升到谨慎档 {advance_ratio:.0f}%在涨 指数均{idx_avg:+.2f}%")
+        logger.info(f"[market_risk] watch升级 {today} {t}: {current_rt}->{should_be} "
+                    f"(涨跌比 {advance_ratio:.1f}% 指数均 {idx_avg:+.2f}%)")
         return
 
-    # ── 降级(转好): 带缓冲带 + 冷静期, 防贴线来回打脸 ──
-    target = _exit_target(current_rt, advance_ratio, avg_ret)
+    # ── 退出(转好): 带缓冲带 + 冷静期, 防贴线来回打脸 ──
+    target = _watch_exit_target(current_rt, advance_ratio, idx_avg)
     # 盘中不擅自解除到EOD基线以下(基线去留由16:40收盘复核定夺)
     if _LEVEL.get(prev_eod, 0) > _LEVEL.get(target, 0):
         target = prev_eod
     if _LEVEL.get(target, 0) >= level_cur:
         return  # 未过退出缓冲线, 维持当前档, 不写不推(不打脸)
-    # 冷静期: 距上次变档不足N分钟, 先按兵不动
-    last = _realtime_last_change_at.get(today)
-    if last and (now - last).total_seconds() < RT_DOWNGRADE_COOLDOWN_MIN * 60:
+    last = _watch_last_change_at.get(today)
+    if last and (now - last).total_seconds() < WATCH_COOLDOWN_MIN * 60:
         return
-    if _realtime_push_count.get(today, 0) >= _REALTIME_MAX_PUSHES:
+    if _watch_push_count.get(today, 0) >= WATCH_MAX_PUSHES:
         return
-    _realtime_push_count[today] = _realtime_push_count.get(today, 0) + 1
-    _realtime_last_change_at[today] = now
+    _watch_push_count[today] = _watch_push_count.get(today, 0) + 1
+    _watch_last_change_at[today] = now
 
     await _upsert_risk(today, {
         "advance_ratio": advance_ratio, "breadth_ma20": None,
-        "avg_ret_ma5": avg_ret, "low52_ratio": None, "zha_rate": None,
+        "avg_ret_ma5": idx_avg, "low52_ratio": None, "zha_rate": None,
         "state": target, "source": "realtime",
     })
     _invalidate_cache()
@@ -925,17 +897,95 @@ async def market_risk_realtime():
         card = card_kit.dismiss_card(
             "市场风险预警（盘中）",
             issued_str=issued, days_active=1,
-            condition_md=(f"自选池涨跌比回到 **{advance_ratio:.0f}%** ≥ "
-                          f"{RT_EXIT_YELLOW_ADVANCE:.0f}% 且 平均 **{avg_ret:+.2f}%** ≥ "
-                          f"{RT_EXIT_YELLOW_AVG}%（过缓冲带，防贴线反复）"),
-            period_md=f"盘面回稳：自选池{n}只 {advance_ratio:.0f}%在涨、平均{avg_ret:+.2f}%",
+            condition_md=(f"全市场涨跌比回到 **{advance_ratio:.0f}%** ≥ "
+                          f"{WATCH_EXIT_YELLOW_ADVANCE:.0f}% 且 三大指数平均 **{idx_avg:+.2f}%** ≥ "
+                          f"{WATCH_EXIT_YELLOW_IDX}%（过缓冲带，防贴线反复）"),
+            period_md=f"盘面回稳：全市场{up + down}只 {advance_ratio:.0f}%在涨、指数均{idx_avg:+.2f}%",
             advice_text="恢复正常操作，16:40收盘最终定档")
         await _push_dismiss(card)
     else:
         await _push_state_card(
             "🟡 市场风险 · 降到「谨慎」档", "orange", current_rt, YELLOW,
             [f"跌势明显缓和：{rt_line}\n——是没那么急了，不是转多。", rt_bar],
-            "空仓警报解除，可小仓试错、别重仓。（16:40收盘最终定档）",
-            summary=f"空仓降到谨慎 {advance_ratio:.0f}%在涨 平均{avg_ret:+.2f}%")
-    logger.info(f"[market_risk] 实时降级 {today} {t}: {current_rt}->{target} "
-                f"(涨跌比回升至 {advance_ratio:.1f}% 均收益 {avg_ret:+.2f}%)")
+            "危险警报解除，可小仓试错、别重仓。（16:40收盘最终定档）",
+            summary=f"危险降到谨慎 {advance_ratio:.0f}%在涨 指数均{idx_avg:+.2f}%")
+    logger.info(f"[market_risk] watch降级 {today} {t}: {current_rt}->{target} "
+                f"(涨跌比回升至 {advance_ratio:.1f}% 指数均 {idx_avg:+.2f}%)")
+
+
+# ── 大盘大白话(Deploy 2B: 从 regime_filter 迁入, regime 已彻底删除) ──
+# 输入 = 全市场涨跌家数/涨跌停家数(market_overview.market_stats) + 两市成交额(亿) + 风控三档。
+# 与旧版差异: 「上证 vs MA20」维度去掉(那是 regime 专属数据链, 不值得为一句尾注保留一条
+# 外部K线拉取), 尾注改用统一风控三档。阈值沿用 regime_filter 的评分线(涨跌停比/涨跌家数比/量能)。
+
+
+def plain_market_language(market_stats: dict, amount_yi: float, state: str) -> tuple[str, str]:
+    """把当前盘面翻成大白话「结论 + 操作」。纯规则纯函数, 随局面变化。"""
+    up = int(market_stats.get("up_count") or 0)
+    down = int(market_stats.get("down_count") or 0)
+    lu = int(market_stats.get("limit_up") or 0)
+    ld = int(market_stats.get("limit_down") or 0)
+    if up + down <= 0:
+        return "", ""
+    lr = (lu / ld) if ld > 0 else (9.9 if lu > 0 else 1.0)   # 涨停/跌停比
+    br = (up / down) if down > 0 else 9.9                     # 涨/跌家数比
+    hot = lr >= 1.0 and lu >= 20     # 涨停不少于跌停且有一定数量(情绪热)
+    cold = lr < 0.5                  # 跌停偏多
+    bup = br >= 1.0                  # 个股偏多/普涨
+    bdown = br < 0.5                 # 个股普跌
+    panic = lr < 0.2 or br < 0.3     # 恐慌(跌停远多于涨停 / 单边踩踏)
+    vp = "放量" if amount_yi >= 12000 else ("缩量" if 0 < amount_yi < 6000 else "")
+    tier = _TIER_LABEL.get(state, "正常")
+
+    # 1) 恐慌杀跌
+    if panic:
+        return (f"{vp}恐慌杀跌,多数个股单边下挫",
+                "仓位降到2成以下或空仓,别抄底接飞刀;等跌停明显减少、出现放量止跌反包再进,手里票破位坚决止损")
+    # 2) 普跌 + 跌停偏多(资金离场)
+    if bdown and cold:
+        return (f"{vp}普跌,资金离场、情绪偏弱",
+                "仓位压到3~5成,先砍破位补不起来的弱票;不开新仓,等涨跌家数转正、风控档回正常再说")
+    # 3) 分化: 强势股活跃但多数个股在跌(赚指数不赚钱)
+    if hot and bdown:
+        return (f"{vp}分化,赚指数不赚钱:强势股活跃但多数个股在跌",
+                "只做最强主线龙头、半仓内快进快出;跟跌的弱票反弹就减、别死扛;不碰低位补涨票,这种行情它们多半继续阴跌")
+    # 4) 普涨 + 情绪热
+    if bup and hot:
+        tail = "" if state == GREEN else f",但大盘风控仍在{tier}档"
+        act = ("可加到6~8成、持股为主,优先强势板块领涨股,回踩不慌" if state == GREEN
+               else "可做多但别一把满仓(6成左右),优先领涨股,留点仓位应对回踩")
+        return (f"{vp}普涨,做多氛围浓、强势股活跃{tail}", act)
+    # 5) 普涨但封板不强
+    if bup:
+        act = ("跟随放量翻红的强势股顺势持有,设好止盈,别追高位" if amount_yi >= 12000
+               else "小仓参与即可,量能不足、持续性存疑,冲高见好就收、不追高")
+        return (f"{vp}个股普遍翻红,但封板不强、人气一般", act)
+    # 6) 个股普跌但无明显跌停
+    if bdown:
+        return ("个股普跌、人气偏弱",
+                "仓位收到5成内、以防守为主;不抄底,等放量企稳;弱票逢反弹减、强票可留")
+    # 7) 多空平衡 / 震荡
+    tail = f"、大盘风控{tier}档"
+    return (f"{vp}多空平衡,震荡格局{tail}",
+            "区间思维、轻仓灵活;强势股回踩低吸、冲高减,别追涨杀跌;等量价突破方向明确再加仓")
+
+
+async def market_plain_summary() -> dict:
+    """当前大白话解读(给 /market-risk 接口): {summary, action}; 数据不足返回空串。
+
+    成交额 = a_indices 里上证+深证 amount 之和(亿, 新浪已换算) — 原 regime_filter 同口径。"""
+    try:
+        overview = await repository.get_market_overview()
+    except Exception:
+        overview = None
+    stats = (overview or {}).get("market_stats") or {}
+    total_yi = 0.0
+    for idx in (overview or {}).get("a_indices") or []:
+        if idx.get("name") in ("上证指数", "深证成指"):
+            try:
+                total_yi += float(idx.get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+    state = await get_risk_state()
+    summary, action = plain_market_language(stats, total_yi, state)
+    return {"summary": summary, "action": action}

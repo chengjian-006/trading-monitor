@@ -15,7 +15,7 @@ const score = ref<number | null>(null)
 
 const state = computed(() => (latest.value?.state ?? '').toUpperCase())
 const label = computed(() =>
-  state.value === 'RED' ? '大盘空仓' : state.value === 'YELLOW' ? '大盘谨慎' : '大盘正常')
+  state.value === 'RED' ? '大盘危险' : state.value === 'YELLOW' ? '大盘谨慎' : '大盘正常')
 const tip = computed(() => {
   const l = latest.value
   if (!l) return ''

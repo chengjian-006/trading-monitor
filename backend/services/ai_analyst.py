@@ -686,8 +686,8 @@ def _fetch_hk_trend(qcode: str) -> dict:
         return empty
 
 
-# 指数分时 20s TTL: plunge_detector(30s) 与 market_data_refresher(60s) 各自全量拉同一份数据,
-# 每分钟约3轮×7指数纯属浪费; 急跌判定窗口10分钟, 20s滞后无影响。
+# 指数分时 20s TTL: 多个消费方各自全量拉同一份数据纯属浪费(缓存源起 v1.7.x,
+# 原始动机是 plunge_detector+market_data_refresher 重复拉取; plunge 已退役, 缓存保留)。
 _index_trends_cache: dict = {"ts": 0.0, "data": {}}
 _INDEX_TRENDS_TTL = 20
 

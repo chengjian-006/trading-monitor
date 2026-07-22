@@ -13,7 +13,6 @@ from backend.models import repository
 from backend import data_fetcher
 from backend.services import signal_engine, notifier
 from backend.services import alert_throttle
-from backend.services import regime_filter
 
 logger = logging.getLogger(__name__)
 
@@ -328,13 +327,15 @@ async def _recheck_worker_loop() -> None:
 from backend.core.trading_calendar import is_trading_time as _is_trading_time  # v1.7.x 统一来源
 
 
-async def _compute_regime_safe() -> dict:
-    """大盘 regime filter — 失败时退化为 friendly 放行, 不阻塞扫描主流程."""
+async def _risk_state_safe() -> str:
+    """大盘风控三档(GREEN/YELLOW/RED, 统一状态机, v1.7.752 替代已删的 regime_filter) —
+    失败时退化为 GREEN 放行, 不阻塞扫描主流程."""
     try:
-        return await regime_filter.compute_regime()
+        from backend.services.market_risk_controller import get_risk_state
+        return await get_risk_state()
     except Exception as e:
-        logger.warning(f"[regime] 计算失败, 视为 friendly 放行: {e}")
-        return {"regime": "friendly", "score": 50}
+        logger.warning(f"[scanner] 大盘风控状态获取失败, 视为 GREEN 放行: {e}")
+        return "GREEN"
 
 
 def _select_scan_targets(all_stocks: list[dict]) -> dict[str, list[dict]]:
@@ -502,15 +503,16 @@ async def _emit_one_signal(sig, *, code: str, name: str, df, rt,
                             user_id: int, trade_type: str,
                             price: float, stock_pct: float, strategy: str,
                             now_str: str, amount_suffix: str,
-                            regime_label: str) -> tuple[str, int]:
-    """单条信号: 计算 priority + regime 调整 + 写库 + WS 推前端 + 30min 撤销监测.
+                            risk_state: str) -> tuple[str, int]:
+    """单条信号: 计算 priority + 写库 + WS 推前端 + 30min 撤销监测.
 
     Returns: (final_detail, final_priority)
     """
     detail = f"{sig.detail}{amount_suffix}"
     priority = _signal_priority(sig)
-    # v1.7.737: 买点不再因大盘 regime 降级/拦截 —— 改为「只标注不拦截」: 买点照常推,
-    # 当前大盘状态由推送卡标题栏统一戳呈现(见 card 层)。regime_label 保留供落库/展示。
+    # v1.7.737: 买点不再因大盘状态降级/拦截 —— 改为「只标注不拦截」: 买点照常推,
+    # 当前大盘状态由推送卡标题栏统一三档戳呈现(见 card 层)。
+    # v1.7.752: 状态源从 regime_filter(已删)换成统一风控三档(GREEN/YELLOW/RED)。
 
     indicators = _extract_indicators(df, rt, sig.used_indicators)
 
@@ -531,8 +533,8 @@ async def _emit_one_signal(sig, *, code: str, name: str, df, rt,
         direction=sig.direction, price=price, user_id=user_id,
     )
 
-    # WS: hostile-buy 静默, 其他都推
-    silent_ws = (regime_label == "hostile" and sig.direction == "buy")
+    # WS: 危险档买点前端弹窗静默(照常写库+推送卡, 只是不弹 toast), 其他都推
+    silent_ws = (risk_state == "RED" and sig.direction == "buy")
     if not silent_ws:
         await ws_manager.send_to_user(user_id, {
             "type": "signal",
@@ -685,7 +687,7 @@ async def _push_strong_wechat(strong_items: list, *, code: str, name: str,
 
 async def _scan_one_stock(code: str, stock_entries: list, *,
                            df, rt, user_ctx: _UserContextCache,
-                           regime_label: str, market_emotion: dict | None = None,
+                           risk_state: str, market_emotion: dict | None = None,
                            sent_today: tuple[set, set] | None = None):
     """单只票全用户处理: 跳 ST → 各用户独立 detect/filter/emit/push.
 
@@ -747,7 +749,7 @@ async def _scan_one_stock(code: str, stock_entries: list, *,
                 user_id=user_id, trade_type=trade_type,
                 price=price, stock_pct=stock_pct, strategy=strategy,
                 now_str=now_str, amount_suffix=amount_suffix,
-                regime_label=regime_label,
+                risk_state=risk_state,
             )
             sig_details.append((sig, detail, priority))
 
@@ -846,8 +848,7 @@ async def scan_stock_pool():
     if not all_stocks:
         return
 
-    current_regime = await _compute_regime_safe()
-    regime_label = current_regime.get("regime", "friendly")
+    risk_state = await _risk_state_safe()
 
     # v1.7.275: 取一次最新情绪快照(全市场涨跌家数), 供竞价高开弱转强情绪门控用
     try:
@@ -878,7 +879,7 @@ async def scan_stock_pool():
             await _scan_one_stock(
                 code, stock_entries,
                 df=df, rt=rt, user_ctx=user_ctx,
-                regime_label=regime_label, market_emotion=market_emotion,
+                risk_state=risk_state, market_emotion=market_emotion,
                 sent_today=sent_today,
             )
             # v1.7.x: 缩量后放量突破 9:45 vs 10:00 闸门 A/B 记录(只记不推)

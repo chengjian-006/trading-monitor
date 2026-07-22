@@ -33,7 +33,7 @@ TOP_N = 5             # 昨日买点表格只放 Top5, 其余"等N只"+全量折
 _DEDUP_CODE = "SYS"
 _DEDUP_RULE = "morning_focus"
 
-RISK_LABEL = {"GREEN": ("🟢", "正常"), "YELLOW": ("🟡", "谨慎"), "RED": ("🔴", "高风险")}
+RISK_LABEL = {"GREEN": ("🟢", "正常"), "YELLOW": ("🟡", "谨慎"), "RED": ("🔴", "危险")}
 
 
 # ══════════════ 纯函数(可单测, 不连库) ══════════════

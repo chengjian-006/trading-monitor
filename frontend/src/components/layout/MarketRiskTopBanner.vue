@@ -35,10 +35,13 @@ const since = computed(() => {
   return `（${m}月${day}日 ${hm}起${tail}）`
 })
 
+// v1.7.752: 档名空仓→危险 + 横幅带 0-100 风险分(有值才显示)
+const score = ref<number | null>(null)
+const scorePart = computed(() => (score.value == null ? '' : `（风险分 ${score.value}）`))
 const text = computed(() =>
   state.value === 'RED'
-    ? `🚨 大盘空仓中${since.value} —— 停开新仓、别抄底、先保命`
-    : `⚠️ 大盘谨慎中${since.value} —— 控制仓位、别追高`)
+    ? `🚨 大盘危险中${since.value}${scorePart.value} —— 停开新仓、别抄底、先保命`
+    : `⚠️ 大盘谨慎中${since.value}${scorePart.value} —— 控制仓位、别追高`)
 
 async function load() {
   try {
@@ -46,6 +49,7 @@ async function load() {
     latest.value = resp.latest
     sinceAt.value = resp.since_at ?? null
     sinceDays.value = resp.since_days ?? 0
+    score.value = resp.score ?? null
   } catch {
     /* 顶栏静默 */
   }

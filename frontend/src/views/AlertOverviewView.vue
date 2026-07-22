@@ -46,10 +46,7 @@ const SIGNAL_META: SignalMeta[] = [
   { id: 'SELL_LOSS_5',                name: '浮亏 -5% 强档预警',     group: 'risk',   direction: 'reduce', priority: 'strong' },
   { id: 'SELL_LOSS_8',                name: '浮亏 -8% 二次预警',   group: 'risk',   direction: 'reduce', priority: 'strong' },
   { id: 'SELL_LOSS_10',               name: '浮亏 -10% 严重超止损', group: 'risk',  direction: 'sell',   priority: 'strong' },
-  // regime
-  { id: 'PLUNGE_INDEX',      name: '指数急跌',           group: 'regime', direction: '-',      priority: 'strong' },
-  { id: 'PLUNGE_BREADTH',         name: '涨跌家数恶化',       group: 'regime', direction: '-',      priority: 'strong' },
-  { id: 'PLUNGE_SPEED',           name: '跌停加速',           group: 'regime', direction: '-',      priority: 'strong' },
+  // regime(大盘急跌三条已退役 v1.7.737-751, 大盘预警统一走市场风险三档; 组保留给历史数据兜底)
   // sector
   { id: 'SECTOR_CAPITAL_INFLOW',  name: '资金回流·板块',      group: 'sector', direction: 'buy',    priority: 'strong' },
   // quality
@@ -67,7 +64,7 @@ const GROUP_LABEL: Record<SignalMeta['group'], string> = {
   sector:'板块',
   quality:'质量评分',
 }
-const GROUP_ORDER: SignalMeta['group'][] = ['entry', 'exit', 'risk', 'regime', 'sector', 'quality']
+const GROUP_ORDER: SignalMeta['group'][] = ['entry', 'exit', 'risk', 'sector', 'quality']
 
 const DIR_LABEL: Record<string, string> = { buy: '买', sell: '卖', reduce: '减仓', add: '加仓', '-': '—' }
 const DIR_TYPE: Record<string, 'error' | 'success' | 'warning' | 'default'> = {

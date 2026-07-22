@@ -52,9 +52,10 @@ export interface MarketRiskResp {
   latest: MarketRiskRow | null
   rows: MarketRiskRow[]
   score?: number | null          // 0-100 大盘风险分(展示用, 越高越危险; 档位仍由状态机定, v1.7.740)
-  tier?: string | null           // 三档名: 正常/谨慎/空仓
+  tier?: string | null           // 三档名: 正常/谨慎/危险(v1.7.752 retier)
   since_at?: string | null       // 当前状态连续段第一天的时刻(顶栏横幅「几点起」锚点)
   since_days?: number            // 当前状态已连续几个交易日
+  plain?: { summary: string; action: string } | null   // 大白话解读(v1.7.752, 原regime接口迁入)
 }
 
 export async function fetchMarketRisk(): Promise<MarketRiskResp> {

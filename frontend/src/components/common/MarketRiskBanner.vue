@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 市场风险两级预警状态条 — 监控看板 (v1.7.x 替代CashAlertBanner)
-// GREEN=一行灰绿小字 / YELLOW=黄色提示 / RED=红色横幅空仓
+// 市场风险预警状态条 — 监控看板 (v1.7.x 替代CashAlertBanner)
+// GREEN=一行灰绿小字 / YELLOW=黄色提示 / RED=红色横幅危险(v1.7.752 档名空仓→危险)
 import { ref, computed } from 'vue'
 import { fetchMarketRisk, type MarketRiskRow } from '../../api/signals'
 import { useVisiblePolling } from '../../composables/useVisiblePolling'
@@ -50,7 +50,7 @@ useVisiblePolling(load, 300000)
       </span>
       <span class="risk-arrow">→</span>
       <span class="risk-lv" :class="{ active: isRed }">
-        <span class="dot red" /> 空仓
+        <span class="dot red" /> 危险
       </span>
     </div>
     <span class="risk-detail">

@@ -41,7 +41,7 @@ def _is_hk_extra_time() -> bool:
 async def refresh_market_data():
     if _is_market_time():
         trade_date = datetime.now().strftime("%Y-%m-%d")
-        # 同步阻塞函数卸线程池, 不冻结 event loop(同 plunge_detector)
+        # 同步阻塞函数卸线程池, 不冻结 event loop
         index_trends = await asyncio.to_thread(get_index_trends)
         market_stats = await asyncio.to_thread(get_market_stats)
         if not index_trends and not market_stats:

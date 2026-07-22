@@ -77,7 +77,7 @@ def build_backfill_card(channel: str, kept_events: list[dict], dropped: int,
 
     risk = (risk_state or "GREEN").upper()
     if risk in ("YELLOW", "RED"):
-        tag = "🔴 RED 强烈建议空仓" if risk == "RED" else "⚡ YELLOW 谨慎"
+        tag = "🔴 危险档 · 强烈建议空仓" if risk == "RED" else "🟡 谨慎档"
         banner = f"⚠️ 当前市场风险档: {tag}"
         elements.append(md_element(f"**{banner}**"))
         text_lines.append(banner)

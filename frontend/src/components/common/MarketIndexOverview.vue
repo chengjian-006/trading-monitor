@@ -7,8 +7,8 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { NPopover } from 'naive-ui'
 import { formatYi, formatYiFromYi, formatYiDelta } from '../../utils/formatAmount'
-import { fetchIndexTrends, fetchIndexDaily, fetchMarketOverview, fetchRegime, fetchTurnover, fetchVolumeSurge,
-         type IndexTrendData, type IndexDailyData, type MarketOverview, type RegimeData, type TurnoverData, type VolumeSurgeItem } from '../../api/market-report'
+import { fetchIndexTrends, fetchIndexDaily, fetchMarketOverview, fetchTurnover, fetchVolumeSurge,
+         type IndexTrendData, type IndexDailyData, type MarketOverview, type TurnoverData, type VolumeSurgeItem } from '../../api/market-report'
 import IndexChartCard from './IndexChartCard.vue'
 import BreadthBar from './BreadthBar.vue'
 import { estimateFullDayAmount } from '../../utils/intradayEstimator'
@@ -17,7 +17,6 @@ const router = useRouter()
 const intradayMap = ref<Record<string, IndexTrendData>>({})
 const dailyMap = ref<Record<string, IndexDailyData>>({})
 const overview = ref<MarketOverview | null>(null)
-const regime = ref<RegimeData | null>(null)
 const turnover = ref<TurnoverData | null>(null)
 const surge = ref<VolumeSurgeItem[]>([])
 
@@ -39,16 +38,14 @@ const selected = ref('sh000001')
 
 async function loadIntraday() {
   try {
-    const [intr, ov, rg, tv, sg] = await Promise.all([
+    const [intr, ov, tv, sg] = await Promise.all([
       fetchIndexTrends().catch(() => ({} as Record<string, IndexTrendData>)),
       fetchMarketOverview().catch(() => null),
-      fetchRegime().catch(() => null),
       fetchTurnover().catch(() => null),
       fetchVolumeSurge().catch(() => []),
     ])
     if (intr && Object.keys(intr).length) intradayMap.value = intr
     if (ov) overview.value = ov
-    if (rg) regime.value = rg
     if (tv) turnover.value = tv
     surge.value = sg
   } catch { /* silent */ }
@@ -117,7 +114,8 @@ function fmtDelta(yi: number | null): string {
   return formatYiDelta(yi)
 }
 
-const todayAmountYi = computed(() => regime.value?.raw?.total_amount_yi ?? turnover.value?.today_yi ?? 0)
+// v1.7.752: regime 已删, /turnover 的 today_yi 每次请求由后端从 market_overview 快照实时覆盖
+const todayAmountYi = computed(() => turnover.value?.today_yi ?? 0)
 const ma5Yi = computed(() => turnover.value?.ma5_yi ?? null)
 const ma60Yi = computed(() => turnover.value?.ma60_yi ?? null)
 

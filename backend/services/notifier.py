@@ -853,20 +853,21 @@ async def send_wechat_text(content: str, *, mute_lark: bool = False) -> bool:
 
 
 # ── 大盘风险标记(v1.7.628, v1.7.629 加正文横幅; v1.7.652 标题前缀改 header 小标签) ──
-# 大盘风险(谨慎/空仓)生效期间, 非风险卡做两处标记:
-#   1) header 彩签(text_tag): 一枚小标签「大盘空仓中/大盘谨慎」, 不再盖标题(标题保持卡片自己的主信息)。
+# 大盘风险(谨慎/危险)生效期间, 非风险卡做两处标记:
+#   1) header 彩签(text_tag): 一枚小标签「大盘危险中/大盘谨慎」, 不再盖标题(标题保持卡片自己的主信息)。
 #   2) 正文顶部红色加粗横幅(点开第一行): 带行动指令与时间锚点。
 # 市场风险状态卡/大盘风控卡本身不挂(它们就是在宣布这件事, 再挂就重复)。
 _RISK_TITLE_SKIP = ("市场风险", "大盘风控")
 # v1.7.740 (Deploy 2A): 补 GREEN 档 → 所有推送卡标题栏统一盖「大盘三档戳」(此前只黄/红挂标签,
 # 正常档不挂 → 卡上看不出当前大盘档位)。数据源=市场风险状态机(get_risk_state_info)。
-_RISK_TAG = {"RED": ("大盘空仓中", "red"), "YELLOW": ("大盘谨慎", "orange"),
+# v1.7.752 (Deploy 2B retier): RED 档名「空仓」→「危险」, 空仓留作建议语。
+_RISK_TAG = {"RED": ("大盘危险中", "red"), "YELLOW": ("大盘谨慎", "orange"),
              "GREEN": ("大盘正常", "green")}
 # <font color> 飞书 lark_md 与 PushPlus HTML 两端都渲染, 一份横幅两端通用。
 # {since} = 时间锚点(如「（13:11起）」, 对标状态页 since 模式), 无锚点时为空串。
 # v1.7.652: 压成一行紧凑版(原三排🚨占三行太抢眼), 保留行动指令。
 _RISK_BANNER = {
-    "RED": "<font color='red'>**🔴 大盘空仓中{since} · 停开新仓、别抄底**</font>",
+    "RED": "<font color='red'>**🔴 大盘危险中{since} · 停开新仓、别抄底**</font>",
     "YELLOW": "<font color='orange'>**🟡 大盘谨慎中{since} · 控制仓位、别追高**</font>",
 }
 

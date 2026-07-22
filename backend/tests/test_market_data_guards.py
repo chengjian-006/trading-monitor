@@ -1,8 +1,8 @@
 """数据源头校验下沉测试 (v1.7.387) — 0612误报普查第2项整改.
 
-把"分时冻结回放丢弃"和"竞价涨跌家数0/0返回空"从消费端(plunge_detector)下沉到
+把"分时冻结回放丢弃"和"竞价涨跌家数0/0返回空"从消费端(原 plunge_detector, 已退役)下沉到
 数据入口(get_index_trends / get_market_stats), 让所有下游天然免疫:
-1. trading_calendar.trading_minute / trends_stale — 通用陈旧度判断(从 plunge_detector 上移)。
+1. trading_calendar.trading_minute / trends_stale — 通用陈旧度判断。
 2. ai_analyst._sanitize_stale_index_trends — A股指数分时陈旧则清空该指数 trends(港股不动)。
 3. ai_analyst._compute_market_stats — 全场无涨跌幅=无数据返回 None; 最新价0不参与涨跌停判定。
 """
