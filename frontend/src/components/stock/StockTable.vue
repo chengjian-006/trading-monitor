@@ -646,85 +646,96 @@ const allColumns = computed(() => [
     key: 'name',
     // v1.7.723: 删掉 96px 的策略列后, 名称列多挂一枚「策」签, 回吐 12px 给它 (112 → 124)
     width: 124,
-    ellipsis: { tooltip: true },
+    // v1.7.774: 名称列日常保持干净(只名字), 标签收进"悬停名称→浅底浮层"。ellipsis 用 true(仅截断,
+    // 不加 naive 自带 tooltip), 防它与下面的悬停标签浮层在同一格双触发。
+    ellipsis: true,
     render: (row: Stock) => {
       const isFocused = !!row.focused
       const isHold = row.status === 'hold'
-      const isTrade = isHold && row.hold_source === 'trade'
       const hasSignal = signalsByCode.value.has(row.code)
       const color = isHold ? 'var(--accent-fg)' : isFocused ? 'var(--up-fg)' : hasSignal ? 'var(--warn-fg)' : 'inherit'
       const fontWeight = isHold ? 700 : 'normal'
       const prefix = (isFocused && !isHold) ? '*' : ''
-      const clickStyle = { cursor: 'pointer' }
       const onDblclick = (e: Event) => { e.stopPropagation(); openIntraday(row.code, row.name) }
-      const children: any[] = []
-      if (prefix) {
-        children.push(h('span', { style: { position: 'absolute', right: '100%', marginRight: '2px' } }, prefix))
-      }
-      // 名称先放(左对齐), 各类标记一律排在名称后面, 统一「描边细标签」风格(淡底+彩边+彩字, 只用颜色区分)
-      children.push(row.name)
+
+      // 「描边细标签」(淡底+彩边+彩字)。v1.7.774: 不再内联挂名称后, 统一收进悬停浮层。
       const chipTag = (label: string, c: string, title: string) => h('span', {
         title,
         style: {
-          marginLeft: '4px', fontSize: '10px', lineHeight: '15px', padding: '0 5px',
+          fontSize: '11px', lineHeight: '16px', padding: '0 6px',
           color: c, border: `1px solid color-mix(in srgb, ${c} 45%, transparent)`,
-          background: `color-mix(in srgb, ${c} 8%, transparent)`,
-          borderRadius: '3px', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'middle',
+          background: `color-mix(in srgb, ${c} 10%, transparent)`,
+          borderRadius: '3px', fontWeight: 600, whiteSpace: 'nowrap',
         },
       }, label)
-      // 双榜共振: 人气+成交额双榜前100, 颜色随强弱
+
+      // 收集所有行情标签(顺序与原内联一致: 共/涨跌/连板/额/换/动/策)
+      const chips: any[] = []
       const popR = row.popularity_rank
       const amtR = amountRankMap.value[row.code]
       const resoLevel = resonanceLevel(popR, amtR)
-      // 标签统一缩成 1 字描边小签(省地方), 完整含义看悬停 title
       if (resoLevel) {
         const c = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
-        children.push(chipTag('共', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
+        chips.push(chipTag('共', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
       }
       if (isLimitUp(row)) {
-        children.push(chipTag('涨', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        chips.push(chipTag('涨', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       } else if (isLimitDown(row)) {
-        children.push(chipTag('跌', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        chips.push(chipTag('跌', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       }
       if (row.limit_up_days != null && row.limit_up_days >= 1) {
         const n = row.limit_up_days
-        children.push(chipTag(n >= 2 ? `${n}板` : '首', 'var(--up-fg)',
+        chips.push(chipTag(n >= 2 ? `${n}板` : '首', 'var(--up-fg)',
           n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)'))
       }
       const smallEst = smallAmountMap.value.get(row.code)
       if (smallEst != null) {
-        children.push(chipTag('额', 'var(--warn-fg)', `小额: 今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
+        chips.push(chipTag('额', 'var(--warn-fg)', `小额: 今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
       }
       if (row.turnover != null && row.turnover >= 15) {
-        children.push(chipTag('换', 'var(--danger-fg)', `高换: 换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
+        chips.push(chipTag('换', 'var(--danger-fg)', `高换: 换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
       }
       if (row.volume_ratio != null && row.volume_ratio >= 3) {
-        children.push(chipTag('动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
+        chips.push(chipTag('动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
       }
-      // v1.7.723: 独立「策略」列删掉, 改成名称后挂一枚紫签 —— 那一列占 96px 却只塞得下 8 个字,
-      // 「扫一眼哪些票有计划」这个唯一价值, 一枚签就够, 全文照旧悬停出富卡。行情类签在前, 主观计划签压尾。
       const stratText = row.strategy?.trim()
-      if (stratText) {
-        children.push(h(NPopover, { trigger: 'hover', placement: 'top-start', delay: 200, style: { maxWidth: '320px' } }, {
-          trigger: () => chipTag('策', '#7c3aed', '已写操作策略 — 悬停看全文, 编辑点右侧操作列的铅笔'),
-          header: () => h('div', { style: { fontWeight: 600, fontSize: '12px', color: 'var(--text2)' } }, `${row.code} ${row.name} · 操作策略`),
-          default: () => h(StrategyText, { text: stratText }),
-        }))
-      }
-      // verdict 色块: 有买点信号时给名称加色条提示决策结论 (与展开行决策卡颜色一致)
+      if (stratText) chips.push(chipTag('策', '#7c3aed', '已写操作策略'))
+
+      // 名称本体: 关注 * 前缀 + verdict 色条 + 有标签时的浅点提示(“悬停看标签”的抓手)
       const verdictColor = getVerdictColor(row)
+      const nameInner: any[] = []
+      if (prefix) nameInner.push(h('span', { style: { position: 'absolute', right: '100%', marginRight: '2px' } }, prefix))
+      nameInner.push(h('span', { class: 'name-txt' }, row.name))
+      if (chips.length) nameInner.push(h('span', { class: 'name-tag-dot', title: `${chips.length} 个标签 — 悬停查看` }))
+
       const wrapperStyle: Record<string, string | number> = {
-        position: 'relative',
-        color,
-        fontWeight,
-        ...clickStyle,
+        position: 'relative', color, fontWeight, cursor: 'pointer',
+        display: 'inline-flex', alignItems: 'center', minWidth: 0, maxWidth: '100%',
       }
       if (verdictColor) {
         wrapperStyle.borderLeft = `3px solid ${verdictColor}`
         wrapperStyle.paddingLeft = '5px'
         wrapperStyle.marginLeft = '-2px'
       }
-      return h('span', { style: wrapperStyle, onDblclick, title: verdictColor ? '该票有买点信号 — 展开行查看完整决策依据' : undefined }, children)
+      const nameSpan = h('span', {
+        style: wrapperStyle, onDblclick,
+        title: verdictColor ? '该票有买点信号 — 展开行查看完整决策依据' : undefined,
+      }, nameInner)
+
+      if (!chips.length) return nameSpan
+
+      // v1.7.774: 悬停名称列 → 浅底浮层列出全部标签(+ 操作策略全文), 名称列日常保持干净
+      return h(NPopover, { trigger: 'hover', placement: 'top-start', delay: 120, style: { maxWidth: '300px' } }, {
+        trigger: () => nameSpan,
+        default: () => h('div', { class: 'name-tags-pop' }, [
+          h('div', { class: 'ntp-head' }, `${row.code} ${row.name}`),
+          h('div', { class: 'ntp-chips' }, chips),
+          stratText ? h('div', { class: 'ntp-strat' }, [
+            h('div', { class: 'ntp-strat-label' }, '操作策略'),
+            h(StrategyText, { text: stratText }),
+          ]) : null,
+        ]),
+      })
     },
   },
   ...(props.showSparkline ? [{
@@ -1142,6 +1153,19 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
 .stock-table-wrap :deep(.n-data-table-td) {
   font-variant-numeric: tabular-nums;
 }
+/* ── 名称列标签浮层 (v1.7.774): 名称列日常只显名字; 有标签则名后一枚浅点作抓手, 悬停名称浮出浅底标签卡 ──
+   NPopover 内容传送到 body, 在 .stock-table-wrap 之外, 故这些类【不能】加 .stock-table-wrap 前缀
+   (本 <style> 非 scoped, 裸类可全局命中传送后的浮层)。 */
+.name-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.name-tag-dot {
+  flex: 0 0 auto; width: 5px; height: 5px; margin-left: 5px;
+  border-radius: 50%; background: var(--fg-subtle); opacity: 0.55;
+}
+.name-tags-pop { padding: 1px 0; }
+.name-tags-pop .ntp-head { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+.name-tags-pop .ntp-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.name-tags-pop .ntp-strat { margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border-muted); }
+.name-tags-pop .ntp-strat-label { font-size: 11px; font-weight: 600; color: #7c3aed; margin-bottom: 3px; }
 /* 收紧列内边距, 整表更紧凑 */
 .stock-table-wrap :deep(.n-data-table-td),
 .stock-table-wrap :deep(.n-data-table-th) {
