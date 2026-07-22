@@ -5,6 +5,7 @@
   GET  /api/lark-coach/relay-style          转发形式(card/text, 管理员)
   POST /api/lark-coach/relay-style          切换转发形式(管理员)
 """
+import asyncio
 from pathlib import Path
 from typing import Annotated
 
@@ -18,6 +19,31 @@ router = APIRouter(prefix="/api/lark-coach", tags=["lark-coach"])
 
 # 图片缓存目录(项目根/data/coach_media): 首次请求经 lark-cli 下载, 之后直接读盘
 _MEDIA_DIR = Path(__file__).resolve().parents[2] / "data" / "coach_media"
+
+# 观点里被提及个股的进程内缓存 (message_id -> [{code,name,primary}])。
+# 观点发布后不再变, 故按 message_id 缓存, 全市场名称字典只拉一次、未缓存的一批在单个线程里一起扫。
+_coach_stocks_cache: dict[str, list[dict]] = {}
+
+
+async def _attach_stocks(posts: list[dict]) -> None:
+    """给每条文本观点撞出被提及的个股(code+name), 供前端把股名标成同花顺个股页链接。
+    复用问财观点的名称扫描(6位代码 + 全市场名称字典, 全名 len>=3 防误伤)。CPU 重活卸线程池。"""
+    text_posts = [p for p in posts if p.get("msg_type") != "image" and p.get("content")]
+    uncached = [p for p in text_posts if p["message_id"] not in _coach_stocks_cache]
+    if uncached:
+        from backend.routers.wencai import _scan_names
+        try:
+            names = await repository.all_stock_names()   # [{code, name}]
+        except Exception:
+            names = []
+
+        def scan_all():
+            return {p["message_id"]: (_scan_names(p["content"] or "", names) if names else [])
+                    for p in uncached}
+
+        _coach_stocks_cache.update(await asyncio.to_thread(scan_all))
+    for p in posts:
+        p["stocks"] = _coach_stocks_cache.get(p["message_id"], [])
 
 
 def _sniff_media_type(path: str) -> str:
@@ -46,6 +72,7 @@ async def list_posts(_user: Annotated[dict, Depends(get_current_user)],
         "content": r["content"],
         "msg_type": r["msg_type"],
     } for r in rows]
+    await _attach_stocks(posts)
     return {"posts": posts}
 
 

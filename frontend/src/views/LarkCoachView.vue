@@ -4,7 +4,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { NButton, NIcon, NSkeleton, NEmpty, NInput, NDatePicker } from 'naive-ui'
 import { RefreshOutline, BulbOutline, ChatbubbleEllipsesOutline } from '@vicons/ionicons5'
-import { listCoachPosts, fetchCoachMedia, type CoachPost } from '../api/lark-coach'
+import { listCoachPosts, fetchCoachMedia, type CoachPost, type CoachMentionedStock } from '../api/lark-coach'
 import FilterPanel from '../components/common/FilterPanel.vue'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
 
@@ -48,6 +48,42 @@ function emphasize(text: string): { t: string; b: boolean }[] {
   }
   if (last < text.length) segs.push({ t: text.slice(last), b: false })
   return segs
+}
+
+// 个股链接 (v1.7.780): 后端撞出正文里被提及的个股(code+name), 前端把股名/6位代码标成链接,
+// 点击跳同花顺个股页。段落沿用 emphasize 的加粗标签, 再在其上切出链接子段。
+const THS_STOCK_URL = (code: string) => `https://stockpage.10jqka.com.cn/${code}/`
+
+interface LinkSeg { t: string; b: boolean; code?: string }
+function buildSegs(text: string, stocks?: CoachMentionedStock[]): LinkSeg[] {
+  const base = emphasize(text)
+  if (!stocks || !stocks.length) return base
+  // 名称与6位代码都可命中; 命中优先更长的 token(防「药明康德」被短名截断)
+  const tokens: { token: string; code: string }[] = []
+  for (const s of stocks) {
+    if (s.name && s.name.length >= 2) tokens.push({ token: s.name, code: s.code })
+    if (s.code && /^\d{6}$/.test(s.code)) tokens.push({ token: s.code, code: s.code })
+  }
+  tokens.sort((a, b) => b.token.length - a.token.length)
+  const out: LinkSeg[] = []
+  for (const seg of base) {
+    let rest = seg.t
+    while (rest) {
+      let best: { idx: number; len: number; code: string } | null = null
+      for (const tk of tokens) {
+        const idx = rest.indexOf(tk.token)
+        if (idx < 0) continue
+        if (!best || idx < best.idx || (idx === best.idx && tk.token.length > best.len)) {
+          best = { idx, len: tk.token.length, code: tk.code }
+        }
+      }
+      if (!best) { out.push({ t: rest, b: seg.b }); break }
+      if (best.idx > 0) out.push({ t: rest.slice(0, best.idx), b: seg.b })
+      out.push({ t: rest.slice(best.idx, best.idx + best.len), b: seg.b, code: best.code })
+      rest = rest.slice(best.idx + best.len)
+    }
+  }
+  return out
 }
 
 const filtered = computed(() => {
@@ -201,10 +237,10 @@ onMounted(load)
               <NSkeleton v-else height="160px" width="240px" style="border-radius:8px" />
             </template>
             <template v-else>
-              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span><span v-for="(seg, si) in emphasize(splitMsg(p.content).answer)" :key="si" :class="seg.b ? 'em' : undefined">{{ seg.t }}</span></div>
+              <div class="answer"><span class="coach-name">{{ p.coach_name || '藏龙岛' }}：</span><template v-for="(seg, si) in buildSegs(splitMsg(p.content).answer, p.stocks)" :key="si"><a v-if="seg.code" class="stock-link" :class="{ em: seg.b }" :href="THS_STOCK_URL(seg.code)" target="_blank" rel="noopener noreferrer" :title="`${seg.t} 同花顺个股页`" @click.stop>{{ seg.t }}</a><span v-else :class="seg.b ? 'em' : undefined">{{ seg.t }}</span></template></div>
               <div v-if="splitMsg(p.content).quoted" class="quoted">
                 <NIcon :component="ChatbubbleEllipsesOutline" class="q-ico" />
-                <span>{{ splitMsg(p.content).quoted }}</span>
+                <span><template v-for="(seg, si) in buildSegs(splitMsg(p.content).quoted, p.stocks)" :key="si"><a v-if="seg.code" class="stock-link" :href="THS_STOCK_URL(seg.code)" target="_blank" rel="noopener noreferrer" :title="`${seg.t} 同花顺个股页`" @click.stop>{{ seg.t }}</a><template v-else>{{ seg.t }}</template></template></span>
               </div>
             </template>
           </div>
@@ -267,6 +303,13 @@ onMounted(load)
 .answer { font-size: 14px; line-height: 1.7; font-weight: 400; color: var(--fg-default); white-space: pre-wrap; word-break: break-word; }
 .answer .coach-name { font-weight: 700; }
 .answer .em { font-weight: 700; }
+/* 个股链接: 主题蓝 + 虚下划线, 悬停实线; 点击跳同花顺个股页 */
+.stock-link {
+  color: var(--accent-fg); text-decoration: underline; text-decoration-style: dotted;
+  text-underline-offset: 2px; cursor: pointer; font-weight: 600;
+}
+.stock-link:hover { text-decoration-style: solid; }
+.stock-link.em { font-weight: 700; }
 .quoted {
   margin-top: 10px; display: flex; gap: 6px; align-items: flex-start;
   font-size: 12px; line-height: 1.6; color: var(--fg-subtle);
