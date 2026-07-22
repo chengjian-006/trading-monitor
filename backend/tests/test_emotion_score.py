@@ -42,3 +42,17 @@ def test_derive_cycle_bands_and_ebb_override():
     assert E._derive_cycle(30, "中性") == "冰点"      # 边界含
     assert E._derive_cycle(45, "中性") == "回暖"
     assert E._derive_cycle(None, "中性") is None
+
+
+def test_cycle_alert_spec_transitions():
+    # 有动作意义的转场 → 出卡规格
+    assert E._cycle_alert_spec("冰点", "回暖")[0].endswith("启动")       # 回暖启动
+    assert E._cycle_alert_spec("回暖", "高潮")[4] == ("高潮", "red")     # 进高潮
+    assert E._cycle_alert_spec("冰点", "高潮") is not None               # 直接跳高潮也提醒
+    assert E._cycle_alert_spec("高潮", "退潮")[4] == ("退潮", "green")   # 退潮减仓
+    assert E._cycle_alert_spec("回暖", "退潮") is not None
+    # 无动作意义/反向转场 → 不提醒
+    assert E._cycle_alert_spec("冰点", "退潮") is None                   # 本就冷, 退潮不再提醒
+    assert E._cycle_alert_spec("高潮", "回暖") is None                   # 单纯降温不提醒(留给退潮)
+    assert E._cycle_alert_spec("回暖", "冰点") is None
+    assert E._cycle_alert_spec("高潮", "高潮") is None

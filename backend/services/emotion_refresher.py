@@ -121,6 +121,58 @@ def _derive_cycle(score: int | None, phase: str) -> str | None:
     return "回暖"
 
 
+# ── 情绪拐点提醒: 四阶段跨带即推市场级卡 (领先, 复用 notifier.send_dual_card) ──
+# 只提醒对短线有动作意义的转场; 每日限次 + 「与上一档快照不同才推」双重防抖。
+CYCLE_MAX_PUSHES = 4
+_CYCLE_PUSH_COUNT: dict[str, int] = {}
+
+
+def _cycle_alert_spec(prev: str, cur: str):
+    """转场 → (标题, header色, 盘面一句, 建议, (彩签文,彩签色)); 无动作意义的转场返回 None。"""
+    if cur == "回暖" and prev == "冰点":
+        return ("🌡️ 情绪回暖 · 启动", "orange", "情绪自冰点回暖，赚钱效应回升",
+                "可小仓试错、超跌反抽，别追高", ("回暖", "orange"))
+    if cur == "高潮" and prev in ("回暖", "冰点"):
+        return ("🔥 情绪进入高潮", "red", "封板率/连板/溢价齐升，情绪最热",
+                "做龙头或低位连板，但防高潮见顶、冲高减", ("高潮", "red"))
+    if cur == "退潮" and prev in ("高潮", "回暖"):
+        return ("🌊 情绪退潮 · 减仓", "grey", "封板率转弱且溢价转负/骤降，赚钱效应变差",
+                "减仓避险、只做低吸，别追板", ("退潮", "green"))
+    return None
+
+
+async def _maybe_push_cycle_alert(trade_date: str, prev_cycle: str | None,
+                                  cur_cycle: str | None, score: int | None) -> None:
+    """四阶段较上一档快照跨带 → 推一张市场级情绪拐点卡。失败只记日志。"""
+    if not prev_cycle or not cur_cycle or prev_cycle == cur_cycle:
+        return
+    spec = _cycle_alert_spec(prev_cycle, cur_cycle)
+    if not spec:
+        return
+    if _CYCLE_PUSH_COUNT.get(trade_date, 0) >= CYCLE_MAX_PUSHES:
+        logger.info(f"[emotion] 情绪拐点 {prev_cycle}→{cur_cycle} 达当日限次, 跳过")
+        return
+    title, template, line, advice, tag = spec
+    try:
+        from backend.services import notifier
+        from backend.services.card_kit import advice as _advice_el
+        from backend.services.lark_notifier import md_element
+        head = f"{prev_cycle}　→　{cur_cycle}"
+        detail = f"情绪温度 {score}　·　{line}" if score is not None else line
+        elements = [md_element(f"**{head}**"), md_element(detail), _advice_el(advice)]
+        text = "\n".join([head, "", detail, "", f"👉 {advice}"])
+        await notifier.send_dual_card(
+            text, lark_title=title, elements=elements, template=template,
+            summary=f"短线情绪 {head}" + (f" 温度{score}" if score is not None else ""),
+            text_tags=[tag])
+        _CYCLE_PUSH_COUNT[trade_date] = _CYCLE_PUSH_COUNT.get(trade_date, 0) + 1
+        for d in [d for d in _CYCLE_PUSH_COUNT if d != trade_date]:
+            _CYCLE_PUSH_COUNT.pop(d, None)   # 清非当日计数
+        logger.info(f"[emotion] 情绪拐点卡已推 {prev_cycle}→{cur_cycle} 温度{score}")
+    except Exception as e:
+        logger.warning(f"[emotion] 情绪拐点卡推送失败({prev_cycle}→{cur_cycle}): {e}")
+
+
 async def _two_market_amount() -> float | None:
     """当前两市(上证综指+深证成指)累计成交额(亿), 取自 market_overview a_indices(新浪源, 生产可达)。"""
     try:
@@ -329,14 +381,16 @@ async def refresh_emotion_snapshot() -> None:
             return
 
     premium = await _compute_yest_premium(trade_date)
-    # 取当日前一档快照的封板率, 判"封板率较前一档骤降"(退潮联合条件之一)
+    # 取当日前一档快照的封板率(判退潮骤降) + 四阶段(判情绪拐点跨带)
     prev_seal = None
+    prev_cycle = None
     try:
         prev_snap = await repository.get_latest_emotion()
         if prev_snap and prev_snap.get("trade_date") == trade_date:
             prev_seal = prev_snap.get("seal_rate")
+            prev_cycle = prev_snap.get("emotion_cycle")
     except Exception as e:
-        logger.warning(f"[emotion] 取前一档封板率失败: {e}")
+        logger.warning(f"[emotion] 取前一档快照失败: {e}")
     phase = _derive_phase(lu, seal_rate, highest, premium, prev_seal)
 
     # 短线快指标: 量能(放量/缩量) + 0-100 情绪温度分 + 四阶段
@@ -346,6 +400,9 @@ async def refresh_emotion_snapshot() -> None:
     zha_rate = round(broken / (lu + broken), 4) if (lu and broken is not None and (lu + broken) > 0) else None
     emotion_score = _emotion_score(premium, seal_rate, highest, lu, zha_rate, vol_ratio)
     emotion_cycle = _derive_cycle(emotion_score, phase)
+
+    # 情绪拐点提醒(四阶段较上一档跨带即推; 内部限次防抖)
+    await _maybe_push_cycle_alert(trade_date, prev_cycle, emotion_cycle, emotion_score)
 
     await repository.save_emotion_snapshot({
         "trade_date": trade_date,
