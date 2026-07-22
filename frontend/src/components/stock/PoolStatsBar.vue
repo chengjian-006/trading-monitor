@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 自选池实时统计栏 (v1.7.781 改双行对照): 「当日」纯前端聚合已加载自选股行(随 quote_refresh 每3s刷),
 // 「昨日」(上一交易日)同口径从后端 K线缓存现算, 两行对齐对照 + Δ 变化行(红绿按多空着色)。
-import { computed, ref, onMounted, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { Stock } from '../../types'
 import { isLimitUp, isLimitDown } from '../../utils/limitBoard'
 import { fetchPoolBreadthYesterday, type PoolBreadth } from '../../api/stocks'
@@ -27,13 +27,18 @@ const stats = computed(() => {
   return { total: today.length, up, down, flat, limitUp, limitDown, avgToday, upRatio, noPrice }
 })
 
-// ── 昨日(上一交易日)广度: 后端 K线缓存现算; 池增减时重取(盘中每3s刷不改池, 不触发) ──
+// ── 昨日(上一交易日)广度: 默认收起(只看今日), 展开才拉昨日并显示对比 ──
 const yest = ref<PoolBreadth | null>(null)
+const expanded = ref(false)
 async function loadYest() {
   try { yest.value = await fetchPoolBreadthYesterday() } catch { yest.value = null }
 }
-onMounted(loadYest)
-watch(() => props.stocks.length, (n, o) => { if (n !== o) loadYest() })
+function toggle() {
+  expanded.value = !expanded.value
+  if (expanded.value && !yest.value) loadYest()   // 首次展开才拉昨日(省一次请求)
+}
+// 已展开时池增减 → 重取昨日(盘中每3s刷不改池, 不触发)
+watch(() => props.stocks.length, (n, o) => { if (n !== o && expanded.value) loadYest() })
 
 // ── 双行对照: 每个指标一列, 今日/昨日/Δ 三行 ──
 type Kind = 'pct' | 'int' | 'ratio'
@@ -98,18 +103,22 @@ const metrics = computed<Cell[]>(() => {
       <!-- 今日 -->
       <span class="psb-rl psb-rl-today">今日</span>
       <span v-for="m in metrics" :key="'t' + m.key" class="psb-tv" :style="{ color: m.todayColor }">{{ m.todayText }}</span>
-      <!-- 昨日 -->
-      <span class="psb-rl psb-muted">昨日</span>
-      <span v-for="m in metrics" :key="'y' + m.key" class="psb-yv">{{ m.yestText }}</span>
-      <!-- Δ 变化 -->
-      <template v-if="yest">
-        <span class="psb-rl psb-muted">Δ</span>
-        <span v-for="m in metrics" :key="'d' + m.key" class="psb-dv" :class="'d-' + m.deltaClass">{{ m.deltaText ? m.deltaArrow + m.deltaText : '·' }}</span>
+      <!-- 昨日 + Δ: 仅展开时显示 -->
+      <template v-if="expanded">
+        <span class="psb-rl psb-muted">昨日</span>
+        <span v-for="m in metrics" :key="'y' + m.key" class="psb-yv">{{ m.yestText }}</span>
+        <template v-if="yest">
+          <span class="psb-rl psb-muted">Δ</span>
+          <span v-for="m in metrics" :key="'d' + m.key" class="psb-dv" :class="'d-' + m.deltaClass">{{ m.deltaText ? m.deltaArrow + m.deltaText : '·' }}</span>
+        </template>
       </template>
     </div>
+    <button class="psb-toggle" type="button" :title="expanded ? '收起' : '对比昨日(上一交易日)'" @click="toggle">
+      {{ expanded ? '收起' : '比昨日' }}<span class="psb-caret">{{ expanded ? '▴' : '▾' }}</span>
+    </button>
     <div class="psb-notes">
       <span v-if="stats.noPrice > 0" class="psb-note">含 {{ stats.noPrice }} 只无价</span>
-      <span v-if="yest && yest.no_data > 0" class="psb-note">昨日 {{ yest.no_data }} 只无数据</span>
+      <span v-if="expanded && yest && yest.no_data > 0" class="psb-note">昨日 {{ yest.no_data }} 只无数据</span>
     </div>
   </div>
 </template>
@@ -143,6 +152,14 @@ const metrics = computed<Cell[]>(() => {
 .psb-dv.d-down { color: var(--green); }
 .psb-dv.d-flat { color: var(--text-secondary, #bbb); }
 
+.psb-toggle {
+  flex-shrink: 0; align-self: center; cursor: pointer; appearance: none;
+  border: 1px solid var(--border-color, #e5e5e5); background: transparent; border-radius: 6px;
+  font-size: 11px; color: var(--text-secondary, #888); padding: 2px 7px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 2px; line-height: 1.4;
+}
+.psb-toggle:hover { color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent-fg) 40%, transparent); }
+.psb-caret { font-size: 9px; }
 .psb-notes { display: flex; flex-direction: column; gap: 2px; }
 .psb-note { font-size: 10.5px; color: var(--text-secondary, #aaa); white-space: nowrap; }
 

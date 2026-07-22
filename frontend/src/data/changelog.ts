@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.782',
+    date: '2026-07-23',
+    title: '市场广度条默认只显今日, 点「比昨日」才展开昨日+Δ对比',
+    changes: [
+      {
+        text: '市场广度条默认收起=只显「今日」一行, 保持紧凑;点右侧「比昨日 ▾」才展开出「昨日」与「Δ变化」两行做对比。昨日数据首次展开时才拉取(省一次请求),已展开时池增减会重取。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.781',
     date: '2026-07-22',
     title: '自选池市场广度条改「今日 vs 昨日」双行对照表',
