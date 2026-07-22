@@ -427,6 +427,8 @@ async function handleThsImport(groupId: string) {
         <!-- v1.7.725: 今日预警从"独占一整条横幅"改成本行内的铃铛角标(点开看详情), 见 SignalSummaryBar.vue -->
         <div class="pool-summary-row">
           <SignalSummaryBar :signals-by-code="signalsByCode" />
+          <!-- v1.7.778: 市场广度条(当日涨跌家数/红盘)移到本行最左, 紧跟铃铛角标之后 -->
+          <PoolStatsBar :stocks="stockStore.stocks" />
 
           <!--
             v1.7.726: 原「添加股票 · 筛选」折叠条(独占一整行)整条移除,
@@ -557,7 +559,6 @@ async function handleThsImport(groupId: string) {
             </NButton>
           </div>
 
-          <PoolStatsBar :stocks="stockStore.stocks" />
           <div class="table-summary">
             <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
             <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
