@@ -1232,14 +1232,16 @@ const scrollX = computed(() => columns.value.reduce((sum: number, c: any) => sum
   cursor: pointer;
   touch-action: manipulation;
 }
-/* v1.7.759: 右侧图表栏当前选中行(同花顺式左侧蓝条+淡蓝底), 对齐 .row-hold td 的裸写法;
-   !important + 靠后声明压过弱势/持仓底色, 便于一眼定位当前看的是哪只 */
+/* v1.7.762: 右侧图表栏当前选中行 —— 只淡蓝底(每格加左内阴影会让每列左边都冒蓝线, 很怪);
+   左侧蓝条只打在整行第一个单元格上, 全行一条即可。对齐 .row-hold td 的裸写法。 */
 .row-chart-selected td {
   background: var(--accent-bg-muted) !important;
-  box-shadow: inset 3px 0 0 0 var(--accent-fg);
 }
 .row-chart-selected:hover td {
   background: var(--accent-bg-muted) !important;
+}
+.row-chart-selected td:first-child {
+  box-shadow: inset 3px 0 0 0 var(--accent-fg);
 }
 /* 隐藏 expand 列：单纯靠点击行触发展开，不显示图标 */
 .stock-table-wrap :deep(.n-data-table-th--expandable),

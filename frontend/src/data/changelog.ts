@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.762',
+    date: '2026-07-22',
+    title: '修股票池选中行:去掉每列间的蓝竖线',
+    changes: [
+      {
+        text: '股票池右侧图表栏选中行的高亮修正:原来每个单元格左侧都加了蓝色内阴影,导致列与列之间冒出一条条蓝竖线看着很怪;改为整行只淡蓝底+最左侧一条蓝条标记。',
+        tag: 'fix',
+      },
+    ],
+  },
+  {
     version: 'v1.7.761',
     date: '2026-07-22',
     title: '短线情绪拐点提醒:四阶段跨带即推卡',
