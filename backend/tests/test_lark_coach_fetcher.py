@@ -99,26 +99,34 @@ def test_bold_lines_md():
 
 
 def test_build_relay_card_text_with_quote():
-    # v1.7.754: 版面加大一号 —— 正文 markdown text_size=heading, 学员引用灰色 markdown 常规字号
+    # v1.7.755: 去蓝色 header 栏, 标题改小号蓝字首行 + 分隔线; 正文 heading, 学员引用灰色常规字号
     from backend.services.lark_coach_scanner import _build_relay_card
     card = _build_relay_card("藏龙岛", "07-22 09:41", text="核心票：坚定持有\n----- 学员：老师怎么看")
-    assert card["header"]["template"] == "blue"
-    assert card["header"]["title"]["content"] == "藏龙岛观点 · 07-22 09:41"
+    assert "header" not in card                            # 不再用固定大字号的蓝色 header 栏
     tags = [e["tag"] for e in card["elements"]]
-    assert tags == ["markdown", "markdown"]              # 正文 + 学员引用灰字
-    assert card["elements"][0]["content"] == "**核心票：坚定持有**"   # 正文整体加粗
-    assert card["elements"][0]["text_size"] == "heading"              # 加大一号
-    assert "老师怎么看" in card["elements"][1]["content"]
-    assert "<font color='grey'>" in card["elements"][1]["content"]    # 引用保持灰色
-    assert "text_size" not in card["elements"][1]                     # 引用常规字号(比原note大一号)
+    assert tags == ["markdown", "hr", "markdown", "markdown"]   # 标题行 + 分隔线 + 正文 + 学员引用
+    # 标题行: 小号(normal)蓝色加粗
+    assert card["elements"][0]["content"] == "<font color='blue'>**藏龙岛观点 · 07-22 09:41**</font>"
+    assert card["elements"][0]["text_size"] == "normal"
+    # 正文: 整体加粗 + 大一号(heading)
+    assert card["elements"][2]["content"] == "**核心票：坚定持有**"
+    assert card["elements"][2]["text_size"] == "heading"
+    # 学员引用: 灰色常规字号
+    assert "老师怎么看" in card["elements"][3]["content"]
+    assert "<font color='grey'>" in card["elements"][3]["content"]
+    assert "text_size" not in card["elements"][3]
 
 
 def test_build_relay_card_image_and_blank():
     from backend.services.lark_coach_scanner import _build_relay_card
     card = _build_relay_card("藏龙岛", "07-22 10:00", img_key="img_v3_abc")
-    assert card["elements"] == [{"tag": "img", "img_key": "img_v3_abc",
-                                 "alt": {"tag": "plain_text", "content": "观点图片"}}]
-    # 全空白正文兜底不发空卡
+    # 图片卡也带标题行 + 分隔线, 再接图片
+    tags = [e["tag"] for e in card["elements"]]
+    assert tags == ["markdown", "hr", "img"]
+    assert card["elements"][0]["text_size"] == "normal"
+    assert card["elements"][2] == {"tag": "img", "img_key": "img_v3_abc",
+                                   "alt": {"tag": "plain_text", "content": "观点图片"}}
+    # 全空白正文兜底: 标题行 + 分隔线 + 兜底正文, 不发只剩标题的空卡
     blank = _build_relay_card("藏龙岛", "", text="   ")
-    assert blank["elements"], "空白正文也要有兜底元素"
-    assert blank["header"]["title"]["content"] == "藏龙岛观点"
+    assert [e["tag"] for e in blank["elements"]] == ["markdown", "hr", "markdown"]
+    assert blank["elements"][0]["content"] == "<font color='blue'>**藏龙岛观点**</font>"

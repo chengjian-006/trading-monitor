@@ -101,11 +101,13 @@ async def scan_coach_posts():
     await _relay_pending(cfg)
 
 
-# ── 卡片形式转发(relay_style=card): 蓝头「藏龙岛观点 · 时间」+ 正文整体加粗 ──
+# ── 卡片形式转发(relay_style=card): 小号蓝字标题行 + 正文整体加粗 ──
 # 正文(老师的话)整体加粗突出(0722实卡对比后用户定的方案B, 仅加粗不上色);
 # -----分隔出的学员引用灰字弱化形成对比。
 # v1.7.754: 版面正文整体加大一号 —— 老师的话用 markdown 组件 text_size=heading(≈16px, 仍加粗;
 # 原 div/lark_md 无字号控制), 学员引用由 note 小字(12px)升为灰色 markdown 常规字号(14px), 保持灰色对比。
+# v1.7.755: 标题字号缩小(0722用户定方案B) —— 飞书蓝色 header 栏的标题字号固定改不了, 故去掉
+# 填充式蓝 header, 标题改为首行小号(text_size=normal≈14px)蓝色加粗 markdown + 分隔线, 比原 header 小一号。
 _QUOTE_SPLIT_RE = re.compile(r"-{5,}\s")
 
 
@@ -123,7 +125,12 @@ def _grey_lines_md(text: str) -> str:
 def _build_relay_card(name: str, stamp: str, text: str | None = None,
                       img_key: str | None = None) -> dict:
     title = f"{name}观点 · {stamp}" if stamp else f"{name}观点"
-    elements: list[dict] = []
+    # 标题行始终打头: 小号(normal)蓝色加粗, 替代原固定大字号的蓝色 header 栏; 下接分隔线
+    elements: list[dict] = [
+        {"tag": "markdown", "content": f"<font color='blue'>**{title}**</font>",
+         "text_size": "normal"},
+        {"tag": "hr"},
+    ]
     if text is not None:
         m = _QUOTE_SPLIT_RE.search(text)
         answer, quoted = (text[:m.start()].strip(), text[m.end():].strip()) if m else (text.strip(), "")
@@ -132,14 +139,13 @@ def _build_relay_card(name: str, stamp: str, text: str | None = None,
                              "text_size": "heading"})
         if quoted:
             elements.append({"tag": "markdown", "content": _grey_lines_md(quoted)})
-        if not elements:   # 全空白兜底, 防发出无正文的空卡
-            elements.append({"tag": "markdown", "content": text or " ", "text_size": "heading"})
+        if not answer and not quoted:   # 全空白兜底, 防只剩标题+分隔线的空卡
+            elements.append({"tag": "markdown", "content": text.strip() or " ",
+                             "text_size": "heading"})
     if img_key:
         elements.append({"tag": "img", "img_key": img_key,
                          "alt": {"tag": "plain_text", "content": "观点图片"}})
-    return {"config": {"wide_screen_mode": True},
-            "header": {"template": "blue", "title": {"tag": "plain_text", "content": title}},
-            "elements": elements}
+    return {"config": {"wide_screen_mode": True}, "elements": elements}
 
 
 async def _relay_pending(cfg: dict):

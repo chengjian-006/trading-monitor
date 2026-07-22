@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.755',
+    date: '2026-07-22',
+    title: '藏龙岛观点卡片:标题字号缩小一号',
+    changes: [
+      {
+        text: '观点转发卡片标题缩小一号:飞书蓝色标题栏字号固定改不了,故去掉填充式蓝栏,标题「藏龙岛观点·时间」改为首行小号蓝色加粗文字+分隔线,视觉上比原标题栏小一号,与加粗大号正文形成层次。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.754',
     date: '2026-07-22',
     title: '藏龙岛观点卡片:版面正文整体加大一号',
