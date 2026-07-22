@@ -12,6 +12,17 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.753',
+    date: '2026-07-22',
+    title: '藏龙岛观点卡片:正文整体加粗突出',
+    changes: [
+      {
+        text: '观点转发卡片正文(老师的话)由常规字重改为整体加粗突出(实卡对比三方案后定稿:仅加粗不上色),与灰字学员引用形成对比。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.751',
     date: '2026-07-22',
     title: '藏龙岛观点转发升级卡片形式,后台可切文本/卡片',

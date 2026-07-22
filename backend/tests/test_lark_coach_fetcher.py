@@ -89,14 +89,13 @@ def test_extract_image_key():
     assert lc.extract_image_key(None) is None
 
 
-# ── 卡片转发(relay_style=card, v1.7.751) ──
+# ── 卡片转发(relay_style=card, v1.7.751; 正文整体加粗=0722方案B) ──
 
-def test_emphasize_md_bolds_short_labels():
-    from backend.services.lark_coach_scanner import _emphasize_md
-    assert _emphasize_md("核心票：某某股") == "**核心票：**某某股"
-    assert _emphasize_md("先说一下，注意一下：控制仓位") == "先说一下，**注意一下：**控制仓位"
-    # 长句(>8字)不误判成标签
-    assert "**" not in _emphasize_md("这是一个超过八个字的长句：不该加粗")
+def test_bold_lines_md():
+    from backend.services.lark_coach_scanner import _bold_lines_md
+    assert _bold_lines_md("稳稳的赚钱") == "**稳稳的赚钱**"
+    # 多行逐行包粗(md 加粗不跨行), 空行保留
+    assert _bold_lines_md("第一行\n\n第二行") == "**第一行**\n\n**第二行**"
 
 
 def test_build_relay_card_text_with_quote():
@@ -106,7 +105,7 @@ def test_build_relay_card_text_with_quote():
     assert card["header"]["title"]["content"] == "藏龙岛观点 · 07-22 09:41"
     tags = [e["tag"] for e in card["elements"]]
     assert tags == ["div", "note"]                       # 正文 + 学员引用灰字
-    assert "**核心票：**" in card["elements"][0]["text"]["content"]
+    assert card["elements"][0]["text"]["content"] == "**核心票：坚定持有**"   # 正文整体加粗
     assert "老师怎么看" in card["elements"][1]["elements"][0]["content"]
 
 

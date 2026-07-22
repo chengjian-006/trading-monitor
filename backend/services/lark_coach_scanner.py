@@ -101,15 +101,15 @@ async def scan_coach_posts():
     await _relay_pending(cfg)
 
 
-# ── 卡片形式转发(relay_style=card): 蓝头「藏龙岛观点 · 时间」+ 正文重点加粗 ──
-# 与观点页同口径(LarkCoachView emphasize/splitMsg): 短标签(≤8字)+全角冒号视为重点加粗;
-# -----分隔出的学员引用降为灰色小字(note)。
-_LABEL_RE = re.compile(r"(^|[\s；;。！？!?、，,])([^\s，,。；;：:！？!?]{1,8})：")
+# ── 卡片形式转发(relay_style=card): 蓝头「藏龙岛观点 · 时间」+ 正文整体加粗 ──
+# 正文(老师的话)整体加粗突出(0722实卡对比后用户定的方案B, 仅加粗不上色);
+# -----分隔出的学员引用降为灰色小字(note)形成对比。
 _QUOTE_SPLIT_RE = re.compile(r"-{5,}\s")
 
 
-def _emphasize_md(text: str) -> str:
-    return _LABEL_RE.sub(lambda m: f"{m.group(1)}**{m.group(2)}：**", text)
+def _bold_lines_md(text: str) -> str:
+    """逐行包 **(md 加粗不能跨行), 空行保留。"""
+    return "\n".join(f"**{s}**" if (s := ln.strip()) else "" for ln in text.split("\n"))
 
 
 def _build_relay_card(name: str, stamp: str, text: str | None = None,
@@ -120,7 +120,7 @@ def _build_relay_card(name: str, stamp: str, text: str | None = None,
         m = _QUOTE_SPLIT_RE.search(text)
         answer, quoted = (text[:m.start()].strip(), text[m.end():].strip()) if m else (text.strip(), "")
         if answer:
-            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": _emphasize_md(answer)}})
+            elements.append({"tag": "div", "text": {"tag": "lark_md", "content": _bold_lines_md(answer)}})
         if quoted:
             elements.append({"tag": "note", "elements": [{"tag": "plain_text", "content": quoted}]})
         if not elements:   # 全空白兜底, 防发出无正文的空卡
