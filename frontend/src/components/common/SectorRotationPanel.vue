@@ -40,9 +40,9 @@ const w2sCount = computed(() => transitions.value.filter(t => t.direction === 'w
 const s2wCount = computed(() => transitions.value.filter(t => t.direction === 'strong_to_weak').length)
 const isW2S = (t: SectorTransition) => t.direction === 'weak_to_strong'
 
-const CARD_H = 62        // 信息卡高度(三行: 方向题材 / 家数净变 / 个股时间)
-const SLOT_PX = 150      // 每张卡的水平槽宽(卡~136px + 间距), 轨道按事件数加宽横向滚动
-const PAD_PX = 68        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾卡被裁
+const CARD_H = 40        // 紧凑信息卡高度(两行: 方向题材徽章 / 昨→今净变时间)
+const SLOT_PX = 124      // 每张卡的水平槽宽(卡~112px + 间距), 轨道按事件数加宽横向滚动
+const PAD_PX = 58        // 轨道左右留白(与 .tl-track padding 对齐), 防首尾卡被裁
 
 // v1.7.767: 由"按真实时间定位"改为"按转换先后顺序全局均匀铺开"。
 //   原来同一时刻(如13:01)多个转换全挤在同一 x, 错行避让又有上限, 溢出就重叠糊成一团。
@@ -174,7 +174,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
     <template v-else>
       <!-- ── ① 今日转换流水 (头条) ── -->
       <div class="block">
-        <div class="block-title">今日转换流水<span class="bt-meta">按先后顺序铺开 · 轴上▲转强/轴下▼转弱 · 卡片=昨→今涨停家数·净变·最高连板·代表股 · 圆点大小=力度</span></div>
+        <div class="block-title">今日转换流水<span class="bt-meta">▲转强/▼转弱 · 昨→今涨停家数+净变 · 圆点大小=力度 · 点看成分</span></div>
         <div v-if="transitions.length" class="tl">
           <div class="tl-scroll">
             <div class="tl-track" :style="{ minWidth: trackMinWidth + 'px' }">
@@ -192,11 +192,8 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                     <span v-if="e.height >= 1" class="ev-hgt" :class="{ multi: e.height >= 2 }">{{ e.height }}板</span>
                   </div>
                   <div class="ev-r2">
-                    <span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span><span class="ev-u">家</span>
+                    <span class="ev-jump"><span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span></span>
                     <span class="ev-delta">+{{ e.delta }}</span>
-                  </div>
-                  <div class="ev-r3">
-                    <span v-if="e.sample" class="ev-stock">{{ e.sample }}</span>
                     <span class="ev-time">{{ e.at }}</span>
                   </div>
                   <i class="ev-stem"></i>
@@ -229,11 +226,8 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                     <span v-if="e.broken > 0" class="ev-broken">炸{{ e.broken }}</span>
                   </div>
                   <div class="ev-r2">
-                    <span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span><span class="ev-u">家</span>
+                    <span class="ev-jump"><span class="ev-y">{{ e.yest }}</span><span class="ev-arw">→</span><span class="ev-n">{{ e.limit_up }}</span></span>
                     <span class="ev-delta">{{ e.delta }}</span>
-                  </div>
-                  <div class="ev-r3">
-                    <span v-if="e.sample" class="ev-stock">{{ e.sample }}</span>
                     <span class="ev-time">{{ e.at }}</span>
                   </div>
                 </button>
@@ -321,74 +315,67 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 
 .empty { margin-top: 16px; text-align: center; color: var(--fg-subtle); font-size: 13px; padding: 16px; line-height: 1.7; }
 
-.block { margin-top: 10px; }
-.block-title { font-size: 12px; font-weight: 700; color: var(--fg-muted); margin-bottom: 6px; display: flex; align-items: baseline; gap: 8px; }
+.block { margin-top: 8px; }
+.block-title { font-size: 12px; font-weight: 700; color: var(--fg-muted); margin-bottom: 4px; display: flex; align-items: baseline; gap: 8px; }
 .block-title .bt-meta { font-size: 10.5px; font-weight: 400; color: var(--fg-subtle); }
 
 /* ── ① 今日转换流水 · 按先后顺序等距铺开 + 信息卡 (v1.7.767/770) ── */
 /* 轨道宽度由脚本 trackMinWidth 按事件数算(每个 SLOT_PX 一槽, 左右各留 PAD_PX=68px = 卡半宽,
    防首尾卡被裁), 事件多则轨道加宽横向滚动。 */
 .tl-scroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
-.tl-track { position: relative; box-sizing: border-box; padding: 6px 68px 0; }
+.tl-track { position: relative; box-sizing: border-box; padding: 4px 58px 0; }
 .tl-side { position: relative; }
-/* ── 信息卡 (v1.7.770 重设计): 方向题材 / 昨→今家数+净变 / 代表股+时间 三行结构卡 ──
-   机构盯盘风: 左侧方向色边条 + 淡色底, 红=转强 绿=转弱, 一眼看清力度与梯队。 */
+/* ── 紧凑信息卡 (v1.7.771 压缩): 两行 —— 方向题材徽章 / 昨→今净变时间; 代表股收进悬停明细 ──
+   机构盯盘风: 左侧方向色边条, 红=转强 绿=转弱; 高度砍半更紧凑。 */
 .tl-ev {
   position: absolute; transform: translateX(-50%);
   display: flex; flex-direction: column; gap: 1px;
   appearance: none; font: inherit; cursor: pointer; text-align: left;
-  width: 136px; padding: 4px 7px; border-radius: 5px;
+  width: 112px; padding: 2px 6px; border-radius: 4px;
   background: var(--bg-surface); border: 1px solid var(--border-muted);
-  border-left-width: 3px; touch-action: manipulation; line-height: 1.2;
+  border-left-width: 3px; touch-action: manipulation; line-height: 1.15;
   transition: box-shadow 0.12s, transform 0.12s;
 }
-.tl-ev.up { border-left-color: var(--up-fg); }
-.tl-ev.down { border-left-color: var(--down-fg); }
-.tl-ev.up { bottom: 0; }
-.tl-ev.down { top: 0; }
-/* 卡片各行 */
-.tl-ev .ev-r1 { display: flex; align-items: center; gap: 4px; }
-.tl-ev .ev-arrow { font-size: 10px; line-height: 1; flex-shrink: 0; }
+.tl-ev.up { border-left-color: var(--up-fg); bottom: 0; }
+.tl-ev.down { border-left-color: var(--down-fg); top: 0; }
+/* 行1: 方向 + 题材 + 连板/炸板徽章 */
+.tl-ev .ev-r1 { display: flex; align-items: center; gap: 3px; }
+.tl-ev .ev-arrow { font-size: 9px; line-height: 1; flex-shrink: 0; }
 .tl-ev.up .ev-arrow { color: var(--up-fg); }
 .tl-ev.down .ev-arrow { color: var(--down-fg); }
-.tl-ev .ev-name { font-size: 12.5px; font-weight: 700; color: var(--fg-default); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 最高连板徽章: 首板灰, ≥2板红底(打板视角关键信息) */
-.tl-ev .ev-hgt { flex-shrink: 0; font-size: 9.5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; border-radius: 3px; background: var(--fill-subtle, rgba(128,128,128,.14)); color: var(--fg-subtle); }
+.tl-ev .ev-name { font-size: 12px; font-weight: 700; color: var(--fg-default); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tl-ev .ev-hgt { flex-shrink: 0; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 3px; border-radius: 3px; background: var(--fill-subtle, rgba(128,128,128,.14)); color: var(--fg-subtle); }
 .tl-ev .ev-hgt.multi { background: var(--up-bg-muted); color: var(--up-fg); }
-/* 炸板徽章(转弱): 绿底警示 */
-.tl-ev .ev-broken { flex-shrink: 0; font-size: 9.5px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 4px; border-radius: 3px; background: var(--down-bg-muted); color: var(--down-fg); }
-/* 第二行: 昨→今 家数 + 净变化 */
-.tl-ev .ev-r2 { display: flex; align-items: baseline; gap: 1px; font-variant-numeric: tabular-nums; }
-.tl-ev .ev-y { font-size: 11px; color: var(--fg-subtle); }
-.tl-ev .ev-arw { font-size: 10px; color: var(--fg-subtle); margin: 0 1px; }
-.tl-ev .ev-n { font-size: 14px; font-weight: 700; color: var(--fg-default); }
-.tl-ev .ev-u { font-size: 10px; color: var(--fg-subtle); margin-left: 1px; }
-.tl-ev .ev-delta { margin-left: auto; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tl-ev .ev-broken { flex-shrink: 0; font-size: 9px; font-weight: 700; font-variant-numeric: tabular-nums; padding: 0 3px; border-radius: 3px; background: var(--down-bg-muted); color: var(--down-fg); }
+/* 行2: 昨→今家数 + 净变 + 时间 (一行紧凑, tabular 对齐) */
+.tl-ev .ev-r2 { display: flex; align-items: baseline; gap: 4px; font-variant-numeric: tabular-nums; }
+.tl-ev .ev-jump { display: inline-flex; align-items: baseline; }
+.tl-ev .ev-y { font-size: 10px; color: var(--fg-subtle); }
+.tl-ev .ev-arw { font-size: 9px; color: var(--fg-subtle); margin: 0 1px; }
+.tl-ev .ev-n { font-size: 13px; font-weight: 700; color: var(--fg-default); }
+.tl-ev .ev-delta { font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .tl-ev.up .ev-delta { color: var(--up-fg); }
 .tl-ev.down .ev-delta { color: var(--down-fg); }
-/* 第三行: 代表个股 + 时间 */
-.tl-ev .ev-r3 { display: flex; align-items: baseline; justify-content: space-between; gap: 4px; }
-.tl-ev .ev-stock { font-size: 10.5px; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tl-ev .ev-time { flex-shrink: 0; font-size: 10px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+.tl-ev .ev-time { margin-left: auto; font-size: 9.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
 /* 引线: 卡片连到轴 */
-.tl-ev .ev-stem { position: absolute; left: 50%; width: 1px; height: 8px; }
+.tl-ev .ev-stem { position: absolute; left: 50%; width: 1px; height: 6px; }
 .tl-ev.up .ev-stem { top: 100%; background: color-mix(in srgb, var(--up-fg) 40%, transparent); }
 .tl-ev.down .ev-stem { bottom: 100%; background: color-mix(in srgb, var(--down-fg) 40%, transparent); }
-.tl-ev:hover, .tl-ev:focus-visible { box-shadow: 0 2px 8px rgba(0,0,0,.10); transform: translateX(-50%) translateY(-1px); outline: none; z-index: 3; }
-.tl-ev.up.active { background: var(--up-bg-muted); box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 3; }
-.tl-ev.down.active { background: var(--down-bg-muted); box-shadow: 0 2px 8px rgba(0,0,0,.12); z-index: 3; }
+.tl-ev:hover, .tl-ev:focus-visible { box-shadow: 0 2px 7px rgba(0,0,0,.10); transform: translateX(-50%) translateY(-1px); outline: none; z-index: 3; }
+.tl-ev.up.active { background: var(--up-bg-muted); box-shadow: 0 2px 7px rgba(0,0,0,.12); z-index: 3; }
+.tl-ev.down.active { background: var(--down-bg-muted); box-shadow: 0 2px 7px rgba(0,0,0,.12); z-index: 3; }
 
-.tl-axis { position: relative; height: 20px; }
-.tl-line { position: absolute; left: 0; right: 0; top: 9px; height: 2px; border-radius: 1px; background: var(--border-default); }
+.tl-axis { position: relative; height: 16px; }
+.tl-line { position: absolute; left: 0; right: 0; top: 7px; height: 2px; border-radius: 1px; background: var(--border-default); }
 /* 圆点: 大小随净变化幅度(脚本 dotPx), 居中吸附在轴线上 */
-.tl-dot { position: absolute; top: 10px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg-surface); box-sizing: content-box; }
+.tl-dot { position: absolute; top: 8px; border-radius: 50%; transform: translate(-50%, -50%); border: 2px solid var(--bg-surface); box-sizing: content-box; }
 .tl-dot.up { background: var(--up-fg); }
 .tl-dot.down { background: var(--down-fg); }
 .tl-dot.active { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-fg) 30%, transparent); }
 
 .tl-detail {
-  margin-top: 8px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
-  font-size: 12px; padding: 5px 9px; border-radius: 6px; min-height: 27px;
+  margin-top: 6px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px;
+  font-size: 11.5px; padding: 4px 8px; border-radius: 5px; min-height: 22px;
   background: var(--bg-sunken); border-left: 3px solid transparent;
 }
 .tl-detail.w2s { background: var(--up-bg-muted); border-left-color: var(--up-fg); }
@@ -448,7 +435,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
   .rotation-panel { padding: 8px 10px; }
   .title { font-size: 13px; }
   /* 手机端时间轴同样横向滚动(左右滑看全天), 明细条里的个股换行显示不截断 */
-  .tl-track { padding: 6px 68px 0; }
+  .tl-track { padding: 4px 58px 0; }
   .td-samples { flex-basis: 100%; white-space: normal; }
   .predict-grid { grid-template-columns: 1fr; }
   .pg-reason { flex-basis: 100%; }
