@@ -429,6 +429,15 @@ async function handleThsImport(groupId: string) {
           <SignalSummaryBar :signals-by-code="signalsByCode" />
           <!-- v1.7.778: 市场广度条(当日涨跌家数/红盘)移到本行最左, 紧跟铃铛角标之后 -->
           <PoolStatsBar :stocks="stockStore.stocks" />
+          <!-- v1.7.779: 刷新常驻此处; 添加/筛选/走势/策略总览/导出 挪到「标签说明」之后(下方 pool-quick-actions) -->
+          <NButton size="small" secondary circle title="刷新行情/数据" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
+            <template #icon><NIcon><RefreshOutline /></NIcon></template>
+          </NButton>
+          <div class="table-summary">
+            <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
+            <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
+            <TagLegendButton />
+          </div>
 
           <!--
             v1.7.726: 原「添加股票 · 筛选」折叠条(独占一整行)整条移除,
@@ -538,12 +547,6 @@ async function handleThsImport(groupId: string) {
               </div>
             </NPopover>
 
-            <span class="fa-divider" />
-            <!-- 数据组 -->
-            <NButton size="small" secondary circle title="刷新行情/数据" @click="stockStore.loadStocks(true)" :loading="stockStore.loading">
-              <template #icon><NIcon><RefreshOutline /></NIcon></template>
-            </NButton>
-            <span class="fa-divider" />
             <!-- 视图 · 工具组 -->
             <NButton size="small" :type="showSparkline ? 'success' : 'default'" secondary title="走势迷你图" @click="showSparkline = !showSparkline">
               走势{{ showSparkline ? '开' : '关' }}
@@ -557,12 +560,6 @@ async function handleThsImport(groupId: string) {
             <NButton v-if="stockTableRef?.sortState" size="small" type="warning" secondary @click="stockTableRef?.resetSort()">
               <template #icon><NIcon><SwapVerticalOutline /></NIcon></template>重置排序
             </NButton>
-          </div>
-
-          <div class="table-summary">
-            <span v-if="pf.hasActiveFilter.value">筛选后 <b>{{ pf.filteredStocks.value.length }}</b> / 共 {{ stockStore.stocks.length }} 只</span>
-            <span v-else>共 {{ stockStore.stocks.length }} 只，持仓 {{ stockStore.stocks.filter(s => s.status === 'hold').length }} 只，关注 {{ stockStore.stocks.filter(s => s.focused).length }} 只</span>
-            <TagLegendButton />
           </div>
         </div>
         <!-- v1.7.759: 桌面端表格 + 右侧图表栏并排(参照同花顺); 图表栏可收起, 分隔条可拖拽调宽(v1.7.763) -->

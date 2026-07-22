@@ -21,7 +21,10 @@ const emit = defineEmits<{ collapse: [] }>()
 
 const ui = useUiStore()
 
-const KLINE_DAYS = 40   // 日K默认显示最近40个交易日(v1.7.766由60改40), 可在图上拖动/缩放看更早
+const KLINE_DAYS = 40    // 日K默认显示最近40个交易日(v1.7.766由60改40)
+// v1.7.779: 多取一大截历史(~1年)做缓冲, 鼠标拉伸/向左拖即可看到更早的K线 —— 此前只取40根=默认展示根数,
+// 没有可揭示的历史, 拉伸后自然"加载不出更多"。默认仍只展示最近 KLINE_DAYS 根。
+const KLINE_FETCH = 250
 
 const loading = ref(false)
 const intradayData = ref<IntradayPoint[]>([])
@@ -73,8 +76,8 @@ async function loadKline() {
   const c = code.value
   if (!c) return
   const [k, m] = await Promise.allSettled([
-    fetchKline(c, KLINE_DAYS),
-    fetchKlineMarkersDaily(c, KLINE_DAYS),
+    fetchKline(c, KLINE_FETCH),
+    fetchKlineMarkersDaily(c, KLINE_FETCH),
   ])
   if (code.value !== c) return
   klineData.value = k.status === 'fulfilled' && Array.isArray(k.value) ? (k.value as KLineBar[]) : []

@@ -685,30 +685,30 @@ const allColumns = computed(() => [
       const resoLevel = resonanceLevel(popR, amtR)
       if (resoLevel) {
         const c = resoLevel === '超强' ? 'var(--up-fg)' : resoLevel === '强' ? '#ea7a0c' : '#fb7185'
-        chips.push(chipTag('共', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
+        chips.push(chipTag('共振', c, `双榜共振${resoLevel} — 人气第${popR} · 成交额第${amtR}名 (两榜均进前100)`))
       }
       if (isLimitUp(row)) {
-        chips.push(chipTag('涨', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        chips.push(chipTag('涨停', 'var(--red)', `涨停 (今日 +${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       } else if (isLimitDown(row)) {
-        chips.push(chipTag('跌', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
+        chips.push(chipTag('跌停', 'var(--green)', `跌停 (今日 ${row.pct_change!.toFixed(2)}%, 板幅 ${limitPct(row)}%)`))
       }
       if (row.limit_up_days != null && row.limit_up_days >= 1) {
         const n = row.limit_up_days
-        chips.push(chipTag(n >= 2 ? `${n}板` : '首', 'var(--up-fg)',
+        chips.push(chipTag(n >= 2 ? `${n}板` : '首板', 'var(--up-fg)',
           n >= 2 ? `连续涨停 ${n} 个交易日 (高标龙头, 情绪高度)` : '首板 (昨日/最近一个交易日涨停)'))
       }
       const smallEst = smallAmountMap.value.get(row.code)
       if (smallEst != null) {
-        chips.push(chipTag('额', 'var(--warn-fg)', `小额: 今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
+        chips.push(chipTag('小额', 'var(--warn-fg)', `小额: 今日预估全天成交额 ${(smallEst / 1e8).toFixed(2)}亿 (<20亿) · 每10分钟评估`))
       }
       if (row.turnover != null && row.turnover >= 15) {
-        chips.push(chipTag('换', 'var(--danger-fg)', `高换: 换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
+        chips.push(chipTag('高换', 'var(--danger-fg)', `高换: 换手率 ${row.turnover.toFixed(2)}% (≥15% 高换, 短线情绪票, 注意筹码松动)`))
       }
       if (row.volume_ratio != null && row.volume_ratio >= 3) {
-        chips.push(chipTag('动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
+        chips.push(chipTag('异动', 'var(--accent-fg)', `异动: 量比 ${row.volume_ratio.toFixed(2)}x (≥3x 突然放量, 主力进场或恐慌出货, 看方向)`))
       }
       const stratText = row.strategy?.trim()
-      if (stratText) chips.push(chipTag('策', '#7c3aed', '已写操作策略'))
+      if (stratText) chips.push(chipTag('策略', '#7c3aed', '已写操作策略'))
 
       // 名称本体: 关注 * 前缀 + verdict 色条 + 有标签时的浅点提示(“悬停看标签”的抓手)
       const verdictColor = getVerdictColor(row)
