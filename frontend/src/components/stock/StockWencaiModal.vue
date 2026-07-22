@@ -6,6 +6,9 @@ import { ref, computed, watch } from 'vue'
 import { NModal, NInput, NButton, NIcon } from 'naive-ui'
 import { OpenOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import type { Stock } from '../../types'
+import { useGlobalMessage } from '../../composables/useGlobalMessage'
+
+const message = useGlobalMessage()
 
 const props = defineProps<{ show: boolean; row: Stock | null }>()
 const emit = defineEmits<{ 'update:show': [boolean] }>()
@@ -25,12 +28,16 @@ const PRESETS: Preset[] = [
 const customText = ref('')
 watch(() => props.show, (v) => { if (v) customText.value = '' })
 
-// 打开同花顺问财(新标签): 用户已登录问财, 直接看答复。querytype=stock 让问财按个股问答解析。
-function ask(question: string) {
+// 打开同花顺问财 chat 对话页(新标签): 用户已登录问财, 直接看投顾式答复。
+// 同时把问题复制到剪贴板兜底 —— chat 页若未自动带入问题, 可直接 Ctrl+V 粘贴。
+async function ask(question: string) {
   const q = question.trim()
   if (!q) return
-  const url = `https://www.iwencai.com/unifiedwap/result?w=${encodeURIComponent(q)}&querytype=stock`
-  window.open(url, '_blank', 'noopener,noreferrer')
+  try {
+    await navigator.clipboard.writeText(q)
+    message.success('问题已复制,问财 chat 里可直接粘贴')
+  } catch { /* 剪贴板不可用(无 https/权限)时静默, 不挡跳转 */ }
+  window.open(`https://www.iwencai.com/chat?w=${encodeURIComponent(q)}`, '_blank', 'noopener,noreferrer')
 }
 
 function askCustom() {
@@ -48,7 +55,7 @@ function askCustom() {
           style="max-width: 520px" :bordered="false">
     <p class="wm-hint">
       <NIcon :component="HelpCircleOutline" :size="14" style="vertical-align: -2px" />
-      选一个模版即在<b>新标签打开同花顺问财</b>并填好问题(已自动带上「{{ name }}」);或自己写。需你已登录问财。
+      选一个模版即在<b>新标签打开同花顺问财 chat</b>(已自动带上「{{ name }}」并复制问题,未自动带入可直接粘贴);或自己写。需你已登录问财。
     </p>
 
     <div class="wm-presets">

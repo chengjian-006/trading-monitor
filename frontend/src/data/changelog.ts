@@ -21,7 +21,7 @@ const changelog: VersionEntry[] = [
         tag: 'new',
       },
       {
-        text: '走 deep-link(浏览器直达 iwencai) 而非后端调问财: 生产服务器 IP 被同花顺风控封, 后端调不通问财; 在你自己已登录问财的浏览器里打开则不碰风控、零后端依赖。',
+        text: '走 deep-link(浏览器直达 iwencai) 而非后端调问财: 生产服务器 IP 被同花顺风控封, 后端调不通问财; 在你自己已登录问财的浏览器里打开则不碰风控、零后端依赖。跳转目标为问财 chat 对话页(iwencai.com/chat), 并把问题复制到剪贴板兜底, 未自动带入可直接粘贴。',
         tag: 'improve',
       },
     ],
