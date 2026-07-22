@@ -12,6 +12,21 @@ export interface VersionEntry {
 
 const changelog: VersionEntry[] = [
   {
+    version: 'v1.7.764',
+    date: '2026-07-22',
+    title: '修图表栏拖拽不生效 + 分隔条加宽好抓',
+    changes: [
+      {
+        text: '修正拖拽分隔条时图表栏宽度不变的问题:面板宽度改由父级完全控制(移除组件内写死的 width/flex 简写,原来它与内联样式打架致拖拽失效),分时/日K图随宽度实时重绘。',
+        tag: 'fix',
+      },
+      {
+        text: '分隔条加宽命中区(5→8px)并加中央竖握把,鼠标移上去/拖动时高亮,更好抓。',
+        tag: 'improve',
+      },
+    ],
+  },
+  {
     version: 'v1.7.763',
     date: '2026-07-22',
     title: '股票池图表栏:分隔条可拖拽调宽 + 双击行加载图表',

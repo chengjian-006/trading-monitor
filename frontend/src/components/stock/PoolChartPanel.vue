@@ -161,9 +161,9 @@ function openFull() {
 </template>
 
 <style scoped>
+/* v1.7.764: 宽度完全由父级(PoolView)内联 style 控制(可拖拽), 这里不再写死 width/flex,
+   免得 scoped 的 flex 简写与父级内联 flex-basis 打架导致拖拽不生效。 */
 .pool-chart-panel {
-  width: 420px;
-  flex: 0 0 420px;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -238,8 +238,4 @@ function openFull() {
 .pcp-empty p { margin: 0; }
 .pcp-empty-sub { font-size: 12px; }
 
-/* 平板(768-1023)窄一些; 桌面(≥1024)全宽 */
-@media (max-width: 1100px) {
-  .pool-chart-panel { width: 340px; flex-basis: 340px; }
-}
 </style>

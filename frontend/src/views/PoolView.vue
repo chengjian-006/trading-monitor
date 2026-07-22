@@ -67,6 +67,7 @@ watch(() => pf.filteredStocks.value, (list) => {
 const CHART_W_MIN = 300, TABLE_W_MIN = 360
 const chartWidth = ref(Math.max(CHART_W_MIN, Number(localStorage.getItem('poolChartWidth')) || 420))
 const poolMainRowRef = ref<HTMLElement | null>(null)
+const resizingUi = ref(false)   // 拖拽中(高亮分隔条)
 let resizing = false
 function onResizeMove(e: MouseEvent) {
   if (!resizing || !poolMainRowRef.value) return
@@ -78,6 +79,7 @@ function onResizeMove(e: MouseEvent) {
 function stopResize() {
   if (!resizing) return
   resizing = false
+  resizingUi.value = false
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
   localStorage.setItem('poolChartWidth', String(Math.round(chartWidth.value)))
@@ -86,6 +88,7 @@ function stopResize() {
 }
 function startResize() {
   resizing = true
+  resizingUi.value = true
   document.body.style.cursor = 'col-resize'
   document.body.style.userSelect = 'none'
   window.addEventListener('mousemove', onResizeMove)
@@ -557,8 +560,10 @@ async function handleThsImport(groupId: string) {
           <StockTable ref="stockTableRef" :stocks="pf.filteredStocks.value" :show-sparkline="showSparkline"
             :selected-code="selectedChartCode" @select="selectChartStock" />
           <template v-if="!chartCollapsed">
-            <div class="pool-chart-resizer" title="拖动调整图表栏宽度" @mousedown.prevent="startResize" />
-            <PoolChartPanel :stock="selectedChartStock" :style="{ width: chartWidth + 'px', flexBasis: chartWidth + 'px' }" @collapse="toggleChartPanel" />
+            <div class="pool-chart-resizer" :class="{ dragging: resizingUi }" title="拖动调整图表栏宽度" @mousedown.prevent="startResize">
+              <span class="pcr-grip" />
+            </div>
+            <PoolChartPanel :stock="selectedChartStock" :style="{ flex: `0 0 ${chartWidth}px`, width: chartWidth + 'px' }" @collapse="toggleChartPanel" />
           </template>
           <button v-else class="pool-chart-reopen" title="展开分时/日K图表栏" @click="toggleChartPanel">◂ 图</button>
         </div>
@@ -787,16 +792,27 @@ async function handleThsImport(groupId: string) {
   flex: 1;
   min-width: 0;
 }
-/* v1.7.763: 表格与图表栏之间的可拖拽分隔条 */
+/* v1.7.763/764: 表格与图表栏之间的可拖拽分隔条 —— 加宽命中区(8px)+中央竖握把, 好抓 */
 .pool-chart-resizer {
-  flex: 0 0 5px;
+  flex: 0 0 8px;
   align-self: stretch;
   cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: var(--border-default);
   transition: background 0.15s;
 }
 .pool-chart-resizer:hover,
-.pool-chart-resizer:active { background: var(--accent-fg); }
+.pool-chart-resizer.dragging { background: var(--accent-fg); }
+.pcr-grip {
+  width: 2px;
+  height: 28px;
+  border-radius: 2px;
+  background: var(--fg-subtle);
+}
+.pool-chart-resizer:hover .pcr-grip,
+.pool-chart-resizer.dragging .pcr-grip { background: #fff; }
 /* 收起态: 贴右侧一条竖向"展开"把手 */
 .pool-chart-reopen {
   flex: 0 0 auto;
