@@ -87,6 +87,8 @@ DEFAULT_CONFIG = {
         "relay_profile": "coachbot",
         # 回退直发身份: bot=机器人(拉进群即可发) / user=以本人名义(需 send_as_user scope)
         "relay_send_as": "bot",
+        # 转发形式(后台系统设置可切): card=蓝头卡片(标题带时间/正文重点加粗/图片嵌卡内) / text=纯文本【名 时间】前缀
+        "relay_style": "card",
     },
 }
 

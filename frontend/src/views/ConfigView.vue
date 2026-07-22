@@ -8,6 +8,7 @@ import { useGlobalMessage } from '../composables/useGlobalMessage'
 import { SendOutline, SaveOutline, HelpCircleOutline } from '@vicons/ionicons5'
 import { useConfigStore } from '../stores/config'
 import { testPushplus, testLark, saveConfig, saveThsPath, fetchThsGroups, fetchPushPrefs, revokePushPref, testSignalCard, testSurgeCard, type PushPref } from '../api/config'
+import { fetchCoachRelayStyle, saveCoachRelayStyle } from '../api/lark-coach'
 import { useResponsive } from '../composables/useResponsive'
 
 const configStore = useConfigStore()
@@ -92,6 +93,25 @@ async function handleTestSurgeCard() {
   }
 }
 
+// 藏龙岛观点转发形式: card=蓝头卡片 / text=纯文本
+const coachRelayCard = ref(true)
+const coachRelaySaving = ref(false)
+
+async function handleToggleCoachRelayStyle(val: boolean) {
+  const prev = coachRelayCard.value
+  coachRelayCard.value = val
+  coachRelaySaving.value = true
+  try {
+    await saveCoachRelayStyle(val ? 'card' : 'text')
+    message.success(val ? '观点转发已切换为卡片形式' : '观点转发已切换为文本形式')
+  } catch {
+    message.error('保存失败')
+    coachRelayCard.value = prev
+  } finally {
+    coachRelaySaving.value = false
+  }
+}
+
 // 全局飞书设置
 const saveLarkLoading = ref(false)
 const larkTestLoading = ref(false)
@@ -106,6 +126,9 @@ onMounted(async () => {
     if (result.ok && result.path) thsFileHint.value = result.path
   } catch { /* ignore */ }
   loadPushPrefs()
+  try {
+    coachRelayCard.value = (await fetchCoachRelayStyle()) === 'card'
+  } catch { /* ignore */ }
 })
 
 async function handleSavePushplus() {
@@ -337,6 +360,28 @@ async function handleTestLark() {
               发送测试二波卡
             </NButton>
             <span class="config-hint">发样例卡到你的飞书：信号卡(战绩表+快捷动作行) / 二波过前高提醒卡(逐票静音行)</span>
+          </div>
+        </div>
+      </NCard>
+
+      <NCard title="藏龙岛观点转发" size="small" style="margin-bottom: 16px">
+        <div class="form-row">
+          <label class="field-label">
+            转发形式
+            <CursorTooltip>
+              <template #trigger>
+                <NIcon :component="HelpCircleOutline" :size="15" class="help-icon" />
+              </template>
+              藏龙岛观点转发到自建群【混江龙】的消息形式。卡片=蓝色标题栏带时间、正文重点加粗、图片原图嵌卡内；文本=「【藏龙岛 时间】正文」纯文字。切换即时生效，卡片发送失败自动降级为文本
+            </CursorTooltip>
+          </label>
+          <div class="field-inline">
+            <NSwitch
+              :value="coachRelayCard"
+              :loading="coachRelaySaving"
+              @update:value="handleToggleCoachRelayStyle"
+            />
+            <span class="config-hint">{{ coachRelayCard ? '卡片形式：蓝头卡片带时间，重点加粗，图片嵌卡内' : '文本形式：【藏龙岛 时间】前缀纯文字' }}</span>
           </div>
         </div>
       </NCard>

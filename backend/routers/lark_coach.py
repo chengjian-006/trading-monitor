@@ -2,6 +2,8 @@
 
   GET  /api/lark-coach/posts                分页取藏龙岛消息(按发布时间倒序)
   GET  /api/lark-coach/media/{message_id}   图片消息取图(本地缓存, 缺则经 lark-cli 拉)
+  GET  /api/lark-coach/relay-style          转发形式(card/text, 管理员)
+  POST /api/lark-coach/relay-style          切换转发形式(管理员)
 """
 from pathlib import Path
 from typing import Annotated
@@ -9,7 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
-from backend.core.auth import get_current_user
+from backend.core.auth import get_current_user, require_admin
 from backend.models import repository
 
 router = APIRouter(prefix="/api/lark-coach", tags=["lark-coach"])
@@ -45,6 +47,33 @@ async def list_posts(_user: Annotated[dict, Depends(get_current_user)],
         "msg_type": r["msg_type"],
     } for r in rows]
     return {"posts": posts}
+
+
+@router.get("/relay-style")
+async def get_relay_style(_admin: Annotated[dict, Depends(require_admin)]):
+    """当前转发形式: card=卡片 / text=文本。取合并默认段后的生效值。"""
+    from backend.services.lark_coach_scanner import _load_cfg
+    return {"style": str(_load_cfg().get("relay_style", "card")).lower()}
+
+
+@router.post("/relay-style")
+async def set_relay_style(data: dict, admin: Annotated[dict, Depends(require_admin)]):
+    """切换转发形式。只改 lark_coach_tracking.relay_style 一个键(复制现段再改,
+    不整段覆盖, 防误清 relay_webhook 等生产专属配置)。"""
+    style = str(data.get("style", "")).lower()
+    if style not in ("card", "text"):
+        raise HTTPException(status_code=400, detail="style 只能是 card / text")
+    from backend.core.config import load_config, save_config
+    cfg = load_config()
+    section = dict(cfg.get("lark_coach_tracking") or {})
+    old = str(section.get("relay_style", "card")).lower()
+    section["relay_style"] = style
+    cfg["lark_coach_tracking"] = section
+    save_config(cfg)
+    if old != style:
+        await repository.add_log(admin["id"], admin["username"], "update_config", "lark_coach_relay_style",
+                                 old_value={"relay_style": old}, new_value={"relay_style": style})
+    return {"ok": True, "style": style}
 
 
 @router.get("/media/{message_id}")
