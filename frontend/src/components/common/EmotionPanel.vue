@@ -9,13 +9,10 @@ import EmotionTrendChart from './EmotionTrendChart.vue'
 import { useUiStore } from '../../stores/ui'
 import { useVisiblePolling } from '../../composables/useVisiblePolling'
 
-type Style = 'pullback' | 'dabanchao'
-
 const ui = useUiStore()
 
 const snap = ref<EmotionSnapshot | null>(null)
 const loading = ref(false)
-const style = ref<Style>('dabanchao')
 
 // 情绪温度色阶(沸腾→冰点)按涨跌语义走 --up-fg/--down-fg, 中间档用 color-mix 保留层次:
 //   高潮=纯红(--up-fg) → 启动=暖(--warn-fg) → 修复=强调蓝(--accent-fg) → 中性=灰(--fg-muted)
@@ -136,10 +133,6 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
         <span v-if="snap" class="meta">{{ snap.trade_date }} · {{ sourceLabel }} · 更新 {{ snap.captured_at?.slice(11, 16) }}</span>
       </div>
       <div class="head-right">
-        <div class="style-tabs">
-          <button :class="['style-tab', { active: style === 'dabanchao' }]" @click="style = 'dabanchao'">打板·超短</button>
-          <button :class="['style-tab', { active: style === 'pullback' }]" @click="style = 'pullback'">趋势回踩</button>
-        </div>
         <NButton quaternary circle size="tiny" :loading="loading" title="刷新" aria-label="刷新" @click="load">
           <template #icon><NIcon :component="RefreshOutline" :size="14" /></template>
         </NButton>
@@ -247,10 +240,10 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
       <!-- 当日情绪四线趋势 (涨停/跌停/上涨/下跌) -->
       <EmotionTrendChart />
 
-      <p class="style-hint">
-        <template v-if="style === 'dabanchao'">打板视角：盯<b>封板率/最高连板/昨涨停溢价</b>——退潮/冰点阶段空仓，启动/高潮阶段打首板或低位连板。</template>
-        <template v-else>回踩视角：情绪温度作背景过滤——冰点/退潮阶段即使主升浪回踩到位也减小试错仓位，启动/修复阶段再正常执行回踩买点。</template>
-      </p>
+      <div class="style-hint">
+        <p><span class="sh-tag">打板超短</span>盯<b>封板率/最高连板/昨涨停溢价</b>——退潮/冰点阶段空仓，启动/高潮阶段打首板或低位连板。</p>
+        <p><span class="sh-tag">趋势回踩</span>情绪温度作背景过滤——冰点/退潮阶段即使主升浪回踩到位也减小试错仓位，启动/修复阶段再正常执行回踩买点。</p>
+      </div>
     </template>
   </div>
 </template>
@@ -267,9 +260,6 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .title { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; letter-spacing: 0.02em; color: var(--fg-default); }
 .title .meta { font-family: var(--font-mono); font-size: 10.5px; font-weight: 500; color: var(--fg-subtle); margin-left: 4px; letter-spacing: 0.02em; }
 .head-right { display: flex; align-items: center; gap: 10px; }
-.style-tabs { display: inline-flex; background: var(--bg-sunken); border-radius: 7px; padding: 2px; }
-.style-tab { border: none; background: transparent; padding: 4px 12px; font-size: 12px; border-radius: 5px; cursor: pointer; touch-action: manipulation; color: var(--fg-muted); transition: all 0.15s; }
-.style-tab.active { background: var(--bg-surface); color: var(--accent-fg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
 
 .degrade-banner { margin-top: 8px; padding: 5px 10px; background: var(--warn-bg-muted); color: var(--warn-fg); border-radius: 6px; font-size: 12px; }
 
@@ -323,7 +313,10 @@ useVisiblePolling(load, 60000)   // 切走标签页暂停, 切回立即补刷
 .empty-mini { color: var(--fg-subtle); font-size: 12px; }
 
 .style-hint { margin-top: 8px; font-size: 11.5px; color: var(--fg-muted); line-height: 1.5; background: var(--bg-sunken); padding: 6px 10px; border-radius: 6px; }
+.style-hint p { margin: 0; }
+.style-hint p + p { margin-top: 4px; }
 .style-hint b { color: var(--up-fg); }
+.sh-tag { display: inline-block; font-weight: 700; color: var(--accent-fg); background: var(--accent-bg-muted); border-radius: 4px; padding: 0 5px; margin-right: 6px; font-size: 10.5px; }
 
 .empty { margin-top: 16px; text-align: center; color: var(--fg-subtle); font-size: 13px; padding: 16px; }
 
