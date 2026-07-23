@@ -374,9 +374,10 @@ _OPINION_MAX_STOCKS = 12
 _CODE_RE = re.compile(r"(?<!\d)(\d{6})(?!\d)")
 
 
-def _scan_names(text: str, names: list[dict]) -> list[dict]:
+def _scan_names(text: str, names: list[dict], max_stocks: int = _OPINION_MAX_STOCKS) -> list[dict]:
     """纯CPU: 在话术文本里撞全市场名称字典/6位代码。~5000名称的 O(N×len) 扫描,
-    必须放线程池跑(见 _extract_stocks), 绝不能直接在单worker事件循环上跑(否则匿名接口可打挂全站)。"""
+    必须放线程池跑(见 _extract_stocks), 绝不能直接在单worker事件循环上跑(否则匿名接口可打挂全站)。
+    max_stocks: 返回上限。观点场景传大值(提到几只标几只), 问财面板用默认 12。"""
     code2name = {str(r["code"]): str(r["name"]) for r in names}
     found: dict[str, dict] = {}   # code -> {code, name, count, idx}
 
@@ -404,7 +405,7 @@ def _scan_names(text: str, names: list[dict]) -> list[dict]:
 
     ranked = sorted(found.values(), key=lambda x: (-x["count"], x["idx"]))
     return [{"code": s["code"], "name": s["name"], "primary": i == 0}
-            for i, s in enumerate(ranked[:_OPINION_MAX_STOCKS])]
+            for i, s in enumerate(ranked[:max_stocks])]
 
 
 async def _extract_stocks(text: str) -> list[dict]:

@@ -38,7 +38,8 @@ async def _attach_stocks(posts: list[dict]) -> None:
             names = []
 
         def scan_all():
-            return {p["message_id"]: (_scan_names(p["content"] or "", names) if names else [])
+            # 观点里提到几只个股就标几只蓝色(放开 12 上限, 长文多股不再漏标)
+            return {p["message_id"]: (_scan_names(p["content"] or "", names, max_stocks=50) if names else [])
                     for p in uncached}
 
         _coach_stocks_cache.update(await asyncio.to_thread(scan_all))
