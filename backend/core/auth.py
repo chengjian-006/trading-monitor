@@ -57,11 +57,15 @@ def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
 def verify_password(password: str, password_hash: str, salt: str) -> bool:
     password_bytes = password.encode()
     salt_bytes = salt.encode()
-    for iterations in (PASSWORD_HASH_ITERATIONS, _LEGACY_PASSWORD_HASH_ITERATIONS):
-        digest = hashlib.pbkdf2_hmac("sha256", password_bytes, salt_bytes, iterations).hex()
-        if hmac.compare_digest(digest, password_hash):
-            return True
-    return False
+    current_digest = hashlib.pbkdf2_hmac(
+        "sha256", password_bytes, salt_bytes, PASSWORD_HASH_ITERATIONS
+    ).hex()
+    legacy_digest = hashlib.pbkdf2_hmac(
+        "sha256", password_bytes, salt_bytes, _LEGACY_PASSWORD_HASH_ITERATIONS
+    ).hex()
+    current_match = hmac.compare_digest(current_digest, password_hash)
+    legacy_match = hmac.compare_digest(legacy_digest, password_hash)
+    return current_match or legacy_match
 
 
 def create_token(user_id: int, username: str, role: str, token_version: int = 1) -> str:
@@ -91,16 +95,12 @@ async def get_current_user(
 ) -> dict:
     payload = decode_token(cred.credentials)
     from backend.models import repository
-    from backend.core.config import load_config
     user = await repository.get_user_by_id(payload["sub"])
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已失效，请重新登录")
 
-    cfg = load_config()
-    if cfg.get("sso_enabled", True):
-        db_tv = user.get("token_version")
-        if db_tv != payload.get("tv"):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已失效，请重新登录")
+    if user.get("token_version") != payload.get("tv"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已失效，请重新登录")
     return {"id": user["id"], "username": user["username"], "role": user["role"]}
 
 

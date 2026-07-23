@@ -61,9 +61,10 @@ async def update_user(user_id: int, req: UpdateUserRequest, admin: Annotated[dic
         existing = await repository.get_user_by_username(updates["username"])
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
-    await repository.update_user(user_id, **updates)
     if "role" in updates or "username" in updates:
-        await repository.increment_token_version(user_id)
+        await repository.update_user_and_revoke_sessions(user_id, **updates)
+    else:
+        await repository.update_user(user_id, **updates)
     await repository.add_log(admin["id"], admin["username"], "update_user", user["username"],
                              new_value=updates)
     return {"ok": True}
@@ -88,8 +89,7 @@ async def reset_password(user_id: int, req: ResetPasswordRequest, admin: Annotat
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     pw_hash, salt = hash_password(req.password)
-    await repository.update_user_password(user_id, pw_hash, salt)
-    await repository.increment_token_version(user_id)
+    await repository.reset_user_password(user_id, pw_hash, salt)
     await repository.add_log(admin["id"], admin["username"], "reset_password", user["username"])
     return {"ok": True}
 
