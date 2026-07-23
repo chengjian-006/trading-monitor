@@ -71,6 +71,17 @@ async def has_active_job(user_id: int) -> bool:
     return row is not None
 
 
+async def expire_stale_running_jobs(user_id: int, stale_seconds: int) -> None:
+    """Mark stale systemd jobs terminal before enforcing the active-job limit."""
+    await _execute(
+        "UPDATE cfzy_sys_backtest_jobs SET status='error', "
+        "error='任务已中断（进程无心跳超时）', updated_at=CURRENT_TIMESTAMP "
+        "WHERE runner='systemd' AND status='running' AND user_id=%s "
+        "AND TIMESTAMPDIFF(SECOND, updated_at, NOW()) > %s",
+        (int(user_id), int(stale_seconds)),
+    )
+
+
 async def update_progress(job_id: str, progress: dict) -> None:
     """更新进度心跳(顺带刷新 updated_at, ON UPDATE 自动)。"""
     await _execute(

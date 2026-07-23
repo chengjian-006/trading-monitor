@@ -53,6 +53,37 @@ Result: exit code 0; `vue-tsc` passed and Vite built 4477 modules. The first san
 
 ## Notes / residual concerns
 
-- The one-active-job check is process-safe for the current single FastAPI process and persistent systemd jobs. It is not a database uniqueness constraint, so a future multi-worker deployment could require an atomic DB constraint or transaction to prevent two simultaneous creates for the same user.
+- The one-active-job check is now race-free within one FastAPI process/event loop: a per-user `asyncio.Lock` spans stale cleanup, active checks, awaited universe loading, and job reservation. It is not a cross-process database uniqueness constraint, so a future multi-worker deployment would still require an atomic DB constraint or transaction.
 - Tests use fakes for database calls as required; no real database or external service was used.
 - Tests were placed in new dedicated files because `backend/tests/test_security_hardening.py` already contains uncommitted Task-1 changes and was intentionally not modified.
+
+## Review follow-up: concurrency and stale DB jobs
+
+### RED
+
+The expanded `test_backtest_job_security.py` suite was run before follow-up production edits and produced four expected failures:
+
+- A stale systemd row was checked as active before any cleanup and incorrectly returned 409.
+- The owner/heartbeat-scoped DB stale transition did not exist.
+- A failed DB transition from `systemd` to `inproc` was logged and ignored, and the unsafe fallback still launched.
+- Two requests forced to interleave inside awaited universe loading both returned success and created two jobs.
+
+A fifth focused RED test proved that a completed in-process fallback left its DB row `running` rather than persisting `done`.
+
+### GREEN
+
+- Added a per-user `asyncio.Lock` and held it from stale cleanup/active checks through awaited universe loading and memory/DB reservation. The forced-interleaving regression now yields exactly one success, one HTTP 409, and one job.
+- Added an owner-scoped bulk transition that marks systemd jobs with heartbeat age over `_ZOMBIE_TIMEOUT_SEC` (1200 seconds) as terminal `error` before the active query.
+- A failed `runner=inproc` transition now marks memory terminal, attempts a DB terminal write, returns HTTP 503, and never launches the fallback.
+- Successful/failed in-process fallbacks persist `done`/`error` to the DB; active queries also exclude `inproc` rows.
+- Added explicit tests for `pool + 5m` regular-user rejection, administrator admission to the universe-loading boundary, and the real in-memory owner filter.
+
+Fresh expanded regression command:
+
+`python -m pytest backend/tests/test_websocket_security.py backend/tests/test_backtester.py backend/tests/test_backtester_5m_honest.py backend/tests/test_backtest_claims.py backend/tests/test_backtest_job_security.py -q`
+
+Result: `50 passed, 1 warning in 2.09s`; the warning is the same managed-workspace `.pytest_cache` warning.
+
+Fresh Python compilation result: exit code 0 for the three follow-up backend modules.
+
+Fresh frontend result: `npm.cmd --prefix frontend run build` exited 0; `vue-tsc` passed and Vite built 4477 modules in 19.20 seconds.

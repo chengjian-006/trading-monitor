@@ -9,6 +9,7 @@ import time
 import uuid
 
 _JOBS: dict[str, dict] = {}
+_USER_LOCKS: dict[int, asyncio.Lock] = {}
 _TTL = 3600          # job 完成后保留 1 小时
 _MAX = 100           # 最多保留 job 数
 
@@ -57,6 +58,24 @@ def has_active_job(user_id: int) -> bool:
         and job.get("meta", {}).get("runner") != "systemd"
         for job in _JOBS.values()
     )
+
+
+def user_job_lock(user_id: int) -> asyncio.Lock:
+    """Serialize active checks and job reservation for one user."""
+    uid = int(user_id)
+    lock = _USER_LOCKS.get(uid)
+    if lock is None:
+        lock = asyncio.Lock()
+        _USER_LOCKS[uid] = lock
+    return lock
+
+
+def mark_error(jid: str, message: str) -> None:
+    job = _JOBS.get(jid)
+    if job:
+        job["status"] = "error"
+        job["error"] = message
+        job["ended_at"] = time.time()
 
 
 def _progress(jid: str):
