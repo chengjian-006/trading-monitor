@@ -68,6 +68,8 @@ DEFAULT_CONFIG = {
     # 飞书群「藏龙岛观点」跟踪。只抓群主(sender_open_id)发的消息入库, 不推送(用户本人飞书已收到)。
     # enabled=False 占位: 需在服务器装 lark-cli 并 auth login(user 身份)后再开, 否则扫描器早返回不跑。
     # 采集走 backend/fetcher/lark_coach.py(shell 调 lark-cli)。
+    # Dedicated browser-extension opinion ingestion credential; blank disables uploads.
+    "wencai_opinion": {"ingest_token": ""},
     "lark_coach_tracking": {
         "enabled": False,
         "chat_id": "oc_8f4516772f00161f23de9d3b10c21abd",       # 混江龙群

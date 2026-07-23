@@ -23,7 +23,7 @@ _NAMES = [
 
 
 def _setup(monkeypatch, token="SECRET"):
-    monkeypatch.setattr(wc, "load_config", lambda: {"wencai_screening": {"ingest_token": token}})
+    monkeypatch.setattr(wc, "load_config", lambda: {"wencai_opinion": {"ingest_token": token}})
 
     async def fake_all_names():
         return _NAMES
@@ -61,14 +61,32 @@ def _ingest(req):
     return asyncio.run(wc.ingest_opinion(req, _FakeReq()))
 
 
-def test_opinion_no_token_required(monkeypatch):
-    """观点上报不做 token 鉴权(2026-07-16 拍板): 空/错 token 都放行。"""
+def test_opinion_requires_a_valid_ingest_token(monkeypatch):
+    """Public extension uploads must reject missing or incorrect credentials."""
     cap = _setup(monkeypatch)
-    r = _ingest(_req(token=""))
+    with pytest.raises(HTTPException) as empty:
+        _ingest(_req(token=""))
+    with pytest.raises(HTTPException) as wrong:
+        _ingest(_req(token="WRONG"))
+    assert empty.value.status_code == 401
+    assert wrong.value.status_code == 401
+    assert cap == {}
+
+
+def test_opinion_accepts_the_configured_ingest_token(monkeypatch):
+    """A valid, configured extension credential keeps the intended ingest flow working."""
+    cap = _setup(monkeypatch)
+    r = _ingest(_req(token="SECRET"))
     assert r["ok"] is True
-    r2 = _ingest(_req(token="WRONG"))
-    assert r2["ok"] is True
     assert cap["user_id"] == 0
+
+
+def test_opinion_rejects_when_server_token_is_unconfigured(monkeypatch):
+    cap = _setup(monkeypatch, token="")
+    with pytest.raises(HTTPException) as error:
+        _ingest(_req(token="SECRET"))
+    assert error.value.status_code == 401
+    assert cap == {}
 
 
 def test_opinion_empty_question(monkeypatch):

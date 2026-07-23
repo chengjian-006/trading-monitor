@@ -4,7 +4,7 @@ importScripts('common.js');
 const WOP = self.WOP;
 
 const DEFAULTS = {
-  serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://124.71.75.5', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -22,7 +22,10 @@ function notify(title, message) {
 }
 
 async function uploadTo(serverUrl, payload) {
-  const r = await fetch(serverUrl + '/api/wencai/opinion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const endpoint = new URL('/api/wencai/opinion', serverUrl);
+  if (endpoint.protocol !== 'https:') throw new Error('Opinion uploads require HTTPS');
+  if (!String(payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
+  const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
   if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (j && j.detail || t).toString().slice(0, 160));
   return j || {};
@@ -94,7 +97,16 @@ async function runBg(question, opts) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'upload') {
-    fetch(msg.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg.payload) })
+    let endpoint;
+    try {
+      endpoint = new URL(msg.url);
+      if (endpoint.protocol !== 'https:') throw new Error('Opinion uploads require HTTPS');
+      if (!String(msg.payload && msg.payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e.message || e) });
+      return false;
+    }
+    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg.payload) })
       .then(async (r) => { const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {} sendResponse({ ok: r.ok, status: r.status, data: j, text: t.slice(0, 200) }); })
       .catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;

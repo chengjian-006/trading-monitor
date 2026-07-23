@@ -474,6 +474,15 @@ class OpinionIngestRequest(BaseModel):
     only_with_stock: bool = False   # True: 话术里没撞出个股就不落库(客户端「仅识别出个股才上报」)
 
 
+def _opinion_ingest_token_ok(token: str) -> bool:
+    """Fail closed when the dedicated opinion-ingestion credential is blank."""
+    expected = str(load_config().get("wencai_opinion", {}).get("ingest_token", "") or "")
+    received = str(token or "")
+    if not expected.strip() or not received.strip():
+        return False
+    return hmac.compare_digest(received, expected)
+
+
 @router.post("/opinion")
 async def ingest_opinion(req: OpinionIngestRequest, request: Request):
     """本地浏览器代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
@@ -483,6 +492,8 @@ async def ingest_opinion(req: OpinionIngestRequest, request: Request):
     only_with_stock=True 且没抽出个股时跳过入库(返回 skipped)。
     """
     _opinion_rate_limit(request)   # H4: 无鉴权靠限流兜底
+    if not _opinion_ingest_token_ok(req.token):
+        raise HTTPException(status_code=401, detail="opinion ingest token invalid")
     question = (req.question or "").strip()[:255]
     if not question:
         raise HTTPException(status_code=400, detail="question 为空")

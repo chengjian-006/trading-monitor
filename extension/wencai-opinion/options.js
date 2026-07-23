@@ -1,6 +1,6 @@
 // 问财观点扩展 · 完整设置页(宽屏 options)。与 popup 设置 Tab 共用同一套 storage.sync 键，改完即存。
 const DEFAULTS = {
-  serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://124.71.75.5', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -159,7 +159,15 @@ function loadSettings() {
     renderSchedTimes();
     renderSchedQuestions(s.presets || []);
     saving = false;
+    promptForIngestToken(s);
   });
+}
+
+function promptForIngestToken(s) {
+  if (String(s.token || '').trim()) return;
+  const token = window.prompt('First-time setup: enter config.json wencai_opinion.ingest_token. This limits abuse; it is not a non-extractable browser secret.', '');
+  if (!token || !token.trim()) return;
+  chrome.storage.sync.set({ token: token.trim() }, () => toast('Opinion upload token saved'));
 }
 
 function collectSettings() {

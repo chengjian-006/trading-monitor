@@ -6,7 +6,7 @@
   const esc = WOP.esc, mdRender = WOP.mdRender;
 
   const DEFAULTS = {
-    serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+    serverUrl: 'https://124.71.75.5', token: '', uploader: '',
     presets: [
       '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
       '当前有哪些板块在起, 适合低吸跟随?',
@@ -21,8 +21,13 @@
   function pushHistory(rec) { try { chrome.storage.local.get({ history: [] }, (o) => chrome.storage.local.set({ history: [rec, ...(o.history || [])].slice(0, 15) })); } catch (e) {} }
 
   function uploadOpinion(serverUrl, payload) {
+    let endpoint;
+    try { endpoint = new URL('/api/wencai/opinion', serverUrl); }
+    catch (e) { return Promise.reject(new Error('Invalid server address')); }
+    if (endpoint.protocol !== 'https:') return Promise.reject(new Error('Opinion uploads require HTTPS'));
+    if (!String(payload.token || '').trim()) return Promise.reject(new Error('Configure the opinion upload token in Settings first'));
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: 'upload', url: serverUrl + '/api/wencai/opinion', payload }, (resp) => {
+      chrome.runtime.sendMessage({ type: 'upload', url: endpoint.href, payload }, (resp) => {
         if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
         if (resp && resp.ok) resolve(resp.data || {});
         else reject(new Error((resp && (resp.error || (resp.data && resp.data.detail) || ('HTTP ' + (resp.status || '?')))) || '存档失败'));
