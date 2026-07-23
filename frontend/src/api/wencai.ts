@@ -84,6 +84,45 @@ export async function deleteWencaiQuery(id: number): Promise<{ ok: boolean }> {
   return data
 }
 
+// ── 个股「问财提问」预设问题 (v1.7.786): 每用户一套, 弹窗内就地维护 ──
+export interface WencaiAskPreset {
+  id: number
+  label: string
+  template: string    // 用 {name}/{code} 占位, 渲染时替换
+  enabled: number
+  sort_order: number
+}
+
+export async function listAskPresets(): Promise<{ presets: WencaiAskPreset[] }> {
+  const { data } = await client.get('/api/wencai/ask-presets')
+  return data
+}
+
+export async function createAskPreset(label: string, template: string): Promise<{ ok: boolean; id: number }> {
+  const { data } = await client.post('/api/wencai/ask-presets', { label, template })
+  return data
+}
+
+export async function updateAskPreset(id: number, params: { label?: string; template?: string; enabled?: number }): Promise<{ ok: boolean }> {
+  const { data } = await client.put(`/api/wencai/ask-presets/${id}`, params)
+  return data
+}
+
+export async function deleteAskPreset(id: number): Promise<{ ok: boolean }> {
+  const { data } = await client.delete(`/api/wencai/ask-presets/${id}`)
+  return data
+}
+
+export async function reorderAskPresets(ids: number[]): Promise<{ ok: boolean }> {
+  const { data } = await client.put('/api/wencai/ask-presets/order/all', { ids })
+  return data
+}
+
+export async function resetAskPresets(): Promise<{ ok: boolean; presets: WencaiAskPreset[] }> {
+  const { data } = await client.post('/api/wencai/ask-presets/reset', {})
+  return data
+}
+
 // ── 问财观点参考 (v1.7.627): chat 智能调度投顾式推荐存档 ──
 export interface WencaiOpinionStock {
   code: string

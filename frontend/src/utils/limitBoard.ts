@@ -22,14 +22,20 @@ export function limitPct(code: string, name?: string | null): number {
 // 距板 ≤ 此% 即视为封板(封板价四舍五入误差 + 尾盘微差容差)
 const LIMIT_EPS = 0.3
 
-/** 是否涨停: limit_up_days≥1(同花顺标签)优先, 否则按现涨幅贴板判定 */
+/** 是否涨停: 只按【当日涨幅贴板】判定。
+ *
+ * v1.7.786 修口径: 原来 limit_up_days≥1(连板标签)优先返回 true, 但那个标签是
+ * stock_tag_refresher 盘中用【已完成交易日】的日K算的连板数(见其 prefer_cache=True),
+ * 表示"截至上一交易日仍在连板中", 与今天涨没涨完全无关 → 昨天涨停、今天下跌的票
+ * 一整天都被算成"今日涨停"(实测瑞芯微 -3.91% 也被计入, 全池 11 只里 6 只是这么来的),
+ * 而广度条「昨日」那行走后端 _compute_pool_breadth 是按当日收盘现算的, 两行口径还不一致。
+ * 连板信息不丢: 行内仍有独立的「首板 / N连板」徽章(读 limit_up_days)。
+ */
 export function isLimitUp(
   pct: number | null | undefined,
   code: string,
   name?: string | null,
-  limitUpDays?: number | null,
 ): boolean {
-  if ((limitUpDays ?? 0) >= 1) return true
   if (pct == null) return false
   return pct >= limitPct(code, name) - LIMIT_EPS
 }

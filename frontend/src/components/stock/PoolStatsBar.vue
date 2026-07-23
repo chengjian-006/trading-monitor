@@ -18,7 +18,7 @@ const stats = computed(() => {
     if (pct > 0) up++
     else if (pct < 0) down++
     else flat++
-    if (isLimitUp(pct, s.code, s.name, s.limit_up_days)) limitUp++
+    if (isLimitUp(pct, s.code, s.name)) limitUp++
     else if (isLimitDown(pct, s.code, s.name)) limitDown++
   }
   const avgToday = today.length ? sum / today.length : null

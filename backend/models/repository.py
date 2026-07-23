@@ -126,6 +126,12 @@ from backend.models.repo.wencai_query import (  # noqa: F401
     add_query as add_wencai_query, update_query as update_wencai_query,
     delete_query as delete_wencai_query, list_all_enabled_queries,
 )
+from backend.models.repo.wencai_ask_preset import (  # noqa: F401
+    DEFAULT_ASK_PRESETS, list_presets as list_ask_presets, get_preset as get_ask_preset,
+    add_preset as add_ask_preset, update_preset as update_ask_preset,
+    delete_preset as delete_ask_preset, reorder_presets as reorder_ask_presets,
+    seed_defaults as seed_ask_presets,
+)
 from backend.models.repo.wencai_opinion import (  # noqa: F401
     insert_opinion as insert_wencai_opinion, list_opinions as list_wencai_opinions,
     delete_opinion as delete_wencai_opinion,

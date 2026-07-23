@@ -7,6 +7,12 @@
   POST   /api/wencai/queries      新增一条常驻语句(立即跑一次出榜)
   PUT    /api/wencai/queries/{id} 改语句(name/query/enabled), 启用则即刻重跑、禁用则清掉榜
   DELETE /api/wencai/queries/{id} 删除语句及其候选榜
+  GET    /api/wencai/ask-presets  个股「问财提问」预设问题(每用户一套, 空则播种默认)
+  POST   /api/wencai/ask-presets  新增一条预设问题模版
+  PUT    /api/wencai/ask-presets/{id}       改模版(label/template/enabled)
+  DELETE /api/wencai/ask-presets/{id}       删模版
+  PUT    /api/wencai/ask-presets/order/all  整体重排(上移/下移)
+  POST   /api/wencai/ask-presets/reset      恢复系统默认模版
   POST   /api/wencai/ingest       本地油猴代跑上报: 浏览器登录态查问财→归一化→POST结果落库(共享密钥鉴权, 免JWT)
 """
 import asyncio
@@ -582,3 +588,99 @@ async def delete_query(query_id: int, user: Annotated[dict, Depends(get_current_
     await repository.delete_wencai_query(query_id, user["id"])
     await repository.delete_wencai_pool_row(sid)
     return {"ok": True}
+
+
+# ── 个股「问财提问」预设问题 (v1.7.786) ──
+# 自选股行内那个弹窗里的一点即问模版, 原写死前端常量, 改成每用户存库可维护。
+# 模版用 {name}/{code} 占位, 渲染在前端做。首次取列表时若一条都没有, 自动播种系统默认 4 条。
+
+_ASK_LABEL_MAX = 40
+_ASK_TEMPLATE_MAX = 255
+_ASK_PRESET_MAX = 20        # 单用户模版条数上限(弹窗里一屏能点得过来的量)
+
+
+@router.get("/ask-presets")
+async def list_ask_presets(user: Annotated[dict, Depends(get_current_user)]):
+    rows = await repository.list_ask_presets(user["id"])
+    if not rows:
+        rows = await repository.seed_ask_presets(user["id"])   # 首次进来给一套默认的
+    return {"presets": rows}
+
+
+class AskPresetCreate(BaseModel):
+    label: str = ""
+    template: str
+
+
+def _clean_ask_preset(label: str, template: str) -> tuple[str, str]:
+    t = (template or "").strip()
+    if not t:
+        raise HTTPException(status_code=400, detail="请输入问题模版")
+    if len(t) > _ASK_TEMPLATE_MAX:
+        raise HTTPException(status_code=400, detail=f"问题模版最长 {_ASK_TEMPLATE_MAX} 字")
+    lb = (label or "").strip() or (t[:12] + ("…" if len(t) > 12 else ""))
+    return lb[:_ASK_LABEL_MAX], t
+
+
+@router.post("/ask-presets")
+async def create_ask_preset(req: AskPresetCreate,
+                            user: Annotated[dict, Depends(get_current_user)]):
+    existing = await repository.list_ask_presets(user["id"])
+    if len(existing) >= _ASK_PRESET_MAX:
+        raise HTTPException(status_code=400, detail=f"模版最多 {_ASK_PRESET_MAX} 条, 请先删几条")
+    label, template = _clean_ask_preset(req.label, req.template)
+    pid = await repository.add_ask_preset(user["id"], label, template)
+    return {"ok": True, "id": pid}
+
+
+class AskPresetUpdate(BaseModel):
+    label: str | None = None
+    template: str | None = None
+    enabled: int | None = None
+
+
+@router.put("/ask-presets/{preset_id}")
+async def update_ask_preset(preset_id: int, req: AskPresetUpdate,
+                            user: Annotated[dict, Depends(get_current_user)]):
+    existing = await repository.get_ask_preset(preset_id, user["id"])
+    if not existing:
+        raise HTTPException(status_code=404, detail="模版不存在")
+    fields: dict = {}
+    if req.template is not None or req.label is not None:
+        label, template = _clean_ask_preset(
+            req.label if req.label is not None else existing["label"],
+            req.template if req.template is not None else existing["template"],
+        )
+        if req.label is not None:
+            fields["label"] = label
+        if req.template is not None:
+            fields["template"] = template
+    if req.enabled is not None:
+        fields["enabled"] = int(req.enabled)
+    await repository.update_ask_preset(preset_id, user["id"], **fields)
+    return {"ok": True}
+
+
+@router.delete("/ask-presets/{preset_id}")
+async def delete_ask_preset(preset_id: int, user: Annotated[dict, Depends(get_current_user)]):
+    await repository.delete_ask_preset(preset_id, user["id"])
+    return {"ok": True}
+
+
+class AskPresetReorder(BaseModel):
+    ids: list[int]
+
+
+@router.put("/ask-presets/order/all")
+async def reorder_ask_presets(req: AskPresetReorder,
+                              user: Annotated[dict, Depends(get_current_user)]):
+    """按前端给的 id 顺序整体重排(上移/下移用)。"""
+    await repository.reorder_ask_presets(user["id"], [int(i) for i in (req.ids or [])])
+    return {"ok": True}
+
+
+@router.post("/ask-presets/reset")
+async def reset_ask_presets(user: Annotated[dict, Depends(get_current_user)]):
+    """恢复系统默认 4 条(清掉本人现有全部模版, 不可撤销)。"""
+    rows = await repository.seed_ask_presets(user["id"], replace=True)
+    return {"ok": True, "presets": rows}

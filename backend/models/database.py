@@ -659,6 +659,21 @@ SCHEMA_STATEMENTS = [
         INDEX idx_user (user_id)
     )
     """,
+    # 个股「问财提问」预设问题 (v1.7.786) — 自选股行内「问财提问」弹窗里那几个一点即问的模版, 每用户一套可增删改排序。
+    # template 用 {name}/{code} 占位(渲染时替换成该股股名/代码); 两个占位都没有时前端自动在最前面补股名。
+    # 首次打开(该用户一条都没有)由后端播种系统默认 4 条, 用户改坏了可「恢复默认」重播。
+    """
+    CREATE TABLE IF NOT EXISTS cfzy_biz_wencai_ask_preset (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        user_id     INT NOT NULL,
+        label       VARCHAR(40) NOT NULL DEFAULT '',
+        template    VARCHAR(255) NOT NULL,
+        enabled     TINYINT NOT NULL DEFAULT 1,
+        sort_order  INT NOT NULL DEFAULT 0,
+        created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user (user_id)
+    )
+    """,
     # 问财观点参考 (v1.7.627) — 同花顺问财 chat「智能调度」投顾式推荐的存档. 本地油猴代跑(登录态浏览器发 stream-query
     #   SSE, 走 aime deep_research/普通 agent), 把口语问题的整段话术 + 从话术里撞出的股票 上报落库. 明确是 LLM 观点非回测信号.
     """
