@@ -95,40 +95,54 @@ const metrics = computed<Cell[]>(() => {
 </script>
 
 <template>
-  <div class="pool-stats-bar" v-if="stats.total > 0">
-    <div class="psb-grid">
-      <!-- 表头: 指标名 -->
+  <div class="pool-stats-bar" :class="{ 'psb-open': expanded }" v-if="stats.total > 0">
+    <!-- 收起态(默认): 单行紧凑, 与同行按钮等高, 不占版面 -->
+    <div v-if="!expanded" class="psb-inline">
+      <span v-for="m in metrics" :key="'i' + m.key" class="psb-i" :title="m.label">
+        <em>{{ m.label }}</em><b :style="{ color: m.todayColor }">{{ m.todayText }}</b>
+      </span>
+      <span v-if="stats.noPrice > 0" class="psb-note">{{ stats.noPrice }}只无价</span>
+    </div>
+
+    <!-- 展开态: 今日/昨日/Δ 三行对照表(需要细看时才占版面) -->
+    <div v-else class="psb-grid">
       <span class="psb-rl"></span>
       <span v-for="m in metrics" :key="'h' + m.key" class="psb-ch">{{ m.label }}</span>
-      <!-- 今日 -->
       <span class="psb-rl psb-rl-today">今日</span>
       <span v-for="m in metrics" :key="'t' + m.key" class="psb-tv" :style="{ color: m.todayColor }">{{ m.todayText }}</span>
-      <!-- 昨日 + Δ: 仅展开时显示 -->
-      <template v-if="expanded">
-        <span class="psb-rl psb-muted">昨日</span>
-        <span v-for="m in metrics" :key="'y' + m.key" class="psb-yv">{{ m.yestText }}</span>
-        <template v-if="yest">
-          <span class="psb-rl psb-muted">Δ</span>
-          <span v-for="m in metrics" :key="'d' + m.key" class="psb-dv" :class="'d-' + m.deltaClass">{{ m.deltaText ? m.deltaArrow + m.deltaText : '·' }}</span>
-        </template>
+      <span class="psb-rl psb-muted">昨日</span>
+      <span v-for="m in metrics" :key="'y' + m.key" class="psb-yv">{{ m.yestText }}</span>
+      <template v-if="yest">
+        <span class="psb-rl psb-muted">Δ</span>
+        <span v-for="m in metrics" :key="'d' + m.key" class="psb-dv" :class="'d-' + m.deltaClass">{{ m.deltaText ? m.deltaArrow + m.deltaText : '·' }}</span>
       </template>
     </div>
+
     <button class="psb-toggle" type="button" :title="expanded ? '收起' : '对比昨日(上一交易日)'" @click="toggle">
       {{ expanded ? '收起' : '比昨日' }}<span class="psb-caret">{{ expanded ? '▴' : '▾' }}</span>
     </button>
-    <div class="psb-notes">
-      <span v-if="stats.noPrice > 0" class="psb-note">含 {{ stats.noPrice }} 只无价</span>
-      <span v-if="expanded && yest && yest.no_data > 0" class="psb-note">昨日 {{ yest.no_data }} 只无数据</span>
-    </div>
+    <span v-if="expanded && stats.noPrice > 0" class="psb-note">含 {{ stats.noPrice }} 只无价</span>
+    <span v-if="expanded && yest && yest.no_data > 0" class="psb-note">昨日 {{ yest.no_data }} 只无数据</span>
   </div>
 </template>
 
 <style scoped>
 .pool-stats-bar {
-  display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap;
-  padding: 6px 12px; border: 1px solid var(--border-color, #eee); border-radius: 8px;
-  background: var(--card-bg, #fafafa); overflow-x: auto;
+  /* v1.7.789: 收起态压成单行(高度对齐同行按钮), 展开态才铺成对照表 */
+  display: flex; align-items: center; gap: 2px 8px; flex-wrap: wrap;
+  padding: 2px 8px; border: 1px solid var(--border-color, #eee); border-radius: 6px;
+  background: var(--card-bg, #fafafa); overflow-x: auto; min-height: 28px;
 }
+.pool-stats-bar.psb-open { padding: 6px 12px; border-radius: 8px; }
+
+/* 收起态: 指标名+值成对紧挨, 对之间留空 */
+.psb-inline {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: nowrap;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.psb-i { display: inline-flex; align-items: baseline; gap: 2px; }
+.psb-i em { font-style: normal; font-size: 10.5px; color: var(--text-secondary, #999); }
+.psb-i b { font-size: 12.5px; font-weight: 700; }
 .pool-stats-bar::-webkit-scrollbar { height: 4px; }
 .pool-stats-bar::-webkit-scrollbar-thumb { background: var(--border-color, #ddd); border-radius: 4px; }
 
@@ -160,11 +174,14 @@ const metrics = computed<Cell[]>(() => {
 }
 .psb-toggle:hover { color: var(--accent-fg); border-color: color-mix(in srgb, var(--accent-fg) 40%, transparent); }
 .psb-caret { font-size: 9px; }
-.psb-notes { display: flex; flex-direction: column; gap: 2px; }
 .psb-note { font-size: 10.5px; color: var(--text-secondary, #aaa); white-space: nowrap; }
 
 @media (max-width: 767px) {
-  .pool-stats-bar { padding: 6px 10px; }
+  /* 手机: 收起态允许换行(一行放不下 7 组), 但仍不带表头, 比原来省一行 */
+  .pool-stats-bar { padding: 2px 8px; }
+  .pool-stats-bar.psb-open { padding: 6px 10px; }
+  .psb-inline { flex-wrap: wrap; gap: 2px 8px; }
+  .psb-i b { font-size: 12px; }
   .psb-grid { gap: 1px 9px; grid-template-columns: auto repeat(7, minmax(34px, 1fr)); }
   .psb-tv { font-size: 12px; }
 }

@@ -15,6 +15,7 @@ import {
   type SectorTransition,
   type SectorPredictItem,
 } from '../../api/sector-rotation'
+import { fetchIndexTrends, type IndexTrendData } from '../../api/market-report'
 import { useVisiblePolling } from '../../composables/useVisiblePolling'
 import { useResponsive } from '../../composables/useResponsive'
 
@@ -110,6 +111,94 @@ const timeGroups = computed<{ at: string; pct: number }[]>(() => {
   }))
 })
 
+// ── 大盘分时带 (v1.7.789): 时间轴下方叠一条上证分时, 回答"这个转换发生时大盘在什么位置" ──
+// 关键: 上方事件的 x 是「先后等距」不是真实时间(见 v1.7.767), 所以分时曲线也必须走同一套映射——
+// 用「事件时刻 → 事件 x」做分段线性时间轴变形, 曲线在每个事件的 x 处取到的正是那一刻的指数值,
+// 两端按最近一段斜率外延到开盘/收盘(超出 0~100 的部分由 SVG viewBox 自然裁掉)。
+// 这样"事件圆点"与"曲线上的点"横向严格对齐; 段与段之间只是时间被拉伸/压缩, 与卡片同一种失真。
+const IDX_KEY = 'sh000001'
+const MKT_H = 40                 // 分时带高度(px, 同时是 SVG 用户单位高度)
+const OPEN_MIN = 9 * 60 + 30
+const CLOSE_MIN = 15 * 60
+const idx = ref<IndexTrendData | null>(null)
+
+/** 从 "09:35" / "2026-07-23 09:35" / "09:35:00" 里取分钟数 */
+function anyMinute(s: string): number {
+  const m = /(\d{1,2}):(\d{2})/.exec(String(s || ''))
+  return m ? +m[1] * 60 + +m[2] : -1
+}
+
+interface MktView {
+  line: string; area: string; baseY: number; dots: { x: number; y: number; up: boolean }[]
+  guides: { x: number; up: boolean }[]; name: string; last: number; pct: number; up: boolean
+}
+
+const mkt = computed<MktView | null>(() => {
+  const d = idx.value
+  const pts = (d?.trends || []).filter(p => p && p.price > 0)
+  // 盘前/非交易日回看上一交易日的事件时, 今天的分时对不上, 不显示
+  if (!d || pts.length < 2 || !allEvents.value.length || data.value?.stale) return null
+
+  // 时间→x 的分段线性映射(锚点 = 各时刻事件簇的 x, 与时间刻度同源)
+  const anc = timeGroups.value
+    .map(g => ({ m: minuteOf(g.at), x: g.pct }))
+    .filter(a => a.m > 0)
+    .sort((a, b) => a.m - b.m)
+  if (!anc.length) return null
+  // 两端外延: ≥2 锚点用首/尾段斜率, 单锚点用"全天铺满"的斜率兜底
+  const slopeL = anc.length >= 2 ? (anc[1].x - anc[0].x) / (anc[1].m - anc[0].m || 1) : 100 / (CLOSE_MIN - OPEN_MIN)
+  const last = anc[anc.length - 1], prev = anc[anc.length - 2] ?? null
+  const slopeR = prev ? (last.x - prev.x) / (last.m - prev.m || 1) : 100 / (CLOSE_MIN - OPEN_MIN)
+  const full = [
+    { m: OPEN_MIN, x: anc[0].x - (anc[0].m - OPEN_MIN) * slopeL },
+    ...anc,
+    { m: CLOSE_MIN, x: last.x + (CLOSE_MIN - last.m) * slopeR },
+  ].sort((a, b) => a.m - b.m)
+
+  function xOf(min: number): number {
+    if (min <= full[0].m) return full[0].x
+    if (min >= full[full.length - 1].m) return full[full.length - 1].x
+    for (let i = 1; i < full.length; i++) {
+      if (min <= full[i].m) {
+        const a = full[i - 1], b = full[i]
+        const t = (min - a.m) / (b.m - a.m || 1)
+        return a.x + (b.x - a.x) * t
+      }
+    }
+    return 100
+  }
+
+  const prices = pts.map(p => p.price)
+  const preClose = d.pre_close || prices[0]
+  const lo = Math.min(...prices, preClose)
+  const hi = Math.max(...prices, preClose)
+  const rng = hi - lo || 1
+  const pad = 4                                            // 上下留白, 防线贴边
+  const yOf = (p: number) => pad + (1 - (p - lo) / rng) * (MKT_H - pad * 2)
+
+  const xy = pts.map(p => ({ m: anyMinute(p.time), x: xOf(anyMinute(p.time)), y: yOf(p.price) }))
+  const line = xy.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')
+  const area = `${line} L${xy[xy.length - 1].x.toFixed(2)},${MKT_H} L${xy[0].x.toFixed(2)},${MKT_H} Z`
+
+  // 每个事件在曲线上的落点(取该时刻最近的一根分时)
+  const dots = allEvents.value.map(e => {
+    const em = minuteOf(e.at)
+    let best = xy[0]
+    for (const p of xy) if (Math.abs(p.m - em) <= Math.abs(best.m - em)) best = p
+    return { x: e.pct, y: best.y, up: e.up }
+  })
+  const guides = allEvents.value.map(e => ({ x: e.pct, up: e.up }))
+
+  const lastPrice = prices[prices.length - 1]
+  return {
+    line, area, baseY: yOf(preClose), dots, guides,
+    name: d.name || '上证指数',
+    last: lastPrice,
+    pct: preClose ? ((lastPrice - preClose) / preClose) * 100 : 0,
+    up: lastPrice >= preClose,
+  }
+})
+
 // 明细条: 悬停临时看, 点击钉住(手机端没有 hover, 靠点)。放轴下方固定一条而非浮层——
 // 轨道是横向滚动容器, 浮层会被裁掉。
 const hoverKey = ref<string | null>(null)
@@ -154,7 +243,13 @@ function timeText(t: string | null | undefined): string {
 async function load() {
   loading.value = true
   try {
-    data.value = await fetchSectorRotation()
+    // 分时与轮动同频拉(读的是同一份 30s DB 快照, 不额外打行情源); 拉不到就不显示分时带
+    const [rot, trends] = await Promise.all([
+      fetchSectorRotation(),
+      fetchIndexTrends().catch(() => ({} as Record<string, IndexTrendData>)),
+    ])
+    data.value = rot
+    idx.value = trends?.[IDX_KEY] ?? null
   } finally {
     loading.value = false
     loaded.value = true
@@ -192,7 +287,7 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
     <template v-else>
       <!-- ── ① 今日转换流水 (头条) ── -->
       <div class="block">
-        <div class="block-title">今日转换流水<span class="bt-meta">▲转强/▼转弱 · 昨→今涨停家数+净变 · 圆点大小=力度 · 点看成分</span></div>
+        <div class="block-title">今日转换流水<span class="bt-meta">▲转强/▼转弱 · 昨→今涨停家数+净变 · 圆点大小=力度 · 点看成分<template v-if="mkt"> · 底部为大盘分时(同一横轴, 圆点=该转换发生时大盘位置)</template></span></div>
         <div v-if="transitions.length" class="tl">
           <div class="tl-scroll">
             <div class="tl-track" :style="{ minWidth: trackMinWidth + 'px' }">
@@ -252,6 +347,35 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
                     <span class="ev-delta">{{ e.delta }}</span>
                   </div>
                 </button>
+              </div>
+
+              <!-- 大盘分时带: 与上方事件共用同一条横轴(时间轴变形), 事件落点在曲线上标出 -->
+              <div v-if="mkt" class="tl-mkt" :style="{ height: MKT_H + 'px' }">
+                <svg class="tl-mkt-svg" :viewBox="`0 0 100 ${MKT_H}`" preserveAspectRatio="none"
+                     :style="{ height: MKT_H + 'px' }" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="rotMktFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0" :stop-color="mkt.up ? '#D92B26' : '#0F8A5F'" stop-opacity="0.16" />
+                      <stop offset="1" :stop-color="mkt.up ? '#D92B26' : '#0F8A5F'" stop-opacity="0" />
+                    </linearGradient>
+                  </defs>
+                  <!-- 事件竖向对位线 (颜色走 CSS 类: SVG 表现属性里 var() 各浏览器支持不一致) -->
+                  <line v-for="(g, i) in mkt.guides" :key="'g' + i" :x1="g.x" y1="0" :x2="g.x" :y2="MKT_H"
+                        :class="['gd', g.up ? 'up' : 'down']" vector-effect="non-scaling-stroke" />
+                  <!-- 昨收基准 -->
+                  <line x1="0" :y1="mkt.baseY" x2="100" :y2="mkt.baseY" class="base"
+                        vector-effect="non-scaling-stroke" />
+                  <path :d="mkt.area" fill="url(#rotMktFill)" />
+                  <path :d="mkt.line" fill="none" :stroke="mkt.up ? '#D92B26' : '#0F8A5F'" stroke-width="1.4"
+                        stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke" />
+                  <!-- 事件时刻大盘所在位置 -->
+                  <circle v-for="(p, i) in mkt.dots" :key="'p' + i" :cx="p.x" :cy="p.y" r="3"
+                          :class="['pt', p.up ? 'up' : 'down']" vector-effect="non-scaling-stroke" />
+                </svg>
+                <span class="tl-mkt-tag" :class="mkt.up ? 'up' : 'down'">
+                  {{ mkt.name }} {{ mkt.last.toFixed(2) }}
+                  <b>{{ (mkt.pct >= 0 ? '+' : '') + mkt.pct.toFixed(2) }}%</b>
+                </span>
               </div>
             </div>
           </div>
@@ -388,6 +512,25 @@ useVisiblePolling(load, 60000) // 切走标签页暂停, 切回立即补刷
 .tl-ev:hover, .tl-ev:focus-visible { box-shadow: 0 2px 7px rgba(0,0,0,.10); transform: translateX(-50%) translateY(-1px); outline: none; z-index: 3; }
 .tl-ev.up.active { background: var(--up-bg-muted); box-shadow: 0 2px 7px rgba(0,0,0,.12); z-index: 3; }
 .tl-ev.down.active { background: var(--down-bg-muted); box-shadow: 0 2px 7px rgba(0,0,0,.12); z-index: 3; }
+
+/* ── 大盘分时带 (v1.7.789): 贴在转弱卡下方, 与事件同一横轴 ── */
+.tl-mkt { position: relative; margin-top: 6px; border-top: 1px dashed var(--border-muted); padding-top: 2px; }
+.tl-mkt-svg { display: block; width: 100%; }
+.tl-mkt-svg .gd { stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.28; }
+.tl-mkt-svg .gd.up { stroke: var(--up-fg); }
+.tl-mkt-svg .gd.down { stroke: var(--down-fg); }
+.tl-mkt-svg .base { stroke: var(--fg-subtle); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.5; }
+.tl-mkt-svg .pt { stroke: var(--bg-surface); stroke-width: 1.5; }
+.tl-mkt-svg .pt.up { fill: var(--up-fg); }
+.tl-mkt-svg .pt.down { fill: var(--down-fg); }
+.tl-mkt-tag {
+  position: absolute; right: 2px; top: 0; font-size: 10px; line-height: 1.3;
+  font-variant-numeric: tabular-nums; color: var(--fg-subtle); white-space: nowrap;
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent); border-radius: 3px; padding: 0 3px;
+}
+.tl-mkt-tag b { font-weight: 700; }
+.tl-mkt-tag.up b { color: var(--up-fg); }
+.tl-mkt-tag.down b { color: var(--down-fg); }
 
 .tl-axis { position: relative; height: 16px; }
 .tl-line { position: absolute; left: 0; right: 0; top: 7px; height: 2px; border-radius: 1px; background: var(--border-default); }
