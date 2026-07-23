@@ -433,3 +433,115 @@ def test_inprocess_fallback_marks_database_job_done(monkeypatch):
         assert completed == [(job_id, {"summary": {"trades": 0}})]
     finally:
         backtest_jobs._JOBS.clear()
+
+
+def test_fallback_runner_transition_never_opens_active_store_gap(monkeypatch):
+    async def scenario():
+        db_runner = None
+        transition_started = asyncio.Event()
+        release_transition = asyncio.Event()
+
+        async def fake_noop(*_args, **_kwargs):
+            return None
+
+        async def fake_create(job):
+            nonlocal db_runner
+            db_runner = job["runner"]
+
+        async def fake_set_runner(_job_id, runner):
+            nonlocal db_runner
+            db_runner = runner
+            transition_started.set()
+            await release_transition.wait()
+
+        async def fake_active(_user_id):
+            return db_runner == "systemd"
+
+        async def fake_universe(_spec):
+            return ["000001"]
+
+        monkeypatch.setattr(backtest_router, "MODEL_IDS", ["m1"])
+        monkeypatch.setattr(backtest_router.backtest_jobs_db, "expire_stale_running_jobs", fake_noop)
+        monkeypatch.setattr(backtest_router.backtest_jobs_db, "has_active_job", fake_active)
+        monkeypatch.setattr(backtest_router.backtest_jobs_db, "create_job", fake_create)
+        monkeypatch.setattr(backtest_router.backtest_jobs_db, "set_runner", fake_set_runner)
+        monkeypatch.setattr(backtest_router, "universe_codes", fake_universe)
+        monkeypatch.setattr(backtest_router.shutil, "which", lambda _name: None)
+        monkeypatch.setattr(backtest_router.backtest_jobs, "launch", lambda *_args: None)
+
+        user = {"id": 44, "username": "admin", "role": "admin"}
+        first = asyncio.create_task(
+            backtest_router.model_run(
+                backtest_router.ModelRunRequest(
+                    model_id="m1", scope="all", koujing="daily"
+                ),
+                user,
+            )
+        )
+        await transition_started.wait()
+
+        second = asyncio.create_task(
+            backtest_router.model_run(
+                backtest_router.ModelRunRequest(
+                    model_id="m1", scope="pool", koujing="daily"
+                ),
+                user,
+            )
+        )
+        second_result = (await asyncio.gather(second, return_exceptions=True))[0]
+        release_transition.set()
+        first_result = await first
+        return first_result, second_result
+
+    backtest_jobs._JOBS.clear()
+    backtest_jobs._USER_LOCKS.clear()
+    try:
+        first_result, second_result = asyncio.run(scenario())
+        assert first_result["status"] == "running"
+        assert isinstance(second_result, HTTPException)
+        assert second_result.status_code == 409
+        assert len(backtest_jobs._JOBS) == 1
+    finally:
+        backtest_jobs._JOBS.clear()
+        backtest_jobs._USER_LOCKS.clear()
+
+
+def test_database_create_failure_terminalizes_memory_reservation(monkeypatch):
+    async def fake_noop(*_args, **_kwargs):
+        return None
+
+    async def fake_active(_user_id):
+        return False
+
+    async def fake_universe(_spec):
+        return ["000001"]
+
+    async def fail_create(_job):
+        raise RuntimeError("insert failed")
+
+    backtest_jobs._JOBS.clear()
+    backtest_jobs._USER_LOCKS.clear()
+    monkeypatch.setattr(backtest_router, "MODEL_IDS", ["m1"])
+    monkeypatch.setattr(backtest_router.backtest_jobs_db, "expire_stale_running_jobs", fake_noop)
+    monkeypatch.setattr(backtest_router.backtest_jobs_db, "has_active_job", fake_active)
+    monkeypatch.setattr(backtest_router.backtest_jobs_db, "create_job", fail_create)
+    monkeypatch.setattr(backtest_router, "universe_codes", fake_universe)
+
+    try:
+        with pytest.raises(RuntimeError, match="insert failed"):
+            asyncio.run(
+                backtest_router.model_run(
+                    backtest_router.ModelRunRequest(
+                        model_id="m1", scope="all", koujing="daily"
+                    ),
+                    {"id": 55, "username": "admin", "role": "admin"},
+                )
+            )
+
+        assert len(backtest_jobs._JOBS) == 1
+        reservation = next(iter(backtest_jobs._JOBS.values()))
+        assert reservation["status"] == "error"
+        assert reservation["ended_at"] is not None
+    finally:
+        backtest_jobs._JOBS.clear()
+        backtest_jobs._USER_LOCKS.clear()

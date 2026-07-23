@@ -82,12 +82,16 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
             "model_id": req.model_id, "scope": req.scope, "koujing": req.koujing,
             "runner": "systemd" if is_long else "inproc"})
         if is_long:
-            await backtest_jobs_db.create_job({
-                "job_id": jid, "user_id": uid, "model_id": req.model_id,
-                "scope": req.scope, "koujing": req.koujing, "lookback_days": lookback,
-                "window_start": start, "window_end": end,
-                "params": req.temp_config, "codes": codes, "runner": "systemd",
-            })
+            try:
+                await backtest_jobs_db.create_job({
+                    "job_id": jid, "user_id": uid, "model_id": req.model_id,
+                    "scope": req.scope, "koujing": req.koujing, "lookback_days": lookback,
+                    "window_start": start, "window_end": end,
+                    "params": req.temp_config, "codes": codes, "runner": "systemd",
+                })
+            except Exception:
+                backtest_jobs.mark_error(jid, "回测任务创建失败")
+                raise
     # 短任务(自选股 + 日线, ~30秒)走内存态后台任务, 现状不动。
     # 长任务(全市场 或 5分钟)走方案C: systemd-run 拉独立临时单元跑, 进度/结果落 DB,
     # 部署/重启主服务杀不死它。systemd 不可用/启动失败 → 回退到内存态(本地无 systemd 仍可用)。
@@ -145,6 +149,10 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
     if not started:
         # 回退: 改用内存态 launch 跑这个 jid; 内存 meta.runner 翻成 inproc(让 model-job 读内存那条),
         # DB 行也标 inproc 留痕。本地无 systemd / 生产 systemd 故障时仍能跑完。
+        # 先翻内存态再 await DB，确保转换期间至少一个 store 始终报告 active。
+        mj = backtest_jobs.get_job(jid, uid)
+        if mj:
+            mj.setdefault("meta", {})["runner"] = "inproc"
         try:
             await backtest_jobs_db.set_runner(jid, "inproc")
         except Exception as e:  # noqa: BLE001
@@ -155,10 +163,6 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
             except Exception as reconcile_error:  # noqa: BLE001
                 _log.error("回测 runner 转换失败且终态回写失败: %s | %s", e, reconcile_error)
             raise HTTPException(503, message) from e
-
-        mj = backtest_jobs.get_job(jid, uid)
-        if mj:
-            mj.setdefault("meta", {})["runner"] = "inproc"
 
         async def _run_fallback(cb):
             try:
