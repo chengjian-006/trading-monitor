@@ -43,10 +43,13 @@ def iter_themes(reason: str | None) -> list[str]:
 
 
 def aggregate_themes(boards: list[dict]) -> dict[str, dict]:
-    """涨停池 boards → {题材: {limit_up, max_height, broken, first_board, samples}}。
+    """涨停池 boards → {题材: {limit_up, max_height, broken, first_board, samples, sample_rows}}。
 
     题材口径同 theme_heat: 全标签(iter_themes, reason 按 '+' 全拆)。无 reason 的票跳过。
     一只多标签票会计入它涉及的每个题材。
+
+    samples = 代表股名(兼容旧调用); sample_rows = 同一批票的明细(code/name/height/pct/
+    open_times/streak_label), 供推送卡「个股明细」折叠区用 (v1.7.787)。
     """
     agg: dict[str, dict] = {}
     for b in boards or []:
@@ -58,13 +61,18 @@ def aggregate_themes(boards: list[dict]) -> dict[str, dict]:
         except (TypeError, ValueError):
             h = 0
         try:
-            is_broken = int(b.get("open_times") or 0) > 0
+            open_times = int(b.get("open_times") or 0)
         except (TypeError, ValueError):
-            is_broken = False
+            open_times = 0
+        is_broken = open_times > 0
         name = b.get("name") or b.get("code") or ""
+        try:
+            pct = float(b.get("pct")) if b.get("pct") is not None else None
+        except (TypeError, ValueError):
+            pct = None
         for theme in themes:
-            slot = agg.setdefault(theme, {"limit_up": 0, "max_height": 0,
-                                          "broken": 0, "first_board": 0, "samples": []})
+            slot = agg.setdefault(theme, {"limit_up": 0, "max_height": 0, "broken": 0,
+                                          "first_board": 0, "samples": [], "sample_rows": []})
             slot["limit_up"] += 1
             if h > slot["max_height"]:
                 slot["max_height"] = h
@@ -74,6 +82,11 @@ def aggregate_themes(boards: list[dict]) -> dict[str, dict]:
                 slot["broken"] += 1
             if len(slot["samples"]) < 8:
                 slot["samples"].append(name)
+                slot["sample_rows"].append({
+                    "code": b.get("code") or "", "name": name, "height": h,
+                    "pct": pct, "open_times": open_times,
+                    "streak_label": b.get("streak_label") or "",
+                })
     return agg
 
 

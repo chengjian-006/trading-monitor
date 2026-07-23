@@ -40,6 +40,54 @@ def test_aggregate_themes():
     assert agg["光通信"]["max_height"] == 3
 
 
+def test_aggregate_sample_rows_detail():
+    """v1.7.787: 聚合同时给出代表股明细(供推送卡「个股明细」折叠区)。"""
+    boards = [
+        {"reason": "数据中心", "code": "002112", "name": "三变科技", "height": 3,
+         "open_times": 1, "pct": 10.02, "streak_label": "3连板"},
+        {"reason": "数据中心+电力", "code": "605100", "name": "华丰股份", "height": 1,
+         "open_times": 0, "pct": 9.98},
+    ]
+    rows = sr.aggregate_themes(boards)["数据中心"]["sample_rows"]
+    assert [r["code"] for r in rows] == ["002112", "605100"]
+    assert rows[0]["height"] == 3 and rows[0]["open_times"] == 1
+    assert rows[0]["streak_label"] == "3连板"
+    assert rows[1]["pct"] == 9.98 and rows[1]["streak_label"] == ""
+
+
+def test_weak_to_strong_card_has_folded_stock_detail():
+    """启动卡: 个股明细进折叠区(默认收起), 持仓/自选打标。"""
+    from backend.services import sector_rotation_scanner as scanner
+
+    items = [{
+        "theme": "数据中心", "limit_up": 4, "yest": 0, "max_height": 3, "broken": 1,
+        "samples": ["三变科技", "华丰股份"],
+        "sample_rows": [
+            {"code": "002112", "name": "三变科技", "height": 3, "pct": 10.02,
+             "open_times": 1, "streak_label": "3连板", "pool": "hold"},
+            {"code": "605100", "name": "华丰股份", "height": 1, "pct": 9.98,
+             "open_times": 0, "streak_label": "", "pool": "watch"},
+        ],
+    }]
+    _title, elements = scanner._build_weak_to_strong_card(items)
+    fold = [e for e in elements if e.get("tag") == "collapsible_panel"]
+    assert len(fold) == 1
+    assert fold[0].get("expanded") is False          # 默认折叠
+    body = str(fold[0])
+    assert "三变科技(002112)" in body and "3连板" in body and "炸板1次" in body
+    assert "● 持仓" in body and "★ 自选" in body
+
+
+def test_mark_pool_tags_watch_and_hold():
+    from backend.services import sector_rotation_scanner as scanner
+
+    rows = [{"code": "000001", "name": "A"}, {"code": "000002", "name": "B"},
+            {"code": "000003", "name": "C"}]
+    pool = [{"code": "000001", "status": "hold"}, {"code": "000002", "status": "watch"}]
+    out = scanner._mark_pool(rows, pool)
+    assert [r["pool"] for r in out] == ["hold", "watch", ""]
+
+
 def test_aggregate_empty():
     assert sr.aggregate_themes([]) == {}
     assert sr.aggregate_themes(None) == {}

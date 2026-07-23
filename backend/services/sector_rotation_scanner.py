@@ -192,15 +192,22 @@ async def scan_sector_rotation() -> None:
     # 推送状态跃迁
     #   弱转强(启动): 全市场广播, 照旧。
     #   强转弱(退潮): 合并自原 detect_sector_ebb — 只推用户持仓踩该题材的, 不再全市场广播。
-    holds: list[dict] | None = None   # 懒取: 只在出现强转弱时取一次持仓
+    pool_rows: list[dict] | None = None   # 懒取: 有跃迁要推时才取一次自选池(强转弱选持仓/启动卡标自选)
+    holds: list[dict] = []
+
+    async def _ensure_pool() -> list[dict]:
+        nonlocal pool_rows, holds
+        if pool_rows is None:
+            try:
+                pool_rows = await repository.list_all_stocks()
+            except Exception:
+                pool_rows = []
+            holds = [s for s in pool_rows if s.get("status") == "hold"]
+        return pool_rows
+
     for direction, theme, m in transitions:
         if direction == "strong_to_weak":
-            if holds is None:
-                try:
-                    holds = [s for s in (await repository.list_all_stocks())
-                             if s.get("status") == "hold"]
-                except Exception:
-                    holds = []
+            await _ensure_pool()
             matched = [s for s in holds if theme in (s.get("concepts") or "")]
             if not matched:                       # 没踩线持仓, 与你无关, 不推
                 continue
@@ -225,12 +232,16 @@ async def scan_sector_rotation() -> None:
             except Exception as e:
                 logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
         else:
+            # v1.7.787: 启动卡带「个股明细」折叠区 — 入队时就把该题材涨停股明细算好
+            # (含是否在自选池/持仓), 卡构造层是同步函数不便再查库。
+            await _ensure_pool()
             try:
                 await alert_throttle.enqueue("SECTOR_WEAK_TO_STRONG", {
                     "theme": theme, "limit_up": m["limit_up"], "yest": m.get("yest", 0),
                     "slope": m.get("slope", 0),
                     "max_height": m["max_height"], "broken": m["broken"],
                     "samples": m["samples"],
+                    "sample_rows": _mark_pool(m.get("sample_rows") or [], pool_rows or []),
                 })
             except Exception as e:
                 logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
@@ -257,6 +268,47 @@ def _merge_strong_to_weak(items: list[dict]) -> str:
             lines.append(f"  └ 你持仓踩此线: {a['holds']} — 龙头转弱整板抽血, 沿5日线飘到头就减。")
     lines.append("\n昨日热、今日涨停较昨腰斩, 踩线持仓注意逢高减。")
     return "\n".join(lines)
+
+
+def _mark_pool(rows: list[dict], pool_rows: list[dict]) -> list[dict]:
+    """给题材代表股打「在不在你自选池/是不是持仓」标记 (v1.7.787)。
+
+    pool_rows = repository.list_all_stocks() 原样; 只按 code 匹配, 不改其它字段。
+    """
+    status_by_code = {s.get("code"): (s.get("status") or "") for s in (pool_rows or [])}
+    out = []
+    for r in rows or []:
+        st = status_by_code.get(r.get("code"), "")
+        out.append({**r, "pool": "hold" if st == "hold" else ("watch" if st else "")})
+    return out
+
+
+def _detail_lines(items: list[dict]) -> list[str]:
+    """个股明细(折叠区): 每题材一段, 每只票一行 名称(代码) N板 涨幅 炸板 自选标记。"""
+    lines: list[str] = []
+    for a in items:
+        rows = a.get("sample_rows") or []
+        if not rows:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"**{a['theme']}**（涨停 {a.get('limit_up', len(rows))} 家）")
+        for r in rows:
+            parts = [f"{r.get('name') or ''}({r.get('code') or ''})"]
+            h = int(r.get("height") or 0)
+            parts.append(r.get("streak_label") or (f"{h}板" if h else ""))
+            pct = r.get("pct")
+            if pct is not None:
+                parts.append(f"{float(pct):+.1f}%")
+            ot = int(r.get("open_times") or 0)
+            if ot:
+                parts.append(f"炸板{ot}次")
+            if r.get("pool") == "hold":
+                parts.append("● 持仓")
+            elif r.get("pool") == "watch":
+                parts.append("★ 自选")
+            lines.append("• " + " · ".join(p for p in parts if p))
+    return lines
 
 
 def _rep_lines(items: list[dict], max_names: int = 2) -> list[str]:
@@ -292,6 +344,12 @@ def _build_rotation_card(items: list[dict], title: str, dir_label: str):
     reps = _rep_lines(items)
     if reps:
         elements.append(md_element("代表股\n" + "\n".join(reps)))
+    # v1.7.787: 涉及个股的明细(几板/涨幅/炸板/是否在自选池)默认折叠 —— 卡面维持一眼看完,
+    # 想深看再点开; 明细在入队时算好(见 _mark_pool), 老队列消息没有该字段则本区自动不出现。
+    details = _detail_lines(items)
+    if details:
+        n = sum(len(a.get("sample_rows") or []) for a in items)
+        elements.append(card_kit.fold(f"个股明细（{n} 只）", "\n".join(details)))
     return title, elements
 
 

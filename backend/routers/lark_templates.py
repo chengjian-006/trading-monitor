@@ -741,9 +741,24 @@ def _rotation_wts_preview() -> dict:
     from backend.services.sector_rotation_scanner import _build_weak_to_strong_card
     items = [
         {"theme": "PCB", "yest": 1, "limit_up": 4, "max_height": 4, "broken": 0,
-         "samples": ["胜宏科技", "景旺电子", "生益科技"]},
+         "samples": ["胜宏科技", "景旺电子", "生益科技"],
+         # v1.7.787: 涉及个股明细默认折叠(真实推送同源, 见 sector_rotation_scanner._detail_lines)
+         "sample_rows": [
+             {"code": "300476", "name": "胜宏科技", "height": 4, "pct": 10.01,
+              "open_times": 0, "streak_label": "4连板", "pool": "hold"},
+             {"code": "603228", "name": "景旺电子", "height": 2, "pct": 10.00,
+              "open_times": 1, "streak_label": "2连板", "pool": "watch"},
+             {"code": "600183", "name": "生益科技", "height": 1, "pct": 10.03,
+              "open_times": 0, "streak_label": "首板", "pool": ""},
+         ]},
         {"theme": "算力服务器", "yest": 2, "limit_up": 4, "max_height": 4, "broken": 0,
-         "samples": ["工业富联", "沪电股份"]},
+         "samples": ["工业富联", "沪电股份"],
+         "sample_rows": [
+             {"code": "601138", "name": "工业富联", "height": 1, "pct": 10.00,
+              "open_times": 0, "streak_label": "首板", "pool": ""},
+             {"code": "002463", "name": "沪电股份", "height": 2, "pct": 9.99,
+              "open_times": 0, "streak_label": "2连板", "pool": "watch"},
+         ]},
     ]
     title, elements = _build_weak_to_strong_card(items)
     return _v2(title, elements, "blue")
