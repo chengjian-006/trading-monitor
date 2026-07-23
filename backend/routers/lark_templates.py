@@ -773,7 +773,14 @@ register("盘面分析", "板块弱转强·启动",
 def _rotation_wts_failed_preview() -> dict:
     from backend.services.sector_rotation_scanner import _build_wts_failed_card
     items = [{"theme": "机器人", "yest": 3, "peak": 7, "limit_up": 3,
-              "samples": ["天安新材", "长盛轴承"]}]
+              "samples": ["天安新材", "长盛轴承"],
+              # v1.7.788: 个股明细折叠区(与启动卡同款)
+              "sample_rows": [
+                  {"code": "000503", "name": "天安新材", "height": 2, "pct": 9.97,
+                   "open_times": 2, "streak_label": "2连板", "pool": "watch"},
+                  {"code": "300718", "name": "长盛轴承", "height": 1, "pct": 10.00,
+                   "open_times": 1, "streak_label": "首板", "pool": ""},
+              ]}]
     title, elements = _build_wts_failed_card(items)
     return _v2(title, elements, "blue")
 
@@ -788,9 +795,20 @@ def _rotation_stw_preview() -> dict:
     from backend.services.sector_rotation_scanner import _build_strong_to_weak_card
     items = [
         {"theme": "光通信", "yest": 5, "limit_up": 2, "broken": 4,
-         "samples": ["中际旭创", "新易盛"], "holds": "中际旭创"},
+         "samples": ["中际旭创", "新易盛"], "holds": "中际旭创",
+         # v1.7.788: 个股明细折叠区(与启动卡同款)
+         "sample_rows": [
+             {"code": "300308", "name": "中际旭创", "height": 1, "pct": 10.00,
+              "open_times": 3, "streak_label": "首板", "pool": "hold"},
+             {"code": "300502", "name": "新易盛", "height": 2, "pct": 9.98,
+              "open_times": 1, "streak_label": "2连板", "pool": "watch"},
+         ]},
         {"theme": "固态电池", "yest": 4, "limit_up": 1, "broken": 3,
-         "samples": ["三祥新材", "上海洗霸"]},
+         "samples": ["三祥新材", "上海洗霸"],
+         "sample_rows": [
+             {"code": "603663", "name": "三祥新材", "height": 1, "pct": 10.01,
+              "open_times": 2, "streak_label": "首板", "pool": ""},
+         ]},
     ]
     title, elements = _build_strong_to_weak_card(items)
     return _v2(title, elements, "blue")

@@ -78,6 +78,36 @@ def test_weak_to_strong_card_has_folded_stock_detail():
     assert "● 持仓" in body and "★ 自选" in body
 
 
+def test_sibling_rotation_cards_have_folded_stock_detail():
+    """v1.7.788: 退潮卡/失败卡同款个股明细折叠区(默认收起), 且排在常显元素之后。"""
+    from backend.services import sector_rotation_scanner as scanner
+
+    rows = [{"code": "300308", "name": "中际旭创", "height": 1, "pct": 10.0,
+             "open_times": 3, "streak_label": "首板", "pool": "hold"}]
+    stw = [{"theme": "光通信", "yest": 5, "limit_up": 2, "broken": 4,
+            "samples": ["中际旭创"], "holds": "中际旭创(300308)", "sample_rows": rows}]
+    _t, els = scanner._build_strong_to_weak_card(stw)
+    assert els[-1]["tag"] == "collapsible_panel" and els[-1]["expanded"] is False
+    assert "炸板3次" in str(els[-1]) and "● 持仓" in str(els[-1])
+
+    failed = [{"theme": "机器人", "yest": 3, "peak": 7, "limit_up": 3,
+               "samples": ["天安新材"], "sample_rows": rows}]
+    _t2, els2 = scanner._build_wts_failed_card(failed)
+    assert els2[-1]["tag"] == "collapsible_panel" and els2[-1]["expanded"] is False
+
+
+def test_rotation_cards_without_detail_have_no_fold():
+    """向后兼容: 老队列消息没有 sample_rows → 不出现折叠区, 卡片照常发。"""
+    from backend.services import sector_rotation_scanner as scanner
+
+    plain = [{"theme": "光通信", "yest": 5, "limit_up": 2, "broken": 4, "max_height": 2,
+              "samples": ["中际旭创"]}]
+    for build in (scanner._build_weak_to_strong_card, scanner._build_strong_to_weak_card,
+                  scanner._build_wts_failed_card):
+        _t, els = build(plain)
+        assert not [e for e in els if e.get("tag") == "collapsible_panel"]
+
+
 def test_mark_pool_tags_watch_and_hold():
     from backend.services import sector_rotation_scanner as scanner
 

@@ -218,16 +218,19 @@ async def scan_sector_rotation() -> None:
                     "slope": m.get("slope", 0),
                     "max_height": m["max_height"], "broken": m["broken"],
                     "samples": m["samples"], "holds": hold_names,
+                    "sample_rows": _mark_pool(m.get("sample_rows") or [], pool_rows or []),
                 })
             except Exception as e:
                 logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
         elif direction == "wts_failed":
             # 弱转强失败: 早先广播过启动, 现回落 — 补一条失败提醒(同样全市场广播)
+            await _ensure_pool()
             try:
                 await alert_throttle.enqueue("SECTOR_WTS_FAILED", {
                     "theme": theme, "limit_up": m["limit_up"], "yest": m.get("yest", 0),
                     "peak": m.get("peak", m["limit_up"]),
                     "broken": m["broken"], "samples": m["samples"],
+                    "sample_rows": _mark_pool(m.get("sample_rows") or [], pool_rows or []),
                 })
             except Exception as e:
                 logger.warning(f"[sector_rotation] {theme} {direction} 推送入队失败: {e}")
@@ -311,6 +314,19 @@ def _detail_lines(items: list[dict]) -> list[str]:
     return lines
 
 
+def _append_detail_fold(elements: list, items: list[dict]) -> None:
+    """给轮动三卡追加「个股明细」折叠区 (v1.7.787 启动卡, v1.7.788 退潮/失败卡同款)。
+
+    卡面维持一眼看完, 想深看再点开; 明细在入队时算好(见 _mark_pool), 老队列消息没有
+    sample_rows 字段则本区自动不出现(向后兼容)。放在所有常显元素之后 = 三段式的「折叠」段。
+    """
+    details = _detail_lines(items)
+    if not details:
+        return
+    n = sum(len(a.get("sample_rows") or []) for a in items)
+    elements.append(card_kit.fold(f"个股明细（{n} 只）", "\n".join(details)))
+
+
 def _rep_lines(items: list[dict], max_names: int = 2) -> list[str]:
     """代表股移到表格下方逐题材一行(手机端表格单元格塞长股名列表会被截断)。
 
@@ -344,12 +360,7 @@ def _build_rotation_card(items: list[dict], title: str, dir_label: str):
     reps = _rep_lines(items)
     if reps:
         elements.append(md_element("代表股\n" + "\n".join(reps)))
-    # v1.7.787: 涉及个股的明细(几板/涨幅/炸板/是否在自选池)默认折叠 —— 卡面维持一眼看完,
-    # 想深看再点开; 明细在入队时算好(见 _mark_pool), 老队列消息没有该字段则本区自动不出现。
-    details = _detail_lines(items)
-    if details:
-        n = sum(len(a.get("sample_rows") or []) for a in items)
-        elements.append(card_kit.fold(f"个股明细（{n} 只）", "\n".join(details)))
+    _append_detail_fold(elements, items)
     return title, elements
 
 
@@ -372,6 +383,7 @@ def _build_strong_to_weak_card(items: list[dict]):
     holds = [f"• {a['theme']}: {a['holds']}" for a in items if a.get("holds")]
     if holds:
         elements.append(md_element("⚠️ 你持仓踩此线\n" + "\n".join(holds)))
+    _append_detail_fold(elements, items)
     return "🔴 板块强转弱·退潮", elements
 
 
@@ -397,6 +409,7 @@ def _build_wts_failed_card(items: list[dict]):
     reps = _rep_lines(items)
     if reps:
         elements.append(md_element("代表股\n" + "\n".join(reps)))
+    _append_detail_fold(elements, items)
     return "⚠️ 板块弱转强·失败", elements
 
 
