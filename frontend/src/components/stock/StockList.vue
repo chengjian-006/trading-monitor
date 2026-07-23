@@ -402,8 +402,9 @@ onMounted(() => { loadAlerts() })
   font-variant-numeric: tabular-nums;
 }
 .stock-pct {
-  font-size: 14px;
-  font-weight: 600;
+  /* 涨幅放大一号突出(14px → 16px), 与宽表同步; 涨速仍走行内 12px 覆盖 */
+  font-size: 16px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 .stock-pct.up {
