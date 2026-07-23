@@ -114,8 +114,8 @@ def _run_server_url_normalizer(file_name: str, values: list[str]) -> list[str]:
     return json.loads(result.stdout)
 
 
-def test_extension_server_url_normalizers_migrate_unsafe_legacy_values():
-    """Old HTTP/IP profiles migrate, while an HTTPS hostname override survives."""
+def test_extension_server_url_normalizers_allow_only_the_permitted_https_application_host():
+    """Old HTTP/IP and unpermitted-host profiles migrate to the application origin."""
     fallback = "https://app.guxiaocha.com"
     values = [
         "", "not a URL", "http://124.71.75.5", "https://124.71.75.5",
@@ -123,9 +123,17 @@ def test_extension_server_url_normalizers_migrate_unsafe_legacy_values():
         "https://custom.example:8443/path?ignored=yes",
     ]
     expected = [fallback, fallback, fallback, fallback, fallback, fallback,
-                "https://custom.example:8443"]
+                fallback]
     for file_name in ("background.js", "content.js", "options.js", "popup.js"):
         assert _run_server_url_normalizer(file_name, values) == expected
+
+
+def test_manifest_permits_only_https_application_origins():
+    manifest = json.loads((_EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["content_scripts"][0]["matches"] == ["https://www.iwencai.com/*"]
+    assert manifest["host_permissions"] == [
+        "https://www.iwencai.com/*", "https://app.guxiaocha.com/*"
+    ]
 
 
 def test_opinion_docstring_describes_dedicated_token_protection():

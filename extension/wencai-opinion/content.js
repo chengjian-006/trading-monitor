@@ -22,7 +22,7 @@
       const url = new URL(String(value || ''));
       const host = url.hostname;
       const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
-      if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+      if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
       return url.origin;
     } catch (e) {
       return DEFAULT_SERVER_URL;

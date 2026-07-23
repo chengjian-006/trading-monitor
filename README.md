@@ -41,7 +41,7 @@
 - lightweight-charts — K线 / 分时图
 - xlsx — 报表导出
 
-**部署**：tar 打包 → ssh 上传服务器 → uvicorn 跑在 `127.0.0.1:8888`，nginx 80 端口反代；前端静态资源由后端托管。
+**部署**：tar 打包 → ssh 上传服务器 → Uvicorn 仅监听 `127.0.0.1:8888`，由 Nginx 在已备案的 HTTPS 应用域名反代；裸 IP 不提供应用服务。
 
 ---
 
@@ -88,7 +88,7 @@ trading-monitor/
 pip install -r requirements.txt
 
 # 准备 config.json(见下方配置说明), 然后从项目根启动
-python -m uvicorn backend.main:app --host 0.0.0.0 --port 8888
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8888
 ```
 
 > 后端导入路径基于 `backend.*`，请始终从**项目根目录**运行。`init_db()` 会在启动时建表 + seed 默认定时任务。
@@ -138,7 +138,7 @@ cd frontend && npm run build   # 前端类型检查作为门禁
     "password": "<password>",
     "db": "<dbname>"
   },
-  "site_url": "http://<部署地址>"
+  "site_url": "https://<应用域名>"
 }
 ```
 

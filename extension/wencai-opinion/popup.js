@@ -16,7 +16,7 @@ function normalizeServerUrl(value) {
     const url = new URL(String(value || ''));
     const host = url.hostname;
     const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
-    if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+    if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
     return url.origin;
   } catch (e) {
     return DEFAULT_SERVER_URL;
@@ -171,7 +171,7 @@ function loadLastRun() {
 
 // ---------- 设置：加载 + 改完即存 ----------
 let saving = false; // 防止 load 回填触发保存
-let activeServerUrl = DEFAULTS.serverUrl; // 保留已有部署覆盖；弹窗没有服务器地址输入框
+let activeServerUrl = DEFAULTS.serverUrl; // 仅允许已授权的 HTTPS 应用域名；弹窗没有服务器地址输入框
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;

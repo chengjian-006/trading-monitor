@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "问财观点 · 股小察",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "description": "在同花顺问财用口语问一句, 把智能调度的投顾式推荐存进股小察「问财观点」。支持前台浮层/后台静默/定时。",
   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
   "action": {
@@ -12,7 +12,7 @@
   "options_page": "options.html",
   "content_scripts": [
     {
-      "matches": ["https://www.iwencai.com/*", "http://www.iwencai.com/*"],
+      "matches": ["https://www.iwencai.com/*"],
       "js": ["common.js", "content.js"],
       "run_at": "document_idle"
     }
@@ -27,11 +27,6 @@
   "permissions": ["storage", "alarms", "cookies", "notifications", "contextMenus"],
   "host_permissions": [
     "https://www.iwencai.com/*",
-    "http://www.iwencai.com/*",
-    "http://124.71.75.5/*",
-    "https://124.71.75.5/*",
-    "http://localhost/*",
-    "http://localhost:8000/*",
-    "http://127.0.0.1/*"
+    "https://app.guxiaocha.com/*"
   ]
 }

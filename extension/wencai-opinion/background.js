@@ -20,7 +20,7 @@ function normalizeServerUrl(value) {
     const url = new URL(String(value || ''));
     const host = url.hostname;
     const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
-    if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+    if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
     return url.origin;
   } catch (e) {
     return DEFAULT_SERVER_URL;
@@ -142,7 +142,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'quote' && msg.code) {
-    // 问财页浮层(页面上下文)跨域取不到股小察现价, 由后台代取(host_permissions 覆盖 124.71.75.5)
+    // 问财页浮层(页面上下文)跨域取不到股小察现价, 由后台代取。
     getSettings().then((s) => fetch(s.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(msg.code), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null)).then((q) => sendResponse(q)).catch(() => sendResponse(null)));
     return true;
