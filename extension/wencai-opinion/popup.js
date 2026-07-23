@@ -1,6 +1,6 @@
 // 问财观点扩展 · 弹窗逻辑（三 Tab：问答 / 历史 / 设置，设置改完即存）
 const DEFAULTS = {
-  serverUrl: 'https://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -157,9 +157,11 @@ function loadLastRun() {
 
 // ---------- 设置：加载 + 改完即存 ----------
 let saving = false; // 防止 load 回填触发保存
+let activeServerUrl = DEFAULTS.serverUrl; // 保留已有部署覆盖；弹窗没有服务器地址输入框
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;
+    activeServerUrl = s.serverUrl || DEFAULTS.serverUrl;
     $('uploader').value = s.uploader || '';
     $('presets').value = (s.presets || []).join('\n');
     $('deepResearch').checked = !!s.deepResearch; $('autoUpload').checked = !!s.autoUpload; $('onlyWithStock').checked = !!s.onlyWithStock;
@@ -178,7 +180,7 @@ function loadSettings() {
 function collectSettings() {
   const presets = linesToArr($('presets').value);
   return {
-    serverUrl: DEFAULTS.serverUrl, uploader: $('uploader').value.trim(),
+    serverUrl: activeServerUrl, uploader: $('uploader').value.trim(),
     presets,
     deepResearch: $('deepResearch').checked, autoUpload: $('autoUpload').checked, onlyWithStock: $('onlyWithStock').checked,
     schedule: {
@@ -289,7 +291,7 @@ function kvRow(k, v) {
 }
 
 function fetchQuoteDirect(code) {
-  return fetch(DEFAULTS.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(code), { cache: 'no-store' })
+  return fetch(activeServerUrl + '/api/wencai/quote?code=' + encodeURIComponent(code), { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null)).catch(() => null);
 }
 // 弹窗决策卡(与详情页/浮层同一套): 主推 + 买入/止盈/止损价位磁贴(带距现价%) + 逻辑/风险

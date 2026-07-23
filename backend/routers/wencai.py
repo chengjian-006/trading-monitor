@@ -419,8 +419,8 @@ async def _extract_stocks(text: str) -> list[dict]:
     return await asyncio.to_thread(_scan_names, text, names)
 
 
-# ── H4 安全整改 (v1.7.653): /opinion 无鉴权(用户拍板)靠 IP 限流兜底防匿名刷库/DoS ──
-# 阈值远超油猴正常量(每天几次), 只挡洪水; 进程内滑窗·单 worker 足够。
+# ── H4 安全整改 (v1.7.653): /opinion 独立 token 鉴权 + IP 限流防刷库/DoS ──
+# 阈值远超扩展正常量(每天几次), 只挡洪水; 进程内滑窗·单 worker 足够。
 _OPINION_RL_WINDOW = 60          # 分钟滑窗(秒)
 _OPINION_RL_MAX = 30             # 每 IP 每分钟上限
 _OPINION_RL_DAY_MAX = 500        # 每 IP 每日上限(挡持续刷库)
@@ -463,7 +463,7 @@ def _opinion_rate_limit(request: Request) -> None:
 
 
 class OpinionIngestRequest(BaseModel):
-    token: str = ""                 # 已不校验(2026-07-16 用户拍板去掉观点上报鉴权), 留字段兼容旧客户端
+    token: str = ""                 # 独立观点上报 token; 空值或与服务端配置不符均拒绝
     question: str
     answer_text: str = ""
     trace_id: str = ""
@@ -487,11 +487,11 @@ def _opinion_ingest_token_ok(token: str) -> bool:
 async def ingest_opinion(req: OpinionIngestRequest, request: Request):
     """本地浏览器代跑上报一条问财 chat 观点 → 抽股票 → 落 cfzy_biz_wencai_opinion(全局 user_id=0)。
 
-    不做 token 鉴权(2026-07-16 用户拍板: 个人自用降低配置门槛; 候选榜 ingest 两口仍留密钥)。
+    请求体 token 必须匹配 config.wencai_opinion.ingest_token; 服务端未配置、请求为空或不匹配均拒绝。
     答案话术在客户端从 SSE 拼好整段传来, 这里撞字典抽票 + 落库。
     only_with_stock=True 且没抽出个股时跳过入库(返回 skipped)。
     """
-    _opinion_rate_limit(request)   # H4: 无鉴权靠限流兜底
+    _opinion_rate_limit(request)   # H4: token 鉴权之外保留按 IP 限流
     if not _opinion_ingest_token_ok(req.token):
         raise HTTPException(status_code=401, detail="opinion ingest token invalid")
     question = (req.question or "").strip()[:255]

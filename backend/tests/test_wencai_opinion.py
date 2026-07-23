@@ -7,11 +7,14 @@ import asyncio
 import io
 import re
 import zipfile
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 
 from backend.routers import wencai as wc
+
+_EXTENSION_DIR = Path(__file__).resolve().parents[2] / "extension" / "wencai-opinion"
 
 # 模拟全市场名称字典(含会被话术提及的 + 干扰项)
 _NAMES = [
@@ -87,6 +90,26 @@ def test_opinion_rejects_when_server_token_is_unconfigured(monkeypatch):
         _ingest(_req(token="SECRET"))
     assert error.value.status_code == 401
     assert cap == {}
+
+
+def test_extension_defaults_to_https_application_host_and_preserves_overrides():
+    """Every entry point uses the deployed app origin; settings saves retain overrides."""
+    sources = {
+        name: (_EXTENSION_DIR / name).read_text(encoding="utf-8")
+        for name in ("background.js", "content.js", "options.js", "popup.js")
+    }
+    for source in sources.values():
+        assert "serverUrl: 'https://app.guxiaocha.com'" in source
+        assert "serverUrl: 'https://124.71.75.5'" not in source
+    for name in ("options.js", "popup.js"):
+        assert "serverUrl: activeServerUrl" in sources[name]
+        assert "activeServerUrl = s.serverUrl || DEFAULTS.serverUrl" in sources[name]
+
+
+def test_opinion_docstring_describes_dedicated_token_protection():
+    doc = wc.ingest_opinion.__doc__ or ""
+    assert "wencai_opinion.ingest_token" in doc
+    assert "不做 token 鉴权" not in doc
 
 
 def test_opinion_empty_question(monkeypatch):

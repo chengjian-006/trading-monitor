@@ -4,7 +4,7 @@ importScripts('common.js');
 const WOP = self.WOP;
 
 const DEFAULTS = {
-  serverUrl: 'https://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
