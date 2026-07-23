@@ -58,6 +58,11 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
         raise HTTPException(400, "koujing 只能 daily/5m")
     if req.scope not in ("pool", "all"):
         raise HTTPException(400, "scope 只能 pool/all")
+    uid = user["id"]
+    if (req.scope == "all" or req.koujing == "5m") and user.get("role") != "admin":
+        raise HTTPException(403, "全市场或5分钟回测仅限管理员")
+    if backtest_jobs.has_active_job(uid) or await backtest_jobs_db.has_active_job(uid):
+        raise HTTPException(409, "当前用户已有回测任务运行中，请等待完成后再试")
     lookback = max(30, min(int(req.lookback_days), 1100))
     end = date.today().isoformat()
     start = (date.today() - timedelta(days=lookback)).isoformat()
@@ -67,8 +72,6 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
         return {"ok": False, "msg": "范围内无可回测股票(需5分钟数据覆盖)"}
 
     window = {"start": start, "end": end}
-    uid = user["id"]
-
     # 短任务(自选股 + 日线, ~30秒)走内存态后台任务, 现状不动。
     # 长任务(全市场 或 5分钟)走方案C: systemd-run 拉独立临时单元跑, 进度/结果落 DB,
     # 部署/重启主服务杀不死它。systemd 不可用/启动失败 → 回退到内存态(本地无 systemd 仍可用)。
@@ -96,7 +99,7 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
         return _do
 
     if not is_long:
-        jid = backtest_jobs.new_job(len(codes), meta={
+        jid = backtest_jobs.new_job(len(codes), uid, meta={
             "model_id": req.model_id, "scope": req.scope, "koujing": req.koujing,
             "runner": "inproc"})
         backtest_jobs.launch(jid, _build_inproc())
@@ -104,7 +107,7 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
 
     # ── 长任务: DB job + systemd-run 独立单元 ──
     # 内存态那条只为生成短 id + 走 systemd 失败时回退用; meta.runner 控制 model-job 该读内存还是读 DB。
-    jid = backtest_jobs.new_job(len(codes), meta={
+    jid = backtest_jobs.new_job(len(codes), uid, meta={
         "model_id": req.model_id, "scope": req.scope, "koujing": req.koujing,
         "runner": "systemd"})
 
@@ -142,7 +145,7 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
     if not started:
         # 回退: 改用内存态 launch 跑这个 jid; 内存 meta.runner 翻成 inproc(让 model-job 读内存那条),
         # DB 行也标 inproc 留痕。本地无 systemd / 生产 systemd 故障时仍能跑完。
-        mj = backtest_jobs.get_job(jid)
+        mj = backtest_jobs.get_job(jid, uid)
         if mj:
             mj.setdefault("meta", {})["runner"] = "inproc"
         try:
@@ -155,19 +158,24 @@ async def model_run(req: ModelRunRequest, user: Annotated[dict, Depends(get_curr
 
 
 @router.get("/model-job/{jid}")
-async def model_job(jid: str, _: Annotated[dict, Depends(get_current_user)]):
+async def model_job(jid: str, user: Annotated[dict, Depends(get_current_user)]):
     """轮询后台回测任务进度/结果。
 
     内存态 job(短任务 + 长任务回退态, meta.runner='inproc') → 读内存。
     内存态 meta.runner='systemd'(长任务走了独立单元) → 进度/结果只在 DB, 读 DB。
     内存态没有(主服务重启过, 内存丢了) → 读 DB。
     """
-    j = backtest_jobs.get_job(jid)
+    uid = user["id"]
+    j = backtest_jobs.get_job(jid, uid)
+    if j and j.get("user_id") != uid:
+        raise HTTPException(404, "任务不存在或已过期")
     if j and j.get("meta", {}).get("runner") != "systemd":
         return {"ok": True, "status": j["status"], "progress": j["progress"],
                 "result": j["result"], "error": j["error"]}
 
-    db = await backtest_jobs_db.get_job(jid)
+    db = await backtest_jobs_db.get_job(jid, uid)
+    if db and db.get("user_id") != uid:
+        raise HTTPException(404, "任务不存在或已过期")
     if db:
         status = db["status"]
         progress = db["progress"] or {"done": 0, "total": 0, "phase": "排队中", "note": ""}

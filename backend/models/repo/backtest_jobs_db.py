@@ -34,13 +34,15 @@ async def create_job(job: dict) -> None:
     await _execute(sql, args)
 
 
-async def get_job(job_id: str) -> dict | None:
+async def get_job(job_id: str, user_id: int | None = None) -> dict | None:
     """取一行, JSON 字段反序列化; 带出 updated_at(僵尸保护判心跳用)。"""
+    owner_clause = " AND user_id=%s" if user_id is not None else ""
+    args = (job_id, int(user_id)) if user_id is not None else (job_id,)
     r = await _fetchone(
         "SELECT job_id, user_id, model_id, scope, koujing, lookback_days, "
         "window_start, window_end, params_json, codes_json, status, "
         "progress_json, result_json, error, runner, created_at, updated_at "
-        "FROM cfzy_sys_backtest_jobs WHERE job_id=%s", (job_id,))
+        "FROM cfzy_sys_backtest_jobs WHERE job_id=%s" + owner_clause, args)
     if not r:
         return None
     return {
@@ -58,6 +60,15 @@ async def get_job(job_id: str) -> dict | None:
         "created_at": r["created_at"],
         "updated_at": r["updated_at"],
     }
+
+
+async def has_active_job(user_id: int) -> bool:
+    row = await _fetchone(
+        "SELECT job_id FROM cfzy_sys_backtest_jobs "
+        "WHERE user_id=%s AND status='running' AND runner='systemd' LIMIT 1",
+        (int(user_id),),
+    )
+    return row is not None
 
 
 async def update_progress(job_id: str, progress: dict) -> None:

@@ -10,28 +10,37 @@ export function useWebSocket(onMessage: (data: any) => void) {
   const MAX_DELAY = 30000
 
   function connect() {
-    if (!authStore.token) return
+    const token = authStore.token
+    if (!token) return
 
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${authStore.token}`)
+    const socket = new WebSocket(`${proto}://${location.host}/ws`)
+    ws = socket
 
-    ws.onopen = () => {
-      connected.value = true
-      retryDelay = 3000
+    socket.onopen = () => {
+      socket.send(JSON.stringify({ type: 'auth', token }))
     }
 
-    ws.onclose = () => {
+    socket.onclose = () => {
+      if (ws !== socket) return
       connected.value = false
+      ws = null
       scheduleReconnect()
     }
 
-    ws.onerror = () => {
-      ws?.close()
+    socket.onerror = () => {
+      socket.close()
     }
 
-    ws.onmessage = (e) => {
+    socket.onmessage = (e) => {
+      if (ws !== socket) return
       try {
         const data = JSON.parse(e.data)
+        if (data.type === 'auth_ok') {
+          connected.value = true
+          retryDelay = 3000
+          return
+        }
         if (data.type === 'force_logout') {
           close()
           onMessage(data)
@@ -52,6 +61,7 @@ export function useWebSocket(onMessage: (data: any) => void) {
   }
 
   function close() {
+    connected.value = false
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
