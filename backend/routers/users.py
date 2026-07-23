@@ -1,7 +1,7 @@
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user, hash_password, require_admin
 from backend.models import repository
@@ -10,9 +10,9 @@ router = APIRouter(prefix="/api/users", tags=["users"])
 
 
 class CreateUserRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "user"
+    username: str = Field(min_length=3, max_length=64)
+    password: str = Field(min_length=12, max_length=256)
+    role: Literal["admin", "user"] = "user"
 
 
 class UpdateProfileRequest(BaseModel):
@@ -21,15 +21,15 @@ class UpdateProfileRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    username: Optional[str] = None
-    role: Optional[str] = None
+    username: Optional[str] = Field(default=None, min_length=3, max_length=64)
+    role: Optional[Literal["admin", "user"]] = None
     mobile: Optional[str] = None
     lark_webhook: Optional[str] = None
     lark_enabled: Optional[int] = None
 
 
 class ResetPasswordRequest(BaseModel):
-    password: str
+    password: str = Field(min_length=12, max_length=256)
 
 
 @router.get("")
@@ -62,6 +62,8 @@ async def update_user(user_id: int, req: UpdateUserRequest, admin: Annotated[dic
         if existing:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="用户名已存在")
     await repository.update_user(user_id, **updates)
+    if "role" in updates or "username" in updates:
+        await repository.increment_token_version(user_id)
     await repository.add_log(admin["id"], admin["username"], "update_user", user["username"],
                              new_value=updates)
     return {"ok": True}
@@ -87,6 +89,7 @@ async def reset_password(user_id: int, req: ResetPasswordRequest, admin: Annotat
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在")
     pw_hash, salt = hash_password(req.password)
     await repository.update_user_password(user_id, pw_hash, salt)
+    await repository.increment_token_version(user_id)
     await repository.add_log(admin["id"], admin["username"], "reset_password", user["username"])
     return {"ok": True}
 

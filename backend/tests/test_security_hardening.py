@@ -6,13 +6,17 @@
   - GET /api/config 敏感叶子打码为哨兵, PUT 哨兵回传保留服务器现值
   - /api/quick/set HMAC 签名纳入 exp 过期时间戳, 旧无 exp 链接一律拒绝
 """
+import asyncio
 import os
 import time
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi import FastAPI
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from backend.core import auth
 
@@ -30,6 +34,101 @@ def test_token_roundtrip_with_resolved_key():
     assert payload["sub"] == 1
     assert payload["role"] == "admin"
     assert payload["tv"] == 3
+
+
+def test_password_hash_uses_current_pbkdf2_work_factor():
+    """New passwords must use the current OWASP PBKDF2-HMAC-SHA256 work factor."""
+    assert auth.PASSWORD_HASH_ITERATIONS >= 600_000
+
+
+def test_current_user_uses_live_role_after_database_demotion(monkeypatch):
+    """A JWT role claim must not preserve admin access after a database demotion."""
+    from backend.models import repository
+    from backend.core import config as config_module
+
+    token = auth.create_token(user_id=9, username="alice", role="admin", token_version=4)
+
+    async def fake_get_user(_user_id):
+        return {"id": 9, "username": "alice", "role": "user", "token_version": 4}
+
+    async def fake_get_token_version(_user_id):
+        return 4
+
+    monkeypatch.setattr(repository, "get_user_by_id", fake_get_user)
+    monkeypatch.setattr(repository, "get_token_version", fake_get_token_version)
+    monkeypatch.setattr(config_module, "load_config", lambda: {"sso_enabled": True})
+
+    credential = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    current_user = asyncio.run(auth.get_current_user(credential))
+    assert current_user["role"] == "user"
+
+
+def test_password_reset_invalidates_existing_sessions(monkeypatch):
+    """Resetting a password must bump token_version so every previous token is rejected."""
+    from backend.routers import users as users_router
+
+    invalidated: list[int] = []
+
+    async def fake_get_user(_user_id):
+        return {"id": 9, "username": "alice", "role": "user"}
+
+    async def fake_update_password(*_args):
+        return None
+
+    async def fake_increment_token_version(user_id):
+        invalidated.append(user_id)
+        return 5
+
+    async def fake_add_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(users_router.repository, "get_user_by_id", fake_get_user)
+    monkeypatch.setattr(users_router.repository, "update_user_password", fake_update_password)
+    monkeypatch.setattr(users_router.repository, "increment_token_version", fake_increment_token_version)
+    monkeypatch.setattr(users_router.repository, "add_log", fake_add_log)
+
+    request = users_router.ResetPasswordRequest(password="a sufficiently strong password")
+    asyncio.run(users_router.reset_password(9, request, {"id": 1, "username": "admin", "role": "admin"}))
+    assert invalidated == [9]
+
+
+def test_role_change_invalidates_existing_sessions(monkeypatch):
+    """Demoting an account must invalidate its old JWT rather than waiting for expiry."""
+    from backend.routers import users as users_router
+
+    invalidated: list[int] = []
+
+    async def fake_get_user(_user_id):
+        return {"id": 9, "username": "alice", "role": "admin"}
+
+    async def fake_update_user(*_args, **_kwargs):
+        return None
+
+    async def fake_increment_token_version(user_id):
+        invalidated.append(user_id)
+        return 5
+
+    async def fake_add_log(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(users_router.repository, "get_user_by_id", fake_get_user)
+    monkeypatch.setattr(users_router.repository, "update_user", fake_update_user)
+    monkeypatch.setattr(users_router.repository, "increment_token_version", fake_increment_token_version)
+    monkeypatch.setattr(users_router.repository, "add_log", fake_add_log)
+
+    request = users_router.UpdateUserRequest(role="user")
+    asyncio.run(users_router.update_user(9, request, {"id": 1, "username": "admin", "role": "admin"}))
+    assert invalidated == [9]
+
+
+def test_password_requests_reject_short_passwords():
+    """Account creation and resets must reject passwords below the minimum policy length."""
+    from backend.routers.users import CreateUserRequest, ResetPasswordRequest
+
+    with pytest.raises(ValidationError):
+        CreateUserRequest(username="alice", password="short")
+    with pytest.raises(ValidationError):
+        ResetPasswordRequest(password="short")
 
 
 def test_spa_path_traversal_blocked():

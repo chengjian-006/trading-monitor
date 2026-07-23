@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -40,6 +41,8 @@ def _resolve_secret_key() -> str:
 SECRET_KEY = _resolve_secret_key()
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_SECONDS = 7 * 24 * 3600
+PASSWORD_HASH_ITERATIONS = 600_000
+_LEGACY_PASSWORD_HASH_ITERATIONS = 100_000
 
 _bearer = HTTPBearer()
 
@@ -47,13 +50,18 @@ _bearer = HTTPBearer()
 def hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
     if salt is None:
         salt = os.urandom(32).hex()
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PASSWORD_HASH_ITERATIONS)
     return dk.hex(), salt
 
 
 def verify_password(password: str, password_hash: str, salt: str) -> bool:
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
-    return dk.hex() == password_hash
+    password_bytes = password.encode()
+    salt_bytes = salt.encode()
+    for iterations in (PASSWORD_HASH_ITERATIONS, _LEGACY_PASSWORD_HASH_ITERATIONS):
+        digest = hashlib.pbkdf2_hmac("sha256", password_bytes, salt_bytes, iterations).hex()
+        if hmac.compare_digest(digest, password_hash):
+            return True
+    return False
 
 
 def create_token(user_id: int, username: str, role: str, token_version: int = 1) -> str:
@@ -84,12 +92,16 @@ async def get_current_user(
     payload = decode_token(cred.credentials)
     from backend.models import repository
     from backend.core.config import load_config
+    user = await repository.get_user_by_id(payload["sub"])
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已失效，请重新登录")
+
     cfg = load_config()
     if cfg.get("sso_enabled", True):
-        db_tv = await repository.get_token_version(payload["sub"])
-        if payload.get("tv") and db_tv != payload["tv"]:
+        db_tv = user.get("token_version")
+        if db_tv != payload.get("tv"):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="会话已失效，请重新登录")
-    return {"id": payload["sub"], "username": payload["username"], "role": payload["role"]}
+    return {"id": user["id"], "username": user["username"], "role": user["role"]}
 
 
 async def require_admin(user: Annotated[dict, Depends(get_current_user)]) -> dict:
