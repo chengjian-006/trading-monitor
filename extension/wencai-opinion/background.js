@@ -13,7 +13,25 @@ const DEFAULTS = {
   deepResearch: false, autoUpload: true, onlyWithStock: false,
   schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
 };
-const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, res));
+// SERVER_URL_NORMALIZER_START
+const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+function normalizeServerUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname;
+    const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+    if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+    return url.origin;
+  } catch (e) {
+    return DEFAULT_SERVER_URL;
+  }
+}
+// SERVER_URL_NORMALIZER_END
+const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, (settings) => {
+  const serverUrl = normalizeServerUrl(settings.serverUrl);
+  if (settings.serverUrl !== serverUrl) chrome.storage.sync.set({ serverUrl });
+  res({ ...settings, serverUrl });
+}));
 const cookieVal = (name) => new Promise((res) => chrome.cookies.get({ url: 'https://www.iwencai.com', name }, (c) => res(c ? c.value : '')));
 function pushHistory(rec) { chrome.storage.local.get({ history: [] }, (o) => chrome.storage.local.set({ history: [rec, ...(o.history || [])].slice(0, 15) })); }
 
@@ -22,8 +40,7 @@ function notify(title, message) {
 }
 
 async function uploadTo(serverUrl, payload) {
-  const endpoint = new URL('/api/wencai/opinion', serverUrl);
-  if (endpoint.protocol !== 'https:') throw new Error('Opinion uploads require HTTPS');
+  const endpoint = new URL('/api/wencai/opinion', normalizeServerUrl(serverUrl));
   if (!String(payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
   const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
@@ -100,7 +117,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     let endpoint;
     try {
       endpoint = new URL(msg.url);
-      if (endpoint.protocol !== 'https:') throw new Error('Opinion uploads require HTTPS');
+      if (normalizeServerUrl(endpoint.href) !== endpoint.origin) throw new Error('Opinion uploads require an HTTPS hostname');
       if (!String(msg.payload && msg.payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
     } catch (e) {
       sendResponse({ ok: false, error: String(e.message || e) });

@@ -9,6 +9,20 @@ const DEFAULTS = {
   deepResearch: false, autoUpload: true, onlyWithStock: false,
   schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
 };
+// SERVER_URL_NORMALIZER_START
+const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+function normalizeServerUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname;
+    const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+    if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+    return url.origin;
+  } catch (e) {
+    return DEFAULT_SERVER_URL;
+  }
+}
+// SERVER_URL_NORMALIZER_END
 const $ = (id) => document.getElementById(id);
 const linesToArr = (s) => (s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 const RUN_STALE_MS = 5 * 60 * 1000;    // 超过5分钟的"进行中"视为僵死
@@ -161,7 +175,8 @@ let activeServerUrl = DEFAULTS.serverUrl; // 保留已有部署覆盖；弹窗�
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;
-    activeServerUrl = s.serverUrl || DEFAULTS.serverUrl;
+    activeServerUrl = normalizeServerUrl(s.serverUrl);
+    if (s.serverUrl !== activeServerUrl) chrome.storage.sync.set({ serverUrl: activeServerUrl });
     $('uploader').value = s.uploader || '';
     $('presets').value = (s.presets || []).join('\n');
     $('deepResearch').checked = !!s.deepResearch; $('autoUpload').checked = !!s.autoUpload; $('onlyWithStock').checked = !!s.onlyWithStock;

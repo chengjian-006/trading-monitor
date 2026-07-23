@@ -1,11 +1,13 @@
-"""问财观点上报接口单测 (最小链路).
+"""问财观点上报接口与扩展安全配置单测（最小链路）。
 
-直调 async 端点 + monkeypatch, 不起 app、不打网、不连库。
-覆盖: 无 token 也放行(已去鉴权) / 从投顾话术里撞出个股(6位代码 + 全名命中) / 主推排序 / 落库参数。
+直调 async 端点 + monkeypatch，不起 app、不打网、不连库；扩展 URL 归一化器由 Node
+直接执行。覆盖独立 ingest token 鉴权、HTTPS 应用域名迁移、个股抽取与落库参数。
 """
 import asyncio
 import io
+import json
 import re
+import subprocess
 import zipfile
 from pathlib import Path
 
@@ -92,18 +94,38 @@ def test_opinion_rejects_when_server_token_is_unconfigured(monkeypatch):
     assert cap == {}
 
 
-def test_extension_defaults_to_https_application_host_and_preserves_overrides():
-    """Every entry point uses the deployed app origin; settings saves retain overrides."""
-    sources = {
-        name: (_EXTENSION_DIR / name).read_text(encoding="utf-8")
-        for name in ("background.js", "content.js", "options.js", "popup.js")
-    }
-    for source in sources.values():
-        assert "serverUrl: 'https://app.guxiaocha.com'" in source
-        assert "serverUrl: 'https://124.71.75.5'" not in source
-    for name in ("options.js", "popup.js"):
-        assert "serverUrl: activeServerUrl" in sources[name]
-        assert "activeServerUrl = s.serverUrl || DEFAULTS.serverUrl" in sources[name]
+def _run_server_url_normalizer(file_name: str, values: list[str]) -> list[str]:
+    """Execute the actual browser normalizer in Node without loading Chrome globals."""
+    source = (_EXTENSION_DIR / file_name).read_text(encoding="utf-8")
+    match = re.search(
+        r"// SERVER_URL_NORMALIZER_START\s*(.*?)\s*// SERVER_URL_NORMALIZER_END",
+        source,
+        re.DOTALL,
+    )
+    assert match, f"{file_name} does not expose its URL normalizer for regression testing"
+    script = (
+        match.group(1)
+        + "\nconst inputs = " + json.dumps(values) + ";"
+        + "\nconsole.log(JSON.stringify(inputs.map(normalizeServerUrl)));"
+    )
+    result = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_extension_server_url_normalizers_migrate_unsafe_legacy_values():
+    """Old HTTP/IP profiles migrate, while an HTTPS hostname override survives."""
+    fallback = "https://app.guxiaocha.com"
+    values = [
+        "", "not a URL", "http://124.71.75.5", "https://124.71.75.5",
+        "http://custom.example/path", "https://192.0.2.10/path",
+        "https://custom.example:8443/path?ignored=yes",
+    ]
+    expected = [fallback, fallback, fallback, fallback, fallback, fallback,
+                "https://custom.example:8443"]
+    for file_name in ("background.js", "content.js", "options.js", "popup.js"):
+        assert _run_server_url_normalizer(file_name, values) == expected
 
 
 def test_opinion_docstring_describes_dedicated_token_protection():

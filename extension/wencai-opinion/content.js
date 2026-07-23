@@ -15,16 +15,33 @@
     deepResearch: false, autoUpload: true, onlyWithStock: false,
     schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
   };
-  const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, res));
+  // SERVER_URL_NORMALIZER_START
+  const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+  function normalizeServerUrl(value) {
+    try {
+      const url = new URL(String(value || ''));
+      const host = url.hostname;
+      const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+      if (url.protocol !== 'https:' || !host || isIpAddress) return DEFAULT_SERVER_URL;
+      return url.origin;
+    } catch (e) {
+      return DEFAULT_SERVER_URL;
+    }
+  }
+  // SERVER_URL_NORMALIZER_END
+  const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, (settings) => {
+    const serverUrl = normalizeServerUrl(settings.serverUrl);
+    if (settings.serverUrl !== serverUrl) chrome.storage.sync.set({ serverUrl });
+    res({ ...settings, serverUrl });
+  }));
   const getCookie = (name) => { const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; };
 
   function pushHistory(rec) { try { chrome.storage.local.get({ history: [] }, (o) => chrome.storage.local.set({ history: [rec, ...(o.history || [])].slice(0, 15) })); } catch (e) {} }
 
   function uploadOpinion(serverUrl, payload) {
     let endpoint;
-    try { endpoint = new URL('/api/wencai/opinion', serverUrl); }
+    try { endpoint = new URL('/api/wencai/opinion', normalizeServerUrl(serverUrl)); }
     catch (e) { return Promise.reject(new Error('Invalid server address')); }
-    if (endpoint.protocol !== 'https:') return Promise.reject(new Error('Opinion uploads require HTTPS'));
     if (!String(payload.token || '').trim()) return Promise.reject(new Error('Configure the opinion upload token in Settings first'));
     return new Promise((resolve, reject) => {
       chrome.runtime.sendMessage({ type: 'upload', url: endpoint.href, payload }, (resp) => {
