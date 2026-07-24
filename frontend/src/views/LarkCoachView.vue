@@ -26,8 +26,9 @@ function fmtDay(ts: number): string {
 // lark-cli 把回复格式化成 "回答正文 ------------ -07-21 10:24 学员:提问",
 // 分隔符是一串横杠(实测 5~12 个不等), 且横杠前不保证有空白(实见"出现。-----"直连),
 // 故只要求「5个以上横杠+空白」; 引用段开头孤立的日期横杠(如 -07-21)一并去掉。
+// v1.7.793: 播报机器人用的是粗横线 "━━━━"(引用段形如 "时间\n💬 姓名\n提问"), 一并认。
 function splitMsg(content: string): { answer: string; quoted: string } {
-  const m = content.match(/-{5,}\s/)
+  const m = content.match(/(?:-{5,}|[━─—_]{3,})\s/)
   if (!m || m.index === undefined) return { answer: content.trim(), quoted: '' }
   const quoted = content.slice(m.index + m[0].length).trim().replace(/^-(?=\d)/, '')
   return { answer: content.slice(0, m.index).trim(), quoted }

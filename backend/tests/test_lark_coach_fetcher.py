@@ -146,6 +146,22 @@ def test_build_relay_card_text_with_quote():
     assert "text_size" not in card["elements"][1]                     # 引用常规字号
 
 
+def test_build_relay_card_splits_bot_heavy_rule():
+    """v1.7.793: 播报机器人的引用分隔线是粗横线 ━━━━(旧的是 -----), 也要弱化成灰字,
+    否则学员提问会跟老师的话一样加粗大字显示。"""
+    from backend.services.lark_coach_scanner import _build_relay_card
+    body = ("这票没法儿当妖股来看.但确实是今天科技股的领头羊。\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "2026-07-24 09:46:37\n💬 孟辉 武汉沿江大道\n通富我当妖来做.昨天跌了买")
+    card = _build_relay_card("藏龙岛", "07-24 10:07", text=body)
+    assert len(card["elements"]) == 2
+    assert card["elements"][0]["text_size"] == "heading"            # 老师的话仍是加粗大字
+    assert "领头羊" in card["elements"][0]["content"]
+    assert "妖股" not in card["elements"][1]["content"]             # 引用段不含正文
+    assert "<font color='grey'>" in card["elements"][1]["content"]  # 学员提问灰字弱化
+    assert "孟辉" in card["elements"][1]["content"]
+
+
 def test_build_relay_card_image_and_blank():
     from backend.services.lark_coach_scanner import _build_relay_card
     card = _build_relay_card("藏龙岛", "07-22 10:00", img_key="img_v3_abc")

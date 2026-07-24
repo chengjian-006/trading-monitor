@@ -108,7 +108,9 @@ async def scan_coach_posts():
 # 学员引用由 note 小字升为灰色 markdown 常规字号(14px), 保持灰色对比。
 # v1.7.757: 标题回归填充式蓝色 header 栏(用户看过小号标题各设计方案后仍选原蓝栏, 接受略大固定字号换蓝栏辨识度),
 # 撤销 v1.7.755 的小号标题行+分隔线。
-_QUOTE_SPLIT_RE = re.compile(r"-{5,}\s")
+# 分隔符两种形态(v1.7.793 兼容): 老师本人号走 lark-cli 格式化的一串半角横杠 "-----";
+# 播报机器人走粗横线 "━━━━"(引用段还带 "时间\n💬 姓名\n提问")。两种都要弱化成灰字。
+_QUOTE_SPLIT_RE = re.compile(r"(?:-{5,}|[━─—_]{3,})\s")
 
 
 def _bold_lines_md(text: str) -> str:
