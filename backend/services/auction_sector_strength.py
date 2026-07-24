@@ -336,12 +336,10 @@ async def build_auction_sector_part() -> tuple[list[str], list, dict] | None:
     up_n = sum(1 for b in hy if b["pct"] > 0)
     down_n = sum(1 for b in hy if b["pct"] < 0)
 
-    # 结论区: KPI 三栏(上证竞价 / 最强板块 / 昨日热点承接)
-    sh = next((x for x in (indices or []) if "上证" in str(x.get("name") or "")), None)
-    kpi_items: list = []
-    if sh is not None:
-        sh_pct = float(sh.get("pct_change") or 0)
-        kpi_items.append(("上证竞价", f"{sh_pct:+.2f}%", "red" if sh_pct >= 0 else "green"))
+    # 结论区: KPI 三栏(行业上涨 / 最强板块 / 昨日热点承接)
+    # v1.7.791: 首栏原为「上证竞价」, 与合并卡上半部分的四大指数行重复 → 改行业广度
+    kpi_items: list = [("行业上涨", f"{up_n}/{len(hy)}",
+                        "red" if up_n > down_n else ("green" if down_n > up_n else None))]
     if top1:
         kpi_items.append((f"最强 {top1['name']}", f"{top1['pct']:+.1f}%",
                           "red" if top1["pct"] >= 0 else "green"))
@@ -349,7 +347,7 @@ async def build_auction_sector_part() -> tuple[list[str], list, dict] | None:
         kpi_items.append(("昨日热点承接", f"{n_ok}承/{n_weak}弱",
                           "red" if n_ok > n_weak else ("green" if n_weak > n_ok else None)))
     if len(kpi_items) < 3:
-        kpi_items.append(("行业上涨", f"{up_n}/{len(hy)}"))
+        kpi_items.append(("概念上榜", f"{len(gn_clean)}个"))
 
     elements: list = [card_kit.kpi_row(kpi_items[:3])]
 

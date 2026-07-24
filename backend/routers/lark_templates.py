@@ -570,7 +570,8 @@ def _auction_summary_preview() -> dict:
 
 
 register("盘面分析", "竞价播报·开盘共性",
-         "9:26集合竞价AI开盘共性: heading定调+KPI三栏(上证竞价/涨停预排/高开≥5%)+题材主线+方法论折叠",
+         "9:26集合竞价AI开盘共性: heading定调+KPI三栏(涨停预排/高开≥5%/题材主线)"
+         "+四大指数竞价行(2×2)+题材主线+方法论折叠",
          _auction_summary_preview(),
          "交易日9:26 · 与竞价板块强弱合并成「📊 竞价播报」一张卡推送")
 
@@ -590,9 +591,9 @@ def _auction_sector_preview() -> dict:
     ]
     n_hy, n_gn, up_n, down_n = 31, 86, 19, 11
     n_ok, n_weak = 1, 1
-    # 结论区: KPI 三栏(上证竞价 / 最强板块 / 昨日热点承接) — 与 service 同序
+    # 结论区: KPI 三栏(行业上涨 / 最强板块 / 昨日热点承接) — 与 service 同序
     elements: list = [card_kit.kpi_row([
-        ("上证竞价", "+0.35%", "red"),
+        ("行业上涨", f"{up_n}/{n_hy}", "red"),
         ("最强 半导体", "+2.3%", "red"),
         ("昨日热点承接", f"{n_ok}承/{n_weak}弱", None),
     ])]

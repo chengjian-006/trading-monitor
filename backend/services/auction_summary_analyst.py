@@ -167,6 +167,41 @@ def _parse_llm_json(raw: str) -> dict | None:
         return None
 
 
+# 指数展示短名(卡片列名要短, 手机端一行放得下两个)
+_IDX_SHORT = {"上证指数": "上证", "深证成指": "深成", "创业板指": "创业板",
+              "科创指数": "科创50", "科创50": "科创50"}
+
+
+def _index_pairs(indices: list | None) -> list[tuple[str, float]]:
+    """四大指数 (短名, 竞价涨跌幅) —— 排除全A指数(非四大指数, 只作内部宽基参考)。"""
+    out: list[tuple[str, float]] = []
+    for x in (indices or []):
+        name = str(x.get("name") or "")
+        if not name or "全A" in name:
+            continue
+        out.append((_IDX_SHORT.get(name, name), float(x.get("pct_change") or 0)))
+    return out[:4]
+
+
+def _index_md(indices: list | None) -> str:
+    """四大指数竞价行: 2×2 排布(手机端一行两个不折行), 涨红跌绿, 保两位小数。"""
+    pairs = _index_pairs(indices)
+    if not pairs:
+        return ""
+    cells = []
+    for name, pct in pairs:
+        color = "red" if pct > 0 else ("green" if pct < 0 else "grey")
+        cells.append(f"{name} <font color='{color}'>**{pct:+.2f}%**</font>")
+    rows = ["　".join(cells[i:i + 2]) for i in range(0, len(cells), 2)]
+    return "📈 **四大指数竞价**\n" + "\n".join(rows)
+
+
+def _index_text(indices: list | None) -> str:
+    """四大指数竞价纯文本(企微/回退用)。"""
+    pairs = _index_pairs(indices)
+    return "　".join(f"{n} {p:+.2f}%" for n, p in pairs)
+
+
 def _build_auction_card(d: dict, near_lu_count: int, strong_count: int,
                         indices: list | None = None, elapsed: float = 0.0):
     """情报卡(基线 v1.1): heading 定调 → KPI 三栏 → 氛围/风格/杀跌 → 题材主线 →
@@ -182,23 +217,23 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int,
     footer = (f"基于 4 大指数 + 高开 top 30 + 低开 top 20 + 强势密度，"
               f"AI 提炼开盘共性；密度为硬数据（涨停预排=高开≥9.5%）· 用时 {elapsed:.1f}s")
 
-    # 结论区: heading 一句话定调 + KPI 三栏(上证竞价/涨停预排/高开≥5%)
-    sh = next((x for x in (indices or []) if "上证" in str(x.get("name") or "")), None)
-    kpi_items: list = []
-    if sh is not None:
-        sh_pct = float(sh.get("pct_change") or 0)
-        kpi_items.append(("上证竞价", f"{sh_pct:+.2f}%",
-                          "red" if sh_pct >= 0 else "green"))
-    kpi_items.append(("涨停预排", f"{near_lu_count}只", "red" if near_lu_count else None))
-    kpi_items.append(("高开≥5%", f"{strong_count}只"))
-    if len(kpi_items) < 3:
-        kpi_items.append(("题材主线", f"{len(mls)}条"))
+    # 结论区: heading 一句话定调 + KPI 三栏(涨停预排/高开≥5%/题材主线)
+    # v1.7.791: 指数从 KPI 挪到独立行, 四大指数全列(原只有上证一个进 KPI)
+    kpi_items: list = [
+        ("涨停预排", f"{near_lu_count}只", "red" if near_lu_count else None),
+        ("高开≥5%", f"{strong_count}只"),
+        ("题材主线", f"{len(mls)}条"),
+    ]
 
     elements = [
         card_kit.heading_md(f"📣 {headline}"),
         card_kit.kpi_row(kpi_items[:3]),
-        md_element("\n".join([f"🌡 氛围　{vibe}", f"⚖ 风格　{style}", f"❄ 杀跌　{kill}"])),
     ]
+    idx_md = _index_md(indices)
+    if idx_md:
+        elements.append(md_element(idx_md))
+    elements.append(
+        md_element("\n".join([f"🌡 氛围　{vibe}", f"⚖ 风格　{style}", f"❄ 杀跌　{kill}"])))
     if mls:
         # 移动优化(v1.7.581): 逐条换行文本行, 方向加粗前置, 代表股全名换行不截
         mlines = [f"**{str(m.get('direction', ''))}**　{str(m.get('reps', ''))}" for m in mls]
@@ -210,6 +245,11 @@ def _build_auction_card(d: dict, near_lu_count: int, strong_count: int,
     tlines = [
         "【集合竞价后开盘共性】", "",
         f"📣 {headline}", "",
+    ]
+    idx_text = _index_text(indices)
+    if idx_text:
+        tlines += [f"📈 指数  {idx_text}"]
+    tlines += [
         f"🌡 氛围  {vibe}",
         f"🔥 密度  {density}",
         f"⚖ 风格  {style}",

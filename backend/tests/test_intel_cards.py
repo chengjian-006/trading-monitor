@@ -52,18 +52,22 @@ class TestAuctionSummaryCard:
                 "kill": "无明显杀跌", "action": "开盘顺势不追高",
                 "mainlines": [{"direction": "算力", "reps": "中贝通信/鸿博股份"}]}
 
+    def _indices(self):
+        return [{"name": "上证指数", "price": 3500.0, "pct_change": 0.32, "amount": 100},
+                {"name": "深证成指", "price": 10500.0, "pct_change": -0.18, "amount": 120},
+                {"name": "创业板指", "price": 2100.0, "pct_change": 0.75, "amount": 80},
+                {"name": "科创指数", "price": 900.0, "pct_change": -0.44, "amount": 30},
+                {"name": "全A指数", "price": 4500.0, "pct_change": 0.10, "amount": 200}]
+
     def test_structure(self):
         from backend.services.auction_summary_analyst import _build_auction_card
-        indices = [{"name": "上证指数", "price": 3500.0, "pct_change": 0.32, "amount": 100}]
-        text, elements, meta = _build_auction_card(self._d(), 8, 21, indices, 3.2)
-        # 结论区: heading 定调 + KPI 恰好 3 栏
+        text, elements, meta = _build_auction_card(self._d(), 8, 21, self._indices(), 3.2)
+        # 结论区: heading 定调 + KPI 恰好 3 栏(指数已挪出 KPI)
         assert elements[0]["tag"] == "markdown" and elements[0]["text_size"] == "heading"
         assert "抢筹积极高开为主" in elements[0]["content"]
         kpis = _kpi_rows(elements)
         assert len(kpis) == 1 and len(kpis[0]["columns"]) == 3
-        md = _md_join(elements)
-        assert "+0.32%" in str(kpis[0])          # 上证竞价实测值进 KPI
-        assert "8只" in str(kpis[0]) and "21只" in str(kpis[0])
+        assert "8只" in str(kpis[0]) and "21只" in str(kpis[0]) and "1条" in str(kpis[0])
         # 👉 定性 + 折叠方法论
         assert len(_advice_lines(elements)) == 1
         assert "开盘顺势不追高" in _advice_lines(elements)[0]["content"]
@@ -74,10 +78,28 @@ class TestAuctionSummaryCard:
         assert "抢筹积极高开为主" in text and "涨停预排8" in text and "算力" in text
         assert "👉 开盘顺势不追高" in text
 
-    def test_kpi_pads_to_3_without_index(self):
+    def test_four_indices_row(self):
+        """四大指数独立成行(v1.7.791): 4 个短名 + 涨红跌绿 + 2×2 两行; 全A不进卡。"""
+        from backend.services.auction_summary_analyst import _build_auction_card
+        text, elements, _ = _build_auction_card(self._d(), 8, 21, self._indices(), 3.2)
+        idx = next(e for e in elements if isinstance(e, dict)
+                   and "四大指数竞价" in str(e.get("content", "")))
+        content = idx["content"]
+        for nm in ("上证", "深成", "创业板", "科创50"):
+            assert nm in content
+        assert "全A" not in content
+        assert "<font color='red'>**+0.32%**</font>" in content
+        assert "<font color='green'>**-0.18%**</font>" in content
+        assert len(content.split("\n")) == 3          # 标题行 + 2×2 两行
+        # 企微纯文本回退同源
+        assert "上证 +0.32%" in text and "科创50 -0.44%" in text
+
+    def test_kpi_stays_3_without_index(self):
         from backend.services.auction_summary_analyst import _build_auction_card
         _, elements, _ = _build_auction_card(self._d(), 8, 21, [], 1.0)
         assert len(_kpi_rows(elements)[0]["columns"]) == 3
+        assert not [e for e in elements if isinstance(e, dict)
+                    and "四大指数竞价" in str(e.get("content", ""))]
 
 
 # ── 2. 竞价分析(板块强弱)纯函数件 ──
