@@ -4,6 +4,7 @@ import { createChart, LineStyle, type IChartApi, type ISeriesApi, type IPriceLin
 import type { KLineBar } from '../../types'
 import type { DailyMarker } from '../../api/kline'
 import { useResponsive } from '../../composables/useResponsive'
+import { renderKLineTooltip } from './kLineTooltip'
 
 const { isPhone } = useResponsive()
 
@@ -76,10 +77,6 @@ function timeToDateStr(t: unknown): string {
 function fmt(v: number | null | undefined): string {
   return v == null ? '-' : v.toFixed(2)
 }
-function dirText(dir: string) {
-  return dir === 'buy' ? '买' : (dir === 'reduce' ? '减' : '卖')
-}
-
 function setLegendAt(i: number) {
   if (i < 0 || i >= dataArr.length) return
   const b = dataArr[i]
@@ -244,29 +241,7 @@ function render() {
     if (!tip) return
     const hits = date ? markersByDate[date] : undefined
     if (!hits || !param.point) { tip.style.display = 'none'; return }
-    tip.replaceChildren()
-    const dateEl = document.createElement('div')
-    dateEl.className = 'mk-date'
-    dateEl.textContent = date
-    tip.append(dateEl)
-    for (const h of hits) {
-      const cls = h.direction === 'buy' ? 'buy' : (h.direction === 'reduce' ? 'reduce' : 'sell')
-      const price = h.price != null ? ` ¥${h.price}` : ''
-      const tm = h.time ? ` ${h.time}` : ''
-      const row = document.createElement('div')
-      row.className = 'mk-row'
-      const tag = document.createElement('span')
-      tag.classList.add('mk-tag', cls)
-      tag.textContent = dirText(h.direction)
-      const name = document.createElement('span')
-      name.className = 'mk-name'
-      name.textContent = h.signal_name || ''
-      const meta = document.createElement('span')
-      meta.className = 'mk-meta'
-      meta.textContent = `${tm}${price}`
-      row.append(tag, name, meta)
-      tip.append(row)
-    }
+    renderKLineTooltip(tip, date, hits)
     tip.style.display = 'block'
     const w = chartEl.value?.clientWidth || 0
     const left = Math.min(param.point.x + 12, Math.max(0, w - tip.offsetWidth - 8))

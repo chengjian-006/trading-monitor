@@ -2,7 +2,6 @@
 // v1.7.93: 删除"今日信号"Tab(信号在"今日预警"页 + 股票池行内展开看), 去掉 NTabs 容器
 // 主看板只保留两块: 顶部实时 MarketOverviewBar + AI 市场分析卡片
 import { onMounted, ref } from 'vue'
-import DOMPurify from 'dompurify'
 import { NSkeleton, NCard, NButton, NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui'
 import { SparklesOutline, RefreshOutline, ChevronUpOutline, ChevronDownOutline, ThumbsUpOutline, ThumbsDownOutline, ThumbsUp, ThumbsDown } from '@vicons/ionicons5'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -16,6 +15,7 @@ import NearBuyPanel from '../components/common/NearBuyPanel.vue'
 import WencaiOpinionPanel from '../components/common/WencaiOpinionPanel.vue'
 import MarketIndexOverview from '../components/common/MarketIndexOverview.vue'
 import { fetchTodayReports, fetchLatestReport, getSlotName, upsertReportFeedback, deleteReportFeedback, fetchReportFeedback, type MarketReport, type ReportFeedback } from '../api/market-report'
+import { renderReportContent as renderContent } from './signalReportRendering'
 
 const reports = ref<MarketReport[]>([])
 const reportLoading = ref(false)
@@ -82,43 +82,6 @@ const toggleVote = guardVote((reportId: number, _vote: 'up' | 'down') => String(
     message.error('标记失败')
   }
 })
-
-// 旧 AI 报告里"全球股市/A股大盘概况/市场温度"区块在前端剥掉(数据已由顶部 MarketOverviewBar 实时刷新)
-const STRIP_SECTIONS = ['全球股市', 'A股大盘概况', '大盘概况', '市场温度']
-
-function stripDataSections(html: string): string {
-  let out = html
-  for (const title of STRIP_SECTIONS) {
-    const re = new RegExp(
-      `<h3[^>]*>\\s*${title}[^<]*(?:<[^>]*>[^<]*<\\/[^>]*>[^<]*)*<\\/h3>[\\s\\S]*?(?=<h3|$)`,
-      'g'
-    )
-    out = out.replace(re, '')
-  }
-  return out
-}
-
-function renderContent(text: string): string {
-  if (!text) return ''
-  let rendered: string
-  if (text.includes('<table') || text.includes('<h3')) {
-    // 保留报告的表格/标题结构，但不信任后端或模型生成的任何 HTML。
-    rendered = stripDataSections(text)
-  } else {
-    // markdown 分支先转义原始标签，再生成有限的展示标签；最终仍统一消毒。
-    rendered = text
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-      .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-      .replace(/\n/g, '<br>')
-      .replace(/<br><blockquote>/g, '<blockquote>')
-      .replace(/<\/blockquote><br>/g, '</blockquote>')
-  }
-
-  return DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } })
-}
 
 onMounted(() => {
   if (showAiReport) loadReports()
