@@ -9,6 +9,7 @@ import time
 import uuid
 
 _JOBS: dict[str, dict] = {}
+_USER_LOCKS: dict[int, asyncio.Lock] = {}
 _TTL = 3600          # job 完成后保留 1 小时
 _MAX = 100           # 最多保留 job 数
 
@@ -26,17 +27,55 @@ def _gc():
             _JOBS.pop(k, None)
 
 
-def new_job(total: int, meta: dict | None = None) -> str:
+def new_job(total: int, user_id: int, meta: dict | None = None) -> str:
     _gc()
     jid = uuid.uuid4().hex[:12]
-    _JOBS[jid] = {"status": "running",
+    _JOBS[jid] = {"user_id": int(user_id), "status": "running",
                   "progress": {"done": 0, "total": total, "phase": "排队中", "note": ""},
                   "result": None, "error": None, "meta": meta or {}, "ended_at": None}
     return jid
 
 
-def get_job(jid: str) -> dict | None:
-    return _JOBS.get(jid)
+def get_job(jid: str, user_id: int | None = None) -> dict | None:
+    job = _JOBS.get(jid)
+    if job is None:
+        return None
+    if user_id is not None and job.get("user_id") != int(user_id):
+        return None
+    return job
+
+
+def has_active_job(user_id: int) -> bool:
+    """Return whether the user has an active in-process job.
+
+    systemd placeholders are represented by the database row instead; ignoring
+    them here prevents a completed systemd job from blocking the user forever.
+    """
+    uid = int(user_id)
+    return any(
+        job.get("user_id") == uid
+        and job.get("status") == "running"
+        and job.get("meta", {}).get("runner") != "systemd"
+        for job in _JOBS.values()
+    )
+
+
+def user_job_lock(user_id: int) -> asyncio.Lock:
+    """Serialize active checks and job reservation for one user."""
+    uid = int(user_id)
+    lock = _USER_LOCKS.get(uid)
+    if lock is None:
+        lock = asyncio.Lock()
+        _USER_LOCKS[uid] = lock
+    return lock
+
+
+def mark_error(jid: str, message: str) -> None:
+    job = _JOBS.get(jid)
+    if job:
+        job["status"] = "error"
+        job["error"] = message
+        job["ended_at"] = time.time()
 
 
 def _progress(jid: str):

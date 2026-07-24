@@ -6,7 +6,7 @@
   const esc = WOP.esc, mdRender = WOP.mdRender;
 
   const DEFAULTS = {
-    serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+    serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
     presets: [
       '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
       '当前有哪些板块在起, 适合低吸跟随?',
@@ -15,14 +15,36 @@
     deepResearch: false, autoUpload: true, onlyWithStock: false,
     schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
   };
-  const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, res));
+  // SERVER_URL_NORMALIZER_START
+  const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+  function normalizeServerUrl(value) {
+    try {
+      const url = new URL(String(value || ''));
+      const host = url.hostname;
+      const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+      if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
+      return url.origin;
+    } catch (e) {
+      return DEFAULT_SERVER_URL;
+    }
+  }
+  // SERVER_URL_NORMALIZER_END
+  const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, (settings) => {
+    const serverUrl = normalizeServerUrl(settings.serverUrl);
+    if (settings.serverUrl !== serverUrl) chrome.storage.sync.set({ serverUrl });
+    res({ ...settings, serverUrl });
+  }));
   const getCookie = (name) => { const m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)'); return m ? m.pop() : ''; };
 
   function pushHistory(rec) { try { chrome.storage.local.get({ history: [] }, (o) => chrome.storage.local.set({ history: [rec, ...(o.history || [])].slice(0, 15) })); } catch (e) {} }
 
   function uploadOpinion(serverUrl, payload) {
+    let endpoint;
+    try { endpoint = new URL('/api/wencai/opinion', normalizeServerUrl(serverUrl)); }
+    catch (e) { return Promise.reject(new Error('Invalid server address')); }
+    if (!String(payload.token || '').trim()) return Promise.reject(new Error('Configure the opinion upload token in Settings first'));
     return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type: 'upload', url: serverUrl + '/api/wencai/opinion', payload }, (resp) => {
+      chrome.runtime.sendMessage({ type: 'upload', url: endpoint.href, payload }, (resp) => {
         if (chrome.runtime.lastError) return reject(new Error(chrome.runtime.lastError.message));
         if (resp && resp.ok) resolve(resp.data || {});
         else reject(new Error((resp && (resp.error || (resp.data && resp.data.detail) || ('HTTP ' + (resp.status || '?')))) || '存档失败'));

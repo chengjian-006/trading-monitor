@@ -41,6 +41,20 @@ async def update_user(user_id: int, **kwargs):
     await _execute(f"UPDATE cfzy_sys_users SET {set_clause} WHERE id = %s", values)
 
 
+async def update_user_and_revoke_sessions(user_id: int, **kwargs):
+    """Apply account identity/authorization changes and revoke tokens atomically."""
+    allowed = {"username", "role", "wecom_webhook", "push_enabled", "mobile", "lark_webhook", "lark_enabled"}
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = %s" for k in fields)
+    values = list(fields.values()) + [user_id]
+    await _execute(
+        f"UPDATE cfzy_sys_users SET {set_clause}, token_version = token_version + 1 WHERE id = %s",
+        values,
+    )
+
+
 async def delete_user(user_id: int):
     await _execute("DELETE FROM cfzy_biz_stock_pool WHERE user_id = %s", (user_id,))
     await _execute("DELETE FROM cfzy_biz_signals WHERE user_id = %s", (user_id,))
@@ -67,6 +81,15 @@ async def increment_token_version(user_id: int) -> int:
 async def update_user_password(user_id: int, password_hash: str, salt: str):
     await _execute(
         "UPDATE cfzy_sys_users SET password_hash = %s, salt = %s WHERE id = %s",
+        (password_hash, salt, user_id),
+    )
+
+
+async def reset_user_password(user_id: int, password_hash: str, salt: str):
+    """Replace password material and revoke existing tokens in one statement."""
+    await _execute(
+        "UPDATE cfzy_sys_users SET password_hash = %s, salt = %s, "
+        "token_version = token_version + 1 WHERE id = %s",
         (password_hash, salt, user_id),
     )
 

@@ -1,6 +1,6 @@
 // 问财观点扩展 · 弹窗逻辑（三 Tab：问答 / 历史 / 设置，设置改完即存）
 const DEFAULTS = {
-  serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -9,6 +9,20 @@ const DEFAULTS = {
   deepResearch: false, autoUpload: true, onlyWithStock: false,
   schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
 };
+// SERVER_URL_NORMALIZER_START
+const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+function normalizeServerUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname;
+    const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+    if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
+    return url.origin;
+  } catch (e) {
+    return DEFAULT_SERVER_URL;
+  }
+}
+// SERVER_URL_NORMALIZER_END
 const $ = (id) => document.getElementById(id);
 const linesToArr = (s) => (s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 const RUN_STALE_MS = 5 * 60 * 1000;    // 超过5分钟的"进行中"视为僵死
@@ -157,9 +171,12 @@ function loadLastRun() {
 
 // ---------- 设置：加载 + 改完即存 ----------
 let saving = false; // 防止 load 回填触发保存
+let activeServerUrl = DEFAULTS.serverUrl; // 仅允许已授权的 HTTPS 应用域名；弹窗没有服务器地址输入框
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;
+    activeServerUrl = normalizeServerUrl(s.serverUrl);
+    if (s.serverUrl !== activeServerUrl) chrome.storage.sync.set({ serverUrl: activeServerUrl });
     $('uploader').value = s.uploader || '';
     $('presets').value = (s.presets || []).join('\n');
     $('deepResearch').checked = !!s.deepResearch; $('autoUpload').checked = !!s.autoUpload; $('onlyWithStock').checked = !!s.onlyWithStock;
@@ -178,7 +195,7 @@ function loadSettings() {
 function collectSettings() {
   const presets = linesToArr($('presets').value);
   return {
-    serverUrl: DEFAULTS.serverUrl, uploader: $('uploader').value.trim(),
+    serverUrl: activeServerUrl, uploader: $('uploader').value.trim(),
     presets,
     deepResearch: $('deepResearch').checked, autoUpload: $('autoUpload').checked, onlyWithStock: $('onlyWithStock').checked,
     schedule: {
@@ -289,7 +306,7 @@ function kvRow(k, v) {
 }
 
 function fetchQuoteDirect(code) {
-  return fetch(DEFAULTS.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(code), { cache: 'no-store' })
+  return fetch(activeServerUrl + '/api/wencai/quote?code=' + encodeURIComponent(code), { cache: 'no-store' })
     .then((r) => (r.ok ? r.json() : null)).catch(() => null);
 }
 // 弹窗决策卡(与详情页/浮层同一套): 主推 + 买入/止盈/止损价位磁贴(带距现价%) + 逻辑/风险

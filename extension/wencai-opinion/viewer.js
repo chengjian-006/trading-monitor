@@ -4,13 +4,13 @@
   const $ = (id) => document.getElementById(id);
   const esc = WOP.esc;
   const i = Number(new URLSearchParams(location.search).get('i') || 0);
-  const DEFAULT_SERVER = 'http://124.71.75.5';
+  const DEFAULT_SERVER = 'https://app.guxiaocha.com';
 
   const fmtN = (v) => Number.isInteger(v) ? String(v) : String(+v.toFixed(2));
   const signPct = (p) => (p >= 0 ? '+' : '−') + Math.abs(p).toFixed(1) + '%';
 
   chrome.storage.sync.get({ serverUrl: DEFAULT_SERVER }, (cfg) => {
-    const server = cfg.serverUrl || DEFAULT_SERVER;
+    const server = cfg.serverUrl === DEFAULT_SERVER ? cfg.serverUrl : DEFAULT_SERVER;
     chrome.storage.local.get({ history: [] }, (o) => {
       const item = (o.history || [])[i];
       if (!item) { $('ans').textContent = '记录不存在或已被清除。'; $('decision').style.display = 'none'; $('stocks').style.display = 'none'; return; }

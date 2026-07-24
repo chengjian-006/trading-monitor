@@ -11,8 +11,8 @@ class WebSocketManager:
     def __init__(self):
         self._clients: dict[int, set[WebSocket]] = defaultdict(set)
 
-    async def connect(self, ws: WebSocket, user_id: int):
-        await ws.accept()
+    def register(self, ws: WebSocket, user_id: int):
+        """Register an already accepted and authenticated connection."""
         self._clients[user_id].add(ws)
 
     def disconnect(self, ws: WebSocket, user_id: int):

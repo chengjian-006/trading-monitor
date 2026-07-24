@@ -1,6 +1,6 @@
 // 问财观点扩展 · 完整设置页(宽屏 options)。与 popup 设置 Tab 共用同一套 storage.sync 键，改完即存。
 const DEFAULTS = {
-  serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -9,6 +9,20 @@ const DEFAULTS = {
   deepResearch: false, autoUpload: true, onlyWithStock: false,
   schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
 };
+// SERVER_URL_NORMALIZER_START
+const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+function normalizeServerUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname;
+    const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+    if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
+    return url.origin;
+  } catch (e) {
+    return DEFAULT_SERVER_URL;
+  }
+}
+// SERVER_URL_NORMALIZER_END
 const $ = (id) => document.getElementById(id);
 const linesToArr = (s) => (s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
@@ -143,9 +157,12 @@ function loadLastRun() {
 }
 
 let saving = false; // 防止 load 回填触发保存
+let activeServerUrl = DEFAULTS.serverUrl; // 仅允许已授权的 HTTPS 应用域名；页面没有服务器地址输入框
 function loadSettings() {
   chrome.storage.sync.get(DEFAULTS, (s) => {
     saving = true;
+    activeServerUrl = normalizeServerUrl(s.serverUrl);
+    if (s.serverUrl !== activeServerUrl) chrome.storage.sync.set({ serverUrl: activeServerUrl });
     $('uploader').value = s.uploader || '';
     $('presets').value = (s.presets || []).join('\n');
     $('deepResearch').checked = !!s.deepResearch;
@@ -159,13 +176,21 @@ function loadSettings() {
     renderSchedTimes();
     renderSchedQuestions(s.presets || []);
     saving = false;
+    promptForIngestToken(s);
   });
+}
+
+function promptForIngestToken(s) {
+  if (String(s.token || '').trim()) return;
+  const token = window.prompt('First-time setup: enter config.json wencai_opinion.ingest_token. This limits abuse; it is not a non-extractable browser secret.', '');
+  if (!token || !token.trim()) return;
+  chrome.storage.sync.set({ token: token.trim() }, () => toast('Opinion upload token saved'));
 }
 
 function collectSettings() {
   const presets = linesToArr($('presets').value);
   return {
-    serverUrl: DEFAULTS.serverUrl, uploader: $('uploader').value.trim(),
+    serverUrl: activeServerUrl, uploader: $('uploader').value.trim(),
     presets,
     deepResearch: $('deepResearch').checked, autoUpload: $('autoUpload').checked, onlyWithStock: $('onlyWithStock').checked,
     schedule: {

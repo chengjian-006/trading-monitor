@@ -15,6 +15,7 @@ import NearBuyPanel from '../components/common/NearBuyPanel.vue'
 import WencaiOpinionPanel from '../components/common/WencaiOpinionPanel.vue'
 import MarketIndexOverview from '../components/common/MarketIndexOverview.vue'
 import { fetchTodayReports, fetchLatestReport, getSlotName, upsertReportFeedback, deleteReportFeedback, fetchReportFeedback, type MarketReport, type ReportFeedback } from '../api/market-report'
+import { renderReportContent as renderContent } from './signalReportRendering'
 
 const reports = ref<MarketReport[]>([])
 const reportLoading = ref(false)
@@ -81,39 +82,6 @@ const toggleVote = guardVote((reportId: number, _vote: 'up' | 'down') => String(
     message.error('标记失败')
   }
 })
-
-// 旧 AI 报告里"全球股市/A股大盘概况/市场温度"区块在前端剥掉(数据已由顶部 MarketOverviewBar 实时刷新)
-const STRIP_SECTIONS = ['全球股市', 'A股大盘概况', '大盘概况', '市场温度']
-
-function stripDataSections(html: string): string {
-  let out = html
-  for (const title of STRIP_SECTIONS) {
-    const re = new RegExp(
-      `<h3[^>]*>\\s*${title}[^<]*(?:<[^>]*>[^<]*<\\/[^>]*>[^<]*)*<\\/h3>[\\s\\S]*?(?=<h3|$)`,
-      'g'
-    )
-    out = out.replace(re, '')
-  }
-  return out
-}
-
-function renderContent(text: string): string {
-  if (!text) return ''
-  if (text.includes('<table') || text.includes('<h3')) {
-    // AI 报告结构化 HTML(含 table/h3): 目前该面板已隐藏(showAiReport=false); 若重新启用需接 DOMPurify 消毒
-    return stripDataSections(text)
-  }
-  // markdown 分支: 先转义 & 和 <(阻断标签注入, 保留 > 让引用块 markdown 仍生效)
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/\n/g, '<br>')
-    .replace(/<br><blockquote>/g, '<blockquote>')
-    .replace(/<\/blockquote><br>/g, '</blockquote>')
-}
 
 onMounted(() => {
   if (showAiReport) loadReports()

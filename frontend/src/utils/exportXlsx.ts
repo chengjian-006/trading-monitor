@@ -1,10 +1,21 @@
-// xlsx 是大库(~100KB gzip), 改成只在真正点导出时动态加载, 不进首屏池子/复盘 chunk。
-// 纯格式化 helper resonanceLevel 已拆到 ./poolFormat, 池子常驻代码不再连 xlsx。
+// 导出库仅在真正点击导出时动态加载，不进入首屏池子/复盘 chunk。
 import type { ReviewSignalRow, ReviewSummaryRow } from '../api/signals'
 import type { Stock, Signal } from '../types'
 import { resonanceLevel } from './poolFormat'
+import type { SheetData } from 'write-excel-file/browser'
 
 const pct = (v: number | null) => (v == null ? '' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`)
+
+type ExportValue = string | number | boolean | Date | null | undefined
+
+function toSheet(rows: Record<string, ExportValue>[]): SheetData {
+  if (!rows.length) return []
+  const headers = Object.keys(rows[0])
+  return [
+    headers.map(value => ({ value, fontWeight: 'bold' })),
+    ...rows.map(row => headers.map(header => row[header] ?? '')),
+  ]
+}
 
 // 股票池导出: 当前展示列表(由调用方按当前排序传入), 含人气/成交额排名/双榜共振/策略/当前信号
 export async function exportPoolXlsx(
@@ -12,7 +23,7 @@ export async function exportPoolXlsx(
   amountRankMap: Record<string, number>,
   signalsByCode: Map<string, Signal[]>,
 ) {
-  const XLSX = await import('xlsx')
+  const { default: writeXlsxFile } = await import('write-excel-file/browser')
   const fmtSignals = (code: string) => {
     const list = signalsByCode.get(code)
     if (!list || !list.length) return ''
@@ -45,18 +56,16 @@ export async function exportPoolXlsx(
       当前信号: fmtSignals(s.code),
     }
   })
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(aoa), '股票池')
   const now = new Date()
   const p2 = (n: number) => String(n).padStart(2, '0')
   const ts = `${now.getFullYear()}${p2(now.getMonth() + 1)}${p2(now.getDate())}_${p2(now.getHours())}${p2(now.getMinutes())}`
-  XLSX.writeFile(wb, `股票池_${ts}.xlsx`)
+  await writeXlsxFile(toSheet(aoa), { sheet: '股票池' }).toFile(`股票池_${ts}.xlsx`)
 }
 
 export async function exportReviewXlsx(
   rows: ReviewSignalRow[], summary: ReviewSummaryRow[], start: string, end: string,
 ) {
-  const XLSX = await import('xlsx')
+  const { default: writeXlsxFile } = await import('write-excel-file/browser')
   const detailAoa = rows.map(r => ({
     代码: r.code, 名称: r.name, 信号类型: r.signal_name, 方向: r.direction,
     触发日: r.trigger_date, 触发价: r.trigger_price, 现价: r.cur_price,
@@ -73,8 +82,8 @@ export async function exportReviewXlsx(
     均最大浮盈: pct(g.avg_max_gain), 均最大浮亏: pct(g.avg_max_dd),
     T5均: pct(g.avg_t5), success率: pct(g.success_rate),
   }))
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(detailAoa), '个股明细')
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sumAoa), '按类型汇总')
-  XLSX.writeFile(wb, `区间复盘_${start}_${end}.xlsx`)
+  await writeXlsxFile([
+    { sheet: '个股明细', data: toSheet(detailAoa) },
+    { sheet: '按类型汇总', data: toSheet(sumAoa) },
+  ]).toFile(`区间复盘_${start}_${end}.xlsx`)
 }

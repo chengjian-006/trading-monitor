@@ -1,4 +1,6 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
+import asyncio
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.core.auth import decode_token
 from backend.core.config import load_config
@@ -8,33 +10,47 @@ router = APIRouter(tags=["websocket"])
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket, token: str = Query(default="")):
-    if not token:
-        await ws.close(code=4001, reason="Missing token")
-        return
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+
     try:
-        payload = decode_token(token)
+        auth_message = await asyncio.wait_for(ws.receive_json(), timeout=5)
+    except Exception:
+        await ws.close(code=4001, reason="Authentication required")
+        return
+
+    if (
+        not isinstance(auth_message, dict)
+        or auth_message.get("type") != "auth"
+        or not isinstance(auth_message.get("token"), str)
+        or not auth_message["token"]
+    ):
+        await ws.close(code=4001, reason="Authentication required")
+        return
+
+    try:
+        payload = decode_token(auth_message["token"])
+        from backend.models import repository
+
+        user = await repository.get_user_by_id(payload["sub"])
+        if not user:
+            await ws.close(code=4001, reason="Session expired")
+            return
+        if load_config().get("sso_enabled", True):
+            if user.get("token_version") != payload.get("tv"):
+                await ws.close(code=4001, reason="Session expired")
+                return
     except Exception:
         await ws.close(code=4001, reason="Invalid token")
         return
 
-    # 与 get_current_user 同口径校验 token_version: 否则改密/踢下线后旧 token 仍能连 WS 收推送,
-    # 会话吊销在 WS 通道被绕过。sso_enabled 时比对 DB token_version, 不符即拒。
-    if load_config().get("sso_enabled", True):
-        try:
-            from backend.models import repository
-            db_tv = await repository.get_token_version(payload["sub"])
-            if payload.get("tv") and db_tv != payload["tv"]:
-                await ws.close(code=4001, reason="Session expired")
-                return
-        except Exception:
-            await ws.close(code=4001, reason="Auth check failed")
-            return
-
-    user_id = payload["sub"]
-    await ws_manager.connect(ws, user_id)
+    user_id = user["id"]
+    ws_manager.register(ws, user_id)
     try:
+        await ws.send_json({"type": "auth_ok"})
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
+        pass
+    finally:
         ws_manager.disconnect(ws, user_id)

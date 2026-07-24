@@ -4,7 +4,7 @@ importScripts('common.js');
 const WOP = self.WOP;
 
 const DEFAULTS = {
-  serverUrl: 'http://124.71.75.5', token: '', uploader: '',
+  serverUrl: 'https://app.guxiaocha.com', token: '', uploader: '',
   presets: [
     '给我推荐一只股票,目前处于买入区间,持股一周以内,盈利7%以上',
     '当前有哪些板块在起, 适合低吸跟随?',
@@ -13,7 +13,25 @@ const DEFAULTS = {
   deepResearch: false, autoUpload: true, onlyWithStock: false,
   schedule: { enabled: false, times: ['09:35', '13:05'], questions: [] },
 };
-const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, res));
+// SERVER_URL_NORMALIZER_START
+const DEFAULT_SERVER_URL = 'https://app.guxiaocha.com';
+function normalizeServerUrl(value) {
+  try {
+    const url = new URL(String(value || ''));
+    const host = url.hostname;
+    const isIpAddress = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(host) || host.includes(':');
+    if (url.protocol !== 'https:' || host !== 'app.guxiaocha.com' || isIpAddress) return DEFAULT_SERVER_URL;
+    return url.origin;
+  } catch (e) {
+    return DEFAULT_SERVER_URL;
+  }
+}
+// SERVER_URL_NORMALIZER_END
+const getSettings = () => new Promise((res) => chrome.storage.sync.get(DEFAULTS, (settings) => {
+  const serverUrl = normalizeServerUrl(settings.serverUrl);
+  if (settings.serverUrl !== serverUrl) chrome.storage.sync.set({ serverUrl });
+  res({ ...settings, serverUrl });
+}));
 const cookieVal = (name) => new Promise((res) => chrome.cookies.get({ url: 'https://www.iwencai.com', name }, (c) => res(c ? c.value : '')));
 function pushHistory(rec) { chrome.storage.local.get({ history: [] }, (o) => chrome.storage.local.set({ history: [rec, ...(o.history || [])].slice(0, 15) })); }
 
@@ -22,7 +40,9 @@ function notify(title, message) {
 }
 
 async function uploadTo(serverUrl, payload) {
-  const r = await fetch(serverUrl + '/api/wencai/opinion', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  const endpoint = new URL('/api/wencai/opinion', normalizeServerUrl(serverUrl));
+  if (!String(payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
+  const r = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
   const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
   if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (j && j.detail || t).toString().slice(0, 160));
   return j || {};
@@ -94,7 +114,16 @@ async function runBg(question, opts) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   if (msg.type === 'upload') {
-    fetch(msg.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg.payload) })
+    let endpoint;
+    try {
+      endpoint = new URL(msg.url);
+      if (normalizeServerUrl(endpoint.href) !== endpoint.origin) throw new Error('Opinion uploads require an HTTPS hostname');
+      if (!String(msg.payload && msg.payload.token || '').trim()) throw new Error('Configure the opinion upload token in Settings first');
+    } catch (e) {
+      sendResponse({ ok: false, error: String(e.message || e) });
+      return false;
+    }
+    fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(msg.payload) })
       .then(async (r) => { const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {} sendResponse({ ok: r.ok, status: r.status, data: j, text: t.slice(0, 200) }); })
       .catch((e) => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
@@ -113,7 +142,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'quote' && msg.code) {
-    // 问财页浮层(页面上下文)跨域取不到股小察现价, 由后台代取(host_permissions 覆盖 124.71.75.5)
+    // 问财页浮层(页面上下文)跨域取不到股小察现价, 由后台代取。
     getSettings().then((s) => fetch(s.serverUrl + '/api/wencai/quote?code=' + encodeURIComponent(msg.code), { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null)).then((q) => sendResponse(q)).catch(() => sendResponse(null)));
     return true;

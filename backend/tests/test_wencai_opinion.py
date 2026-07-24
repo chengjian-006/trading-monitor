@@ -1,17 +1,22 @@
-"""问财观点上报接口单测 (最小链路).
+"""问财观点上报接口与扩展安全配置单测（最小链路）。
 
-直调 async 端点 + monkeypatch, 不起 app、不打网、不连库。
-覆盖: 无 token 也放行(已去鉴权) / 从投顾话术里撞出个股(6位代码 + 全名命中) / 主推排序 / 落库参数。
+直调 async 端点 + monkeypatch，不起 app、不打网、不连库；扩展 URL 归一化器由 Node
+直接执行。覆盖独立 ingest token 鉴权、HTTPS 应用域名迁移、个股抽取与落库参数。
 """
 import asyncio
 import io
+import json
 import re
+import subprocess
 import zipfile
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 
 from backend.routers import wencai as wc
+
+_EXTENSION_DIR = Path(__file__).resolve().parents[2] / "extension" / "wencai-opinion"
 
 # 模拟全市场名称字典(含会被话术提及的 + 干扰项)
 _NAMES = [
@@ -23,7 +28,7 @@ _NAMES = [
 
 
 def _setup(monkeypatch, token="SECRET"):
-    monkeypatch.setattr(wc, "load_config", lambda: {"wencai_screening": {"ingest_token": token}})
+    monkeypatch.setattr(wc, "load_config", lambda: {"wencai_opinion": {"ingest_token": token}})
 
     async def fake_all_names():
         return _NAMES
@@ -61,14 +66,80 @@ def _ingest(req):
     return asyncio.run(wc.ingest_opinion(req, _FakeReq()))
 
 
-def test_opinion_no_token_required(monkeypatch):
-    """观点上报不做 token 鉴权(2026-07-16 拍板): 空/错 token 都放行。"""
+def test_opinion_requires_a_valid_ingest_token(monkeypatch):
+    """Public extension uploads must reject missing or incorrect credentials."""
     cap = _setup(monkeypatch)
-    r = _ingest(_req(token=""))
+    with pytest.raises(HTTPException) as empty:
+        _ingest(_req(token=""))
+    with pytest.raises(HTTPException) as wrong:
+        _ingest(_req(token="WRONG"))
+    assert empty.value.status_code == 401
+    assert wrong.value.status_code == 401
+    assert cap == {}
+
+
+def test_opinion_accepts_the_configured_ingest_token(monkeypatch):
+    """A valid, configured extension credential keeps the intended ingest flow working."""
+    cap = _setup(monkeypatch)
+    r = _ingest(_req(token="SECRET"))
     assert r["ok"] is True
-    r2 = _ingest(_req(token="WRONG"))
-    assert r2["ok"] is True
     assert cap["user_id"] == 0
+
+
+def test_opinion_rejects_when_server_token_is_unconfigured(monkeypatch):
+    cap = _setup(monkeypatch, token="")
+    with pytest.raises(HTTPException) as error:
+        _ingest(_req(token="SECRET"))
+    assert error.value.status_code == 401
+    assert cap == {}
+
+
+def _run_server_url_normalizer(file_name: str, values: list[str]) -> list[str]:
+    """Execute the actual browser normalizer in Node without loading Chrome globals."""
+    source = (_EXTENSION_DIR / file_name).read_text(encoding="utf-8")
+    match = re.search(
+        r"// SERVER_URL_NORMALIZER_START\s*(.*?)\s*// SERVER_URL_NORMALIZER_END",
+        source,
+        re.DOTALL,
+    )
+    assert match, f"{file_name} does not expose its URL normalizer for regression testing"
+    script = (
+        match.group(1)
+        + "\nconst inputs = " + json.dumps(values) + ";"
+        + "\nconsole.log(JSON.stringify(inputs.map(normalizeServerUrl)));"
+    )
+    result = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True
+    )
+    return json.loads(result.stdout)
+
+
+def test_extension_server_url_normalizers_allow_only_the_permitted_https_application_host():
+    """Old HTTP/IP and unpermitted-host profiles migrate to the application origin."""
+    fallback = "https://app.guxiaocha.com"
+    values = [
+        "", "not a URL", "http://124.71.75.5", "https://124.71.75.5",
+        "http://custom.example/path", "https://192.0.2.10/path",
+        "https://custom.example:8443/path?ignored=yes",
+    ]
+    expected = [fallback, fallback, fallback, fallback, fallback, fallback,
+                fallback]
+    for file_name in ("background.js", "content.js", "options.js", "popup.js"):
+        assert _run_server_url_normalizer(file_name, values) == expected
+
+
+def test_manifest_permits_only_https_application_origins():
+    manifest = json.loads((_EXTENSION_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["content_scripts"][0]["matches"] == ["https://www.iwencai.com/*"]
+    assert manifest["host_permissions"] == [
+        "https://www.iwencai.com/*", "https://app.guxiaocha.com/*"
+    ]
+
+
+def test_opinion_docstring_describes_dedicated_token_protection():
+    doc = wc.ingest_opinion.__doc__ or ""
+    assert "wencai_opinion.ingest_token" in doc
+    assert "不做 token 鉴权" not in doc
 
 
 def test_opinion_empty_question(monkeypatch):

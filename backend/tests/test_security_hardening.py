@@ -6,13 +6,18 @@
   - GET /api/config 敏感叶子打码为哨兵, PUT 哨兵回传保留服务器现值
   - /api/quick/set HMAC 签名纳入 exp 过期时间戳, 旧无 exp 链接一律拒绝
 """
+import asyncio
+import hashlib
 import os
 import time
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi import FastAPI
+from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from backend.core import auth
 
@@ -30,6 +35,271 @@ def test_token_roundtrip_with_resolved_key():
     assert payload["sub"] == 1
     assert payload["role"] == "admin"
     assert payload["tv"] == 3
+
+
+def test_password_hash_uses_current_pbkdf2_work_factor():
+    """New passwords must use the current OWASP PBKDF2-HMAC-SHA256 work factor."""
+    assert auth.PASSWORD_HASH_ITERATIONS >= 600_000
+
+
+def test_current_password_hash_round_trip():
+    password_hash, salt = auth.hash_password("a current strong password")
+    assert auth.verify_password("a current strong password", password_hash, salt) is True
+
+
+def test_legacy_password_hash_remains_compatible():
+    password = "a legacy password"
+    salt = "legacy-salt"
+    legacy_hash = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), salt.encode(), 100_000
+    ).hex()
+    assert auth.verify_password(password, legacy_hash, salt) is True
+
+
+def test_wrong_password_is_rejected():
+    password_hash, salt = auth.hash_password("the correct password")
+    assert auth.verify_password("the wrong password", password_hash, salt) is False
+
+
+def test_password_verification_executes_both_supported_work_factors(monkeypatch):
+    password_hash, salt = auth.hash_password("a current strong password")
+    real_pbkdf2_hmac = hashlib.pbkdf2_hmac
+    observed_iterations = []
+
+    def recording_pbkdf2_hmac(name, password, salt_bytes, iterations):
+        observed_iterations.append(iterations)
+        return real_pbkdf2_hmac(name, password, salt_bytes, iterations)
+
+    monkeypatch.setattr(auth.hashlib, "pbkdf2_hmac", recording_pbkdf2_hmac)
+    assert auth.verify_password("a current strong password", password_hash, salt) is True
+    assert observed_iterations == [
+        auth.PASSWORD_HASH_ITERATIONS,
+        auth._LEGACY_PASSWORD_HASH_ITERATIONS,
+    ]
+
+
+def test_current_user_uses_live_role_after_database_demotion(monkeypatch):
+    """A JWT role claim must not preserve admin access after a database demotion."""
+    from backend.models import repository
+    from backend.core import config as config_module
+
+    token = auth.create_token(user_id=9, username="alice", role="admin", token_version=4)
+
+    async def fake_get_user(_user_id):
+        return {"id": 9, "username": "alice", "role": "user", "token_version": 4}
+
+    async def fake_get_token_version(_user_id):
+        return 4
+
+    monkeypatch.setattr(repository, "get_user_by_id", fake_get_user)
+    monkeypatch.setattr(repository, "get_token_version", fake_get_token_version)
+    monkeypatch.setattr(config_module, "load_config", lambda: {"sso_enabled": True})
+
+    credential = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    current_user = asyncio.run(auth.get_current_user(credential))
+    assert current_user["role"] == "user"
+
+
+def test_security_sensitive_user_update_is_one_atomic_statement(monkeypatch):
+    from backend.models.repo import users as users_repo
+
+    statements = []
+
+    async def recording_execute(sql, args):
+        statements.append((sql, args))
+
+    monkeypatch.setattr(users_repo, "_execute", recording_execute)
+    asyncio.run(users_repo.update_user_and_revoke_sessions(
+        9, username="alice-2", role="user", mobile="13800138000"
+    ))
+
+    assert len(statements) == 1
+    sql, args = statements[0]
+    assert "username = %s" in sql
+    assert "role = %s" in sql
+    assert "mobile = %s" in sql
+    assert "token_version = token_version + 1" in sql
+    assert list(args) == ["alice-2", "user", "13800138000", 9]
+
+
+def test_password_reset_and_revocation_is_one_atomic_statement(monkeypatch):
+    from backend.models.repo import users as users_repo
+
+    statements = []
+
+    async def recording_execute(sql, args):
+        statements.append((sql, args))
+
+    monkeypatch.setattr(users_repo, "_execute", recording_execute)
+    asyncio.run(users_repo.reset_user_password(9, "new-hash", "new-salt"))
+
+    assert len(statements) == 1
+    sql, args = statements[0]
+    assert "password_hash = %s" in sql
+    assert "salt = %s" in sql
+    assert "token_version = token_version + 1" in sql
+    assert tuple(args) == ("new-hash", "new-salt", 9)
+
+
+class _StatefulUserRepository:
+    def __init__(self, *, role="admin", fail_revocation=False):
+        password_hash, salt = auth.hash_password("old strong password")
+        self.user = {
+            "id": 9,
+            "username": "alice",
+            "role": role,
+            "password_hash": password_hash,
+            "salt": salt,
+            "token_version": 4,
+        }
+        self.fail_revocation = fail_revocation
+
+    async def get_user_by_id(self, user_id):
+        return dict(self.user) if user_id == self.user["id"] else None
+
+    async def get_user_by_username(self, username):
+        return dict(self.user) if username == self.user["username"] else None
+
+    async def update_user(self, user_id, **updates):
+        assert user_id == self.user["id"]
+        self.user.update(updates)
+
+    async def update_user_password(self, user_id, password_hash, salt):
+        assert user_id == self.user["id"]
+        self.user.update(password_hash=password_hash, salt=salt)
+
+    async def increment_token_version(self, user_id):
+        assert user_id == self.user["id"]
+        if self.fail_revocation:
+            raise RuntimeError("token-version update failed")
+        self.user["token_version"] += 1
+        return self.user["token_version"]
+
+    async def update_user_and_revoke_sessions(self, user_id, **updates):
+        assert user_id == self.user["id"]
+        if self.fail_revocation:
+            raise RuntimeError("atomic security update failed")
+        self.user.update(updates)
+        self.user["token_version"] += 1
+        return self.user["token_version"]
+
+    async def reset_user_password(self, user_id, password_hash, salt):
+        assert user_id == self.user["id"]
+        if self.fail_revocation:
+            raise RuntimeError("atomic password reset failed")
+        self.user.update(password_hash=password_hash, salt=salt)
+        self.user["token_version"] += 1
+        return self.user["token_version"]
+
+    async def add_log(self, *_args, **_kwargs):
+        return None
+
+
+def _install_stateful_user_repository(monkeypatch, fake_repo, *, sso_enabled):
+    from backend.core import config as config_module
+    from backend.models import repository
+
+    for name in (
+        "get_user_by_id",
+        "get_user_by_username",
+        "update_user",
+        "update_user_password",
+        "increment_token_version",
+        "update_user_and_revoke_sessions",
+        "reset_user_password",
+        "add_log",
+    ):
+        monkeypatch.setattr(repository, name, getattr(fake_repo, name), raising=False)
+    monkeypatch.setattr(config_module, "load_config", lambda: {"sso_enabled": sso_enabled})
+
+
+def _assert_token_rejected(token):
+    credential = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(auth.get_current_user(credential))
+    assert exc_info.value.status_code == 401
+
+
+def test_password_reset_invalidates_existing_token(monkeypatch):
+    from backend.routers import users as users_router
+
+    fake_repo = _StatefulUserRepository(role="user")
+    _install_stateful_user_repository(monkeypatch, fake_repo, sso_enabled=True)
+    token = auth.create_token(9, "alice", "user", fake_repo.user["token_version"])
+
+    request = users_router.ResetPasswordRequest(password="a new sufficiently strong password")
+    asyncio.run(users_router.reset_password(
+        9, request, {"id": 1, "username": "admin", "role": "admin"}
+    ))
+
+    _assert_token_rejected(token)
+
+
+def test_role_change_invalidates_existing_token_when_sso_disabled(monkeypatch):
+    from backend.routers import users as users_router
+
+    fake_repo = _StatefulUserRepository(role="admin")
+    _install_stateful_user_repository(monkeypatch, fake_repo, sso_enabled=False)
+    token = auth.create_token(9, "alice", "admin", fake_repo.user["token_version"])
+
+    request = users_router.UpdateUserRequest(role="user")
+    asyncio.run(users_router.update_user(
+        9, request, {"id": 1, "username": "admin", "role": "admin"}
+    ))
+
+    _assert_token_rejected(token)
+
+
+def test_role_change_is_not_applied_when_revocation_fails(monkeypatch):
+    from backend.routers import users as users_router
+
+    fake_repo = _StatefulUserRepository(role="admin", fail_revocation=True)
+    _install_stateful_user_repository(monkeypatch, fake_repo, sso_enabled=True)
+
+    with pytest.raises(RuntimeError, match="update failed"):
+        asyncio.run(users_router.update_user(
+            9,
+            users_router.UpdateUserRequest(role="user"),
+            {"id": 1, "username": "admin", "role": "admin"},
+        ))
+    assert fake_repo.user["role"] == "admin"
+
+
+def test_password_reset_is_not_applied_when_revocation_fails(monkeypatch):
+    from backend.routers import users as users_router
+
+    fake_repo = _StatefulUserRepository(role="user", fail_revocation=True)
+    old_password_hash = fake_repo.user["password_hash"]
+    old_salt = fake_repo.user["salt"]
+    _install_stateful_user_repository(monkeypatch, fake_repo, sso_enabled=True)
+
+    with pytest.raises(RuntimeError, match="failed"):
+        asyncio.run(users_router.reset_password(
+            9,
+            users_router.ResetPasswordRequest(password="a new sufficiently strong password"),
+            {"id": 1, "username": "admin", "role": "admin"},
+        ))
+    assert fake_repo.user["password_hash"] == old_password_hash
+    assert fake_repo.user["salt"] == old_salt
+
+
+def test_password_requests_reject_short_passwords():
+    """Account creation and resets must reject passwords below the minimum policy length."""
+    from backend.routers.users import CreateUserRequest, ResetPasswordRequest
+
+    with pytest.raises(ValidationError):
+        CreateUserRequest(username="alice", password="short")
+    with pytest.raises(ValidationError):
+        ResetPasswordRequest(password="short")
+
+
+def test_login_password_accepts_legacy_lengths_and_rejects_over_256_characters():
+    from backend.routers.auth import LoginRequest
+
+    assert LoginRequest(username="alice", password="x").password == "x"
+    assert len(LoginRequest(username="alice", password="x" * 256).password) == 256
+    with pytest.raises(ValidationError):
+        LoginRequest(username="alice", password="x" * 257)
 
 
 def test_spa_path_traversal_blocked():

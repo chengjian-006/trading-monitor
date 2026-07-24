@@ -19,7 +19,7 @@
   "anthropic_api_key": "<AI 接口 Key>",
 
   "sso_enabled": false,
-  "site_url": "http://<部署地址>",
+  "site_url": "https://<部署地址>",
 
   "database": {
     "host": "<MySQL host>",
@@ -48,5 +48,10 @@
       { "id": "theme", "name": "题材强势型", "query": "涨幅大于5% 且 属于热门概念 且 流通市值小于100亿 且 非ST", "enabled": true }
     ],
     "result_limit": 50
+  },
+
+  "_wencai_opinion_note": "Generate a random token and keep it only in config.json and your browser extension. It limits abuse but is not a non-extractable browser secret; uploads use HTTPS only.",
+  "wencai_opinion": {
+    "ingest_token": "<generate-a-random-token-and-enter-it-in-the-extension-once>"
   }
 }
