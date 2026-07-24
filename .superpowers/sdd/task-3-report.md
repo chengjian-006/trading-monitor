@@ -87,3 +87,29 @@ Result: `50 passed, 1 warning in 2.09s`; the warning is the same managed-workspa
 Fresh Python compilation result: exit code 0 for the three follow-up backend modules.
 
 Fresh frontend result: `npm.cmd --prefix frontend run build` exited 0; `vue-tsc` passed and Vite built 4477 modules in 19.20 seconds.
+
+## Final review follow-up: fallback transition continuity
+
+Date: 2026-07-24
+
+### RED
+
+Two focused tests were added and run before production changes:
+
+- `test_fallback_runner_transition_never_opens_active_store_gap` paused the DB transition after the row became `inproc`. The memory placeholder still said `systemd`, so both stores ignored the first job and a second request incorrectly returned success.
+- `test_database_create_failure_terminalizes_memory_reservation` forced the DB insert to fail after memory reservation. The orphaned placeholder incorrectly remained `running/systemd`.
+
+Result: `2 failed, 14 deselected`, with failures showing the second successful job and the orphaned `running` state.
+
+### GREEN
+
+- The fallback path now synchronously marks the memory runner `inproc` before awaiting the DB runner transition. Before that assignment the DB systemd row reports active; after it the memory store reports active, leaving no observable gap.
+- A failed DB `create_job` now marks the memory reservation terminal `error` with `ended_at` set before propagating the database exception.
+
+Targeted result: `2 passed, 14 deselected`.
+
+Fresh expanded regression result: `52 passed, 1 warning in 2.22s`; the warning remains the managed-workspace `.pytest_cache` warning.
+
+Fresh Python compilation result: exit code 0 for `backend/routers/backtest.py`.
+
+Fresh frontend result: `npm.cmd --prefix frontend run build` exited 0; `vue-tsc` passed and Vite built 4477 modules in 36.04 seconds.
