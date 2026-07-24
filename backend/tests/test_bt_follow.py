@@ -1,8 +1,15 @@
 # backend/tests/test_bt_follow.py
 """bt_follow 纯函数单测: 涨停判定 / 跟风谓词 / 右侧快出族出场模拟. 不连库不联网."""
 import numpy as np
+import pytest
 
-from backend.scripts.bt_follow import is_limit_up, is_follower, exit_simulate
+# bt_follow 是 gitignore 的本地回测脚本(backend/scripts/bt_*.py), CI / 干净克隆里不存在。
+# 用 importorskip: 本地有脚本照跑, 环境里没有就整模块跳过, 不让 CI 因 collect error 判失败。
+_bt = pytest.importorskip(
+    "backend.scripts.bt_follow",
+    reason="backend/scripts/bt_follow.py 是 gitignore 的本地脚本, 该环境不存在, 跳过",
+)
+is_limit_up, is_follower, exit_simulate = _bt.is_limit_up, _bt.is_follower, _bt.exit_simulate
 
 
 def test_limit_up_main_board():
