@@ -74,6 +74,39 @@ def test_parse_payload_keeps_only_coach_and_strips_prefix():
     assert out[0]["posted_at"].strftime("%H:%M") == "10:50"
 
 
+def test_parse_payload_keeps_broadcast_bot_and_strips_headline():
+    """v1.7.792: 盘中点评由播报机器人(sender_type=app)发, 正文「🔴 藏龙岛\\n正文」。
+    白名单里的 app_id 要一并收下, 并剥掉装饰标题行。"""
+    cfg = {**CFG, "sender_open_ids": ["cli_bot"]}
+    bot = {"message_id": "om_bot", "chat_id": "oc_x", "msg_type": "text",
+           "create_time": "2026-07-24 09:45",
+           "content": "🔴 藏龙岛\n目前科创50翻红盘.芯片半导体可能翻红",
+           "sender": {"id": "cli_bot", "id_type": "app_id", "sender_type": "app"}}
+    out = lc.parse_payload({"ok": True, "data": {"messages": [bot, _msg("ou_coach")]}}, cfg)
+    assert [o["message_id"] for o in out] == ["om_bot", "om_1"]
+    assert out[0]["content"] == "目前科创50翻红盘.芯片半导体可能翻红"
+    assert out[0]["sender_open_id"] == "cli_bot"
+    # 白名单没配时只认本人号(老行为不变)
+    assert [o["message_id"] for o in lc.parse_payload(
+        {"ok": True, "data": {"messages": [bot, _msg("ou_coach")]}}, CFG)] == ["om_1"]
+
+
+def test_parse_payload_drops_recalled_message():
+    """撤回的消息 deleted=true, 正文是 '[Invalid text JSON]' 占位 —— 不能入库更不能转发。"""
+    recalled = {"message_id": "om_del", "chat_id": "oc_x", "msg_type": "text",
+                "create_time": "2026-07-24 09:46", "content": "[Invalid text JSON]",
+                "deleted": True, "sender": {"id": "ou_coach", "id_type": "open_id"}}
+    out = lc.parse_payload({"ok": True, "data": {"messages": [recalled, _msg("ou_coach")]}}, CFG)
+    assert [o["message_id"] for o in out] == ["om_1"]
+
+
+def test_strip_name_prefix_keeps_normal_sentence():
+    """正文本身以名字开头(无装饰符)时不能误砍。"""
+    assert lc._strip_name_prefix("藏龙岛今天说要看戏", "藏龙岛") == "藏龙岛今天说要看戏"
+    assert lc._strip_name_prefix("🔴 藏龙岛\n正文", "藏龙岛") == "正文"
+    assert lc._strip_name_prefix("藏龙岛：正文", "藏龙岛") == "正文"
+
+
 def test_parse_payload_raises_on_not_ok():
     import pytest
     with pytest.raises(lc.LarkCoachFetchError):

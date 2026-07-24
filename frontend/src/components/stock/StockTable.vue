@@ -814,7 +814,7 @@ const allColumns = computed(() => [
   {
     title: '涨幅',
     key: 'pct_change',
-    width: 82,   // 字号放大一号(15px)后留够 "+10.00%" + 排序箭头的宽度
+    width: 90,   // 字号放大两号(17px)后留够 "+10.00%" + 排序箭头的宽度
     sorter: numSorter('pct_change'),
     sortOrder: sortOrder('pct_change'),
     render: (row: Stock) => {
@@ -824,8 +824,8 @@ const allColumns = computed(() => [
       const color = pct >= 0 ? 'var(--red)' : 'var(--green)'
       const text = pct >= 0 ? `+${pct.toFixed(2)}%` : `${pct.toFixed(2)}%`
       const stale = isQuoteStale(row)
-      // 涨幅是盯盘第一眼要看的数, 比其余数字列大一号并加粗突出(表体 13px → 15px)
-      const main = h('span', { class: fc, style: { color, fontWeight: 700, fontSize: '15px', opacity: stale ? 0.45 : 1 } }, text)
+      // 涨幅是盯盘第一眼要看的数, 比其余数字列大两号并加粗突出(表体 13px → 17px, v1.7.792 再加一号)
+      const main = h('span', { class: fc, style: { color, fontWeight: 700, fontSize: '17px', opacity: stale ? 0.45 : 1 } }, text)
       if (!stale) return main
       return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '3px' } }, [
         main,

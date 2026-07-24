@@ -71,7 +71,11 @@ DEFAULT_CONFIG = {
     "lark_coach_tracking": {
         "enabled": False,
         "chat_id": "oc_8f4516772f00161f23de9d3b10c21abd",       # 混江龙群
-        "sender_open_id": "ou_bcbe541eeee55c969cc941efb1cdb266",  # 藏龙岛(群主)
+        "sender_open_id": "ou_bcbe541eeee55c969cc941efb1cdb266",  # 藏龙岛(群主本人号)
+        # v1.7.792: 盘中实时点评由群内播报机器人(sender_type=app, 正文「🔴 藏龙岛
+…」)发,
+        # 与本人号一起构成发送者白名单; 只认本人号会把整个盘中时段的观点漏掉。
+        "sender_open_ids": ["cli_c08abc1da138d00f"],   # 藏龙岛播报机器人
         "coach_name": "藏龙岛",
         "page_size": 30,         # 每轮拉最近 N 条(INSERT IGNORE 去重, 只要覆盖两轮间新增即可)
         "lark_cli": "lark-cli",  # 可执行名或绝对路径(服务器装好后即可)

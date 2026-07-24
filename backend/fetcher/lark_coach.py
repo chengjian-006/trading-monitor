@@ -58,38 +58,61 @@ def _parse_time(s: str):
 
 
 def _strip_name_prefix(content: str, name: str) -> str:
-    """lark-cli 把文本消息格式化成 '藏龙岛:正文'。已知是藏龙岛发的, 去掉冗余的名字前缀。"""
+    """去掉正文里冗余的名字前缀, 两种形态:
+      1. lark-cli 把本人号的文本消息格式化成 '藏龙岛:正文';
+      2. 播报机器人发的是 '🔴 藏龙岛\\n正文'(装饰符 + 名字的标题行, 正文在下一行)。
+    形态 2 要求名字前必须有装饰符, 免得把「藏龙岛今天说…」这类正常正文的开头砍掉。
+    """
     c = (content or "").lstrip()
     for sep in (f"{name}:", f"{name}："):
         if c.startswith(sep):
             return c[len(sep):].lstrip()
+    m = re.match(r"[^\w一-鿿]+" + re.escape(name) + r"\s*", c)
+    if m:
+        return c[m.end():].lstrip()
     return c
 
 
+def _coach_senders(cfg: dict) -> set[str]:
+    """认作「藏龙岛本人观点」的发送者集合: 本人 open_id + 播报机器人 app_id 等。
+
+    v1.7.792: 盘中实时点评改由群内播报机器人(sender_type=app)发, 只认单个 open_id
+    会把这些整批漏掉 —— 故改白名单。sender_open_ids 缺省时只认 sender_open_id。
+    """
+    ids = {str(cfg.get("sender_open_id", "") or "")}
+    ids.update(str(x) for x in (cfg.get("sender_open_ids") or []))
+    return {i for i in ids if i}
+
+
 def parse_payload(payload: dict, cfg: dict) -> list[dict]:
-    """把 lark-cli 的 JSON 输出解析成归一化消息列表, 只留藏龙岛(sender_open_id)发的。
+    """把 lark-cli 的 JSON 输出解析成归一化消息列表, 只留藏龙岛(发送者白名单内)发的。
 
     纯函数(无 I/O), 便于单测。ok=false 抛 LarkCoachFetchError。
+    已撤回的消息(deleted=true, 正文是 '[Invalid text JSON]' 之类的占位)直接丢弃,
+    否则会把占位符当观点入库并转发到用户群。
     """
     if not payload.get("ok", False):
         raise LarkCoachFetchError(f"lark-cli ok=false: {str(payload.get('error'))[:300]}")
 
-    sender = cfg.get("sender_open_id", "")
+    senders = _coach_senders(cfg)
     name = cfg.get("coach_name", "藏龙岛")
     chat_id = cfg.get("chat_id", "")
     messages = (payload.get("data") or {}).get("messages") or []
     results: list[dict] = []
     for m in messages:
         snd = m.get("sender") or {}
-        if snd.get("id") != sender:
+        sid = str(snd.get("id", "") or "")
+        if sid not in senders:
             continue                       # 只留藏龙岛发的, 学员提问不入库
+        if m.get("deleted"):
+            continue                       # 已撤回, 正文是占位符
         mid = m.get("message_id")
         if not mid:
             continue
         results.append({
             "message_id": mid,
             "chat_id": m.get("chat_id") or chat_id,
-            "sender_open_id": sender,
+            "sender_open_id": sid,
             "coach_name": name,
             "posted_at": _parse_time(m.get("create_time", "")),
             "content": _strip_name_prefix(m.get("content", ""), name),
