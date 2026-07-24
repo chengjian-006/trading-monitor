@@ -58,6 +58,7 @@ from backend.models.repo.signals import (  # noqa: F401
 from backend.models.repo.users import (  # noqa: F401
     get_user_by_username, get_user_by_id, create_user, list_users, update_user, delete_user,
     get_token_version, increment_token_version, update_user_password,
+    update_user_and_revoke_sessions, reset_user_password,
     get_user_ths_path, update_user_ths_path, update_user_profile,
 )
 from backend.models.repo.alerts import (  # noqa: F401
@@ -107,7 +108,7 @@ from backend.models.repo.blogger_posts import (  # noqa: F401
 )
 from backend.models.repo.lark_coach_posts import (  # noqa: F401
     save_coach_post, list_coach_posts, get_coach_post_by_message_id,
-    list_unrelayed_coach_posts, mark_coach_post_relayed,
+    list_unrelayed_coach_posts, mark_coach_post_relayed, recent_coach_texts,
 )
 from backend.models.repo.risk_ann import (  # noqa: F401
     save_risk_ann, list_risk_anns,

@@ -30,6 +30,19 @@ async def save_coach_post(message_id: str, chat_id: str, sender_open_id: str,
             return cur.rowcount == 1
 
 
+async def recent_coach_texts(minutes: int = 30, limit: int = 80) -> list[dict]:
+    """最近 N 分钟内已入库的文本观点(message_id + content), 供近似去重比对。
+
+    按 posted_at 卡窗口: 播报机器人重发的两条时间戳不同, 但都落在窗口内。
+    """
+    return await _fetchall(
+        "SELECT message_id, posted_at, content FROM cfzy_biz_lark_coach_posts "
+        "WHERE msg_type <> 'image' AND posted_at >= (NOW() - INTERVAL %s MINUTE) "
+        "ORDER BY posted_at DESC LIMIT %s",
+        (minutes, limit),
+    )
+
+
 async def list_coach_posts(limit: int = 100, offset: int = 0) -> list[dict]:
     return await _fetchall(
         "SELECT * FROM cfzy_biz_lark_coach_posts ORDER BY posted_at DESC, id DESC LIMIT %s OFFSET %s",

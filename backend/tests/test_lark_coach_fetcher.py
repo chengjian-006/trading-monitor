@@ -146,6 +146,50 @@ def test_build_relay_card_text_with_quote():
     assert "text_size" not in card["elements"][1]                     # 引用常规字号
 
 
+def test_dedup_key_ignores_punctuation():
+    """v1.7.794: 播报机器人把同一句话换标点重发(实见 '.' 与 '！'), 指纹要一致;
+    真正不同的两条不能撞成同一指纹。"""
+    from backend.services.lark_coach_scanner import _dedup_key
+    a = "通富微电一口气被人砸7个亿！点火打板的人真是哭了！这哪来那么多筹码啊"
+    b = "通富微电一口气被人砸7个亿.点火打板的人真是哭了.这哪来那么多筹码啊"
+    assert _dedup_key(a) == _dedup_key(b)
+    assert _dedup_key(a) != _dedup_key("通富微电一口气被人砸7个亿, 但买盘还在")
+    assert _dedup_key("") == "" and _dedup_key("……") == ""      # 空指纹不参与去重
+
+
+def test_scan_skips_near_duplicate(monkeypatch):
+    """窗口内已存在同指纹的正文 → 不再入库(页面与转发群都只留最早那条)。"""
+    import asyncio
+    from backend.services import lark_coach_scanner as s
+
+    saved = []
+    monkeypatch.setattr(s, "_load_cfg", lambda: {"enabled": True, "relay_enabled": False})
+    monkeypatch.setattr(s, "_last_scan", -1e6, raising=False)   # 绕过自节流(周末间隔 180s)
+
+    async def fake_fetch(cfg):
+        return [
+            {"message_id": "om_a", "chat_id": "oc", "sender_open_id": "s", "coach_name": "藏龙岛",
+             "posted_at": None, "content": "砸盘了.点火的人哭了", "msg_type": "text"},
+            {"message_id": "om_b", "chat_id": "oc", "sender_open_id": "s", "coach_name": "藏龙岛",
+             "posted_at": None, "content": "砸盘了！点火的人哭了！", "msg_type": "text"},
+            {"message_id": "om_c", "chat_id": "oc", "sender_open_id": "s", "coach_name": "藏龙岛",
+             "posted_at": None, "content": "另一条不同的观点", "msg_type": "text"},
+        ]
+
+    async def fake_recent(minutes=30, limit=80):
+        return []
+
+    async def fake_save(**kw):
+        saved.append(kw["message_id"])
+        return True
+
+    monkeypatch.setattr(s, "fetch_coach_messages", fake_fetch)
+    monkeypatch.setattr(s.repository, "recent_coach_texts", fake_recent)
+    monkeypatch.setattr(s.repository, "save_coach_post", fake_save)
+    asyncio.run(s.scan_coach_posts())
+    assert saved == ["om_a", "om_c"]            # om_b 是 om_a 的换标点重发
+
+
 def test_build_relay_card_splits_bot_heavy_rule():
     """v1.7.793: 播报机器人的引用分隔线是粗横线 ━━━━(旧的是 -----), 也要弱化成灰字,
     否则学员提问会跟老师的话一样加粗大字显示。"""

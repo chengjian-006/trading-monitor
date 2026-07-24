@@ -26,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 _last_scan: float = 0.0
 
+# 近似去重(v1.7.794): 窗口内正文指纹相同即视为重发。指纹 = 去掉所有标点/空白/装饰符,
+# 这样「同一句话换个标点再发一遍」也能挡住; 用"归一后完全相同"而不是模糊相似度,
+# 免得把老师真正不同的两条观点误判成重复吞掉。
+DUP_WINDOW_MIN = 30
+_DUP_STRIP_RE = re.compile(r"[\s，。,.！!？?；;：:、~～…\-—─━·「」『』【】\"'“”‘’()（）]+")
+
+
+def _dedup_key(content: str) -> str:
+    """去重指纹: 正文去掉全部标点与空白后的裸字串(空正文返回空串=不参与去重)。"""
+    return _DUP_STRIP_RE.sub("", content or "")
+
 # 授权失效兜底: 连续失败达阈值即登记告警, 恢复后销号
 _fail_count: int = 0
 _fail_alerted: bool = False
@@ -84,18 +95,37 @@ async def scan_coach_posts():
 
     # 按发布时间正序入库(老的先写), 保证 id 递增与时序一致
     ordered = sorted(messages, key=lambda m: (m.get("posted_at") is None, m.get("posted_at")))
-    total_new = 0
+
+    # 近似去重(v1.7.794): 播报机器人会把同一句话隔几分钟重发一遍, 或只改标点重发
+    # (实见 10:02/10:07 全同、10:10 两条只差 '.' 与 '！')。窗口内指纹相同的直接不入库,
+    # 页面与转发群都只留最早那条。图片消息不参与(content 是 image_key, 本来就唯一)。
+    seen_keys: set[str] = set()
+    try:
+        for r in await repository.recent_coach_texts(minutes=DUP_WINDOW_MIN):
+            if (k := _dedup_key(r.get("content", ""))):
+                seen_keys.add(k)
+    except Exception as e:                      # 查重失败不许拖垮采集(宁可重复不可漏采)
+        logger.warning(f"[lark_coach] 去重比对取数失败, 本轮不去重: {e}")
+
+    total_new, skipped = 0, 0
     for m in ordered:
+        key = _dedup_key(m["content"]) if m.get("msg_type") != "image" else ""
+        if key and key in seen_keys:
+            skipped += 1
+            continue
         is_new = await repository.save_coach_post(
             message_id=m["message_id"], chat_id=m["chat_id"],
             sender_open_id=m["sender_open_id"], coach_name=m["coach_name"],
             posted_at=m["posted_at"], content=m["content"], msg_type=m["msg_type"],
         )
+        if key:
+            seen_keys.add(key)                  # 同一轮内的重复也挡掉
         if is_new:
             total_new += 1
 
-    if total_new:
-        logger.info(f"[lark_coach] 本轮新消息 {total_new} 条")
+    if total_new or skipped:
+        logger.info(f"[lark_coach] 本轮新消息 {total_new} 条"
+                    + (f", 近似重复跳过 {skipped} 条" if skipped else ""))
 
     # 入库后把未转发的消息补转到用户自建群(含历史回填; 失败不标记, 下轮自动重试)
     await _relay_pending(cfg)
