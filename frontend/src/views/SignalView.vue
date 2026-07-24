@@ -2,6 +2,7 @@
 // v1.7.93: 删除"今日信号"Tab(信号在"今日预警"页 + 股票池行内展开看), 去掉 NTabs 容器
 // 主看板只保留两块: 顶部实时 MarketOverviewBar + AI 市场分析卡片
 import { onMounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
 import { NSkeleton, NCard, NButton, NIcon, NTag, NCollapse, NCollapseItem } from 'naive-ui'
 import { SparklesOutline, RefreshOutline, ChevronUpOutline, ChevronDownOutline, ThumbsUpOutline, ThumbsDownOutline, ThumbsUp, ThumbsDown } from '@vicons/ionicons5'
 import { useGlobalMessage } from '../composables/useGlobalMessage'
@@ -99,20 +100,24 @@ function stripDataSections(html: string): string {
 
 function renderContent(text: string): string {
   if (!text) return ''
+  let rendered: string
   if (text.includes('<table') || text.includes('<h3')) {
-    // AI 报告结构化 HTML(含 table/h3): 目前该面板已隐藏(showAiReport=false); 若重新启用需接 DOMPurify 消毒
-    return stripDataSections(text)
+    // 保留报告的表格/标题结构，但不信任后端或模型生成的任何 HTML。
+    rendered = stripDataSections(text)
+  } else {
+    // markdown 分支先转义原始标签，再生成有限的展示标签；最终仍统一消毒。
+    rendered = text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+      .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+      .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+      .replace(/\n/g, '<br>')
+      .replace(/<br><blockquote>/g, '<blockquote>')
+      .replace(/<\/blockquote><br>/g, '</blockquote>')
   }
-  // markdown 分支: 先转义 & 和 <(阻断标签注入, 保留 > 让引用块 markdown 仍生效)
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-    .replace(/^### (.+)$/gm, '<h4>$1</h4>')
-    .replace(/^## (.+)$/gm, '<h3>$1</h3>')
-    .replace(/\n/g, '<br>')
-    .replace(/<br><blockquote>/g, '<blockquote>')
-    .replace(/<\/blockquote><br>/g, '</blockquote>')
+
+  return DOMPurify.sanitize(rendered, { USE_PROFILES: { html: true } })
 }
 
 onMounted(() => {
